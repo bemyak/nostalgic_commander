@@ -79,6 +79,17 @@ void test_get_source_data_should_format_battery(void) {
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("85%", buf);
   TEST_ASSERT_EQUAL_INT(85, percent);
+
+  // Edge values — format stays unpadded
+  s_battery_level = 0;
+  get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("0%", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_battery_level = 100;
+  get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("100%", buf);
+  TEST_ASSERT_EQUAL_INT(100, percent);
 }
 
 void test_get_source_data_should_format_steps(void) {
@@ -363,6 +374,25 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_aqi = 34;
   s_weather_uv = 8;  // red
   TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_AQI_UV));
+
+  // Battery color thresholds (>50 green, >20 yellow, <=20 red)
+  s_battery_level = 100;
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_BATTERY));
+
+  s_battery_level = 51;
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_BATTERY));
+
+  s_battery_level = 50;  // boundary: yellow
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+
+  s_battery_level = 21;
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+
+  s_battery_level = 20;  // boundary: red
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_BATTERY));
+
+  s_battery_level = 0;
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_BATTERY));
 }
 
 void test_weather_cache_should_round_trip_when_fresh(void) {
