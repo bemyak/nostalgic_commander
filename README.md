@@ -75,7 +75,7 @@ tuiface doesn't try to please everyone. It has a point of view:
 
 ## A note on scope
 
-I build watchfaces for other people at work. tuiface is the one I build for
+I write software for other people at work. tuiface is the one I build for
 me — so I'm keeping it that way. I'm happy to take bug fixes and well-scoped
 PRs, but I'm unlikely to implement someone else's feature idea *for* them;
 turning requests into a backlog is the part of work I'm deliberately not
