@@ -22,7 +22,11 @@ Built for the modern Pebble lineup; currently targets **emery**
   daily step goal; the right edge shows battery level. These are fixed by
   design.
 - **Day/Night themes** with automatic switching (day from 06:00, night from
-  18:00), or pin either one. Both palettes are high contrast.
+  18:00), or pin either one. All palettes are high contrast.
+- **Commander themes**: a DOS-era light/dark pair — the Norton Commander blue
+  panel with cyan frames after dark, the light-gray Turbo Vision dialog
+  surface by day. Exact EGA colors, since Pebble's display uses the same
+  channel steps. Auto-switches on the same schedule.
 - **Color-coded values**: battery, temperature, AQI, and UV shift
   green/yellow/red (or blue for cold) as conditions change.
 - **Weather without an API key** — data comes from

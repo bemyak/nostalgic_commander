@@ -105,12 +105,28 @@ There are three placement types:
 
 ## Theming
 
-Two `WatchTheme` palettes (`theme.c`): `s_theme_day` (white background) and
-`s_theme_night` (black background). The `SETTINGS_THEME` setting selects Day,
-Night, or Auto; Auto switches at 6:00 (day) and 18:00 (night) via
-`determine_theme()`, re-evaluated every minute because `update_time()` calls
-`apply_theme()`. All drawing code reads colors from `s_active_theme`, never
-hardcoded colors.
+Four `WatchTheme` palettes (`theme.c`), in two families of light/dark pairs:
+
+| Theme | Ground | Look |
+|-------|--------|------|
+| `s_theme_day` | white | default |
+| `s_theme_night` | black | default |
+| `s_theme_commander_day` | `#AAAAAA` light gray | DOS dialog surface, blue frames |
+| `s_theme_commander_night` | `#0000AA` EGA blue | Norton Commander panel, cyan frames |
+
+The Commander palettes are exact EGA 16-color values — Pebble's 64-color
+display uses the same `0x00/0x55/0xAA/0xFF` channel steps DOS did, so no
+approximation is needed.
+
+`SETTINGS_THEME` picks a family and a mode; each family has its own Auto
+value, which switches at 6:00 (day) and 18:00 (night) via `determine_theme()`.
+Unrecognized values fall back to default Auto. The theme is re-evaluated every
+minute because `update_time()` calls `apply_theme()`. All drawing code reads
+colors from `s_active_theme`, never hardcoded colors.
+
+`WatchTheme` carries nine colors. `frame` is the ASCII window border stroke,
+kept separate from `text_primary` so the Commander themes can draw cyan
+frames around white text.
 
 ## Rendering
 
@@ -127,7 +143,7 @@ platforms would require deriving these from `layer_get_bounds()`.
 
 | Key | Values | Where used |
 |-----|--------|-----------|
-| `SETTINGS_THEME` | 0 Auto, 1 Day, 2 Night | `determine_theme()` |
+| `SETTINGS_THEME` | 0 Auto, 1 Day, 2 Night, 3 Commander Auto, 4 Commander Day, 5 Commander Night | `determine_theme()` |
 | `SETTINGS_UNITS` | 0 Imperial, 1 Metric | Temp formatting/colors; JS picks the API unit, and a unit change triggers an immediate re-fetch |
 | `SETTINGS_DATE_FORMAT` | 0 `TUE 2026-06-09`, 1 `2026-06-09 TUE`, 2 `TUE JUNE 9th, 2026` | `format_date_string()` |
 | `SLOT_1`–`SLOT_5` | `ComplicationDataSource` value | Slot sources (1=top-left, 2=top-right, 3=bottom-left, 4=bottom-center, 5=bottom-right) |

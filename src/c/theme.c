@@ -7,14 +7,9 @@ const WatchTheme* s_active_theme = NULL;
 const WatchTheme s_theme_night = {.center_bg = GColorBlack,
                                   .sidebar_bg = GColorBlack,
                                   .steps_fill = GColorChromeYellow,
-                                  .battery_fill_high = GColorMintGreen,
-                                  .battery_fill_med = GColorPastelYellow,
-                                  .battery_fill_low = GColorSunsetOrange,
-                                  .dividers = GColorDarkGray,
+                                  .frame = GColorWhite,
                                   .text_primary = GColorWhite,
                                   .text_secondary = GColorLightGray,
-                                  .sidebar_text_unfilled = GColorWhite,
-                                  .sidebar_text_filled = GColorBlack,
                                   .status_green = GColorMintGreen,
                                   .status_yellow = GColorPastelYellow,
                                   .status_red = GColorSunsetOrange};
@@ -22,27 +17,60 @@ const WatchTheme s_theme_night = {.center_bg = GColorBlack,
 const WatchTheme s_theme_day = {.center_bg = GColorWhite,
                                 .sidebar_bg = GColorWhite,
                                 .steps_fill = GColorBlue,
-                                .battery_fill_high = GColorGreen,
-                                .battery_fill_med = GColorLimerick,
-                                .battery_fill_low = GColorRed,
-                                .dividers = GColorLightGray,
+                                .frame = GColorBlack,
                                 .text_primary = GColorBlack,
                                 .text_secondary = GColorDarkGray,
-                                .sidebar_text_unfilled = GColorBlack,
-                                .sidebar_text_filled = GColorWhite,
                                 .status_green = GColorGreen,
                                 .status_yellow = GColorLimerick,
                                 .status_red = GColorRed};
 
-const WatchTheme* determine_theme(int theme_setting, int current_hour) {
-  if (theme_setting == 1) return &s_theme_day;
-  if (theme_setting == 2) return &s_theme_night;
+// Commander themes reproduce the EGA 16-color palette exactly: Pebble's 64
+// colors use the same 0x00/0x55/0xAA/0xFF channel steps DOS did.
 
-  // Auto mode: Day = 6 AM to 5:59 PM
-  if (current_hour >= 6 && current_hour < 18) {
-    return &s_theme_day;
+// Norton Commander's panel: EGA blue ground, cyan frames, white entries, with
+// the warm amber highlight the Volkov palettes favored.
+const WatchTheme s_theme_commander_night = {.center_bg = GColorDukeBlue,       // #0000AA
+                                            .sidebar_bg = GColorOxfordBlue,    // #000055
+                                            .steps_fill = GColorElectricBlue,  // #55FFFF
+                                            .frame = GColorTiffanyBlue,        // #00AAAA
+                                            .text_primary = GColorWhite,       // #FFFFFF
+                                            .text_secondary = GColorElectricBlue,
+                                            .status_green = GColorScreaminGreen,  // #55FF55
+                                            .status_yellow = GColorChromeYellow,  // #FFAA00
+                                            .status_red = GColorSunsetOrange};    // #FF5555
+
+// The DOS dialog surface: light-gray ground with the dark EGA accents that
+// Turbo Vision and Commander setup screens drew on top of it.
+const WatchTheme s_theme_commander_day = {.center_bg = GColorLightGray,  // #AAAAAA
+                                          .sidebar_bg = GColorDarkGray,  // #555555
+                                          .steps_fill = GColorDukeBlue,  // #0000AA
+                                          .frame = GColorDukeBlue,       // #0000AA
+                                          .text_primary = GColorBlack,   // #000000
+                                          .text_secondary = GColorOxfordBlue,
+                                          .status_green = GColorDarkGreen,         // #005500
+                                          .status_yellow = GColorWindsorTan,       // #AA5500
+                                          .status_red = GColorDarkCandyAppleRed};  // #AA0000
+
+// Auto mode: Day = 6 AM to 5:59 PM
+static bool is_daytime(int current_hour) {
+  return current_hour >= 6 && current_hour < 18;
+}
+
+const WatchTheme* determine_theme(int theme_setting, int current_hour) {
+  switch (theme_setting) {
+    case 1:
+      return &s_theme_day;
+    case 2:
+      return &s_theme_night;
+    case 3:
+      return is_daytime(current_hour) ? &s_theme_commander_day : &s_theme_commander_night;
+    case 4:
+      return &s_theme_commander_day;
+    case 5:
+      return &s_theme_commander_night;
+    default:  // 0 = Auto
+      return is_daytime(current_hour) ? &s_theme_day : &s_theme_night;
   }
-  return &s_theme_night;
 }
 
 void apply_theme() {

@@ -52,6 +52,13 @@ typedef uint32_t GColor;
 #define GColorGreen 15
 #define GColorYellow 16
 #define GColorLimerick 17
+#define GColorDukeBlue 18
+#define GColorOxfordBlue 19
+#define GColorTiffanyBlue 20
+#define GColorElectricBlue 21
+#define GColorScreaminGreen 22
+#define GColorWindsorTan 23
+#define GColorDarkCandyAppleRed 24
 static inline GColor GColorFromRGB(int r, int g, int b) {
   return (GColor)0;
 }

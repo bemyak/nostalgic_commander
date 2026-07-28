@@ -23,6 +23,18 @@
           {
             "label": "Night",
             "value": "2"
+          },
+          {
+            "label": "Commander Auto (Day/Night)",
+            "value": "3"
+          },
+          {
+            "label": "Commander Day",
+            "value": "4"
+          },
+          {
+            "label": "Commander Night",
+            "value": "5"
           }
         ]
       },

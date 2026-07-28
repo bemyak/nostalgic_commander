@@ -259,6 +259,45 @@ void test_determine_theme_should_handle_all_configurations(void) {
   TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(0, 17));    // 5 PM
   TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 18));  // 6 PM
   TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 23));  // 11 PM
+
+  // Theme 4 = Commander Day, 5 = Commander Night (pinned, hour ignored)
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(4, 0));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(4, 23));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(5, 0));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(5, 12));
+
+  // Theme 3 = Commander Auto, same 06:00/18:00 boundaries as theme 0
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(3, 5));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(3, 6));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(3, 17));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(3, 18));
+
+  // Unknown values fall back to Auto rather than a null theme
+  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(99, 12));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(99, 3));
+}
+
+void test_commander_themes_should_keep_text_readable_on_their_ground(void) {
+  // AGENTS.md requires high contrast; the ground and its primary text must
+  // never collapse into each other.
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.center_bg, s_theme_commander_day.text_primary);
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.center_bg, s_theme_commander_night.text_primary);
+
+  // Frames are cyan-on-blue / blue-on-gray, so they must differ from the
+  // ground too — this is what the dedicated `frame` field buys us.
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.center_bg, s_theme_commander_day.frame);
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.center_bg, s_theme_commander_night.frame);
+
+  // The sidebar fill must stay visible against its own track.
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.sidebar_bg, s_theme_commander_day.steps_fill);
+  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.sidebar_bg, s_theme_commander_night.steps_fill);
+}
+
+void test_default_themes_keep_their_original_frame_color(void) {
+  // The frame field replaced a hardcoded text_primary stroke; Day and Night
+  // must look exactly as they did before.
+  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, s_theme_day.frame);
+  TEST_ASSERT_EQUAL_HEX(s_theme_night.text_primary, s_theme_night.frame);
 }
 
 void test_format_date_string_should_handle_all_configurations(void) {
@@ -687,6 +726,8 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
+  RUN_TEST(test_commander_themes_should_keep_text_readable_on_their_ground);
+  RUN_TEST(test_default_themes_keep_their_original_frame_color);
   RUN_TEST(test_format_date_string_should_handle_all_configurations);
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);

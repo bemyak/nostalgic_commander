@@ -61,7 +61,7 @@ void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
   int w = rect.size.w;
   int h = rect.size.h;
 
-  graphics_context_set_stroke_color(ctx, s_active_theme->text_primary);
+  graphics_context_set_stroke_color(ctx, s_active_theme->frame);
   graphics_context_set_stroke_width(ctx, 1);
 
   // Draw vertical borders (dashed)
