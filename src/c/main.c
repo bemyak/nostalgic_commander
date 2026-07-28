@@ -75,6 +75,7 @@ void update_time() {
 
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
+  s_beats = compute_beats(temp);
 
   static char s_time_buffer[8];
   strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M",

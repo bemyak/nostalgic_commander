@@ -16,6 +16,7 @@ int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
 int s_date_day = 10;
+int s_beats = 0;
 int s_settings_theme = 0;        // 0 = Auto, 1 = Day, 2 = Night
 int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
 int s_settings_date_format = 0;  // 0 = Weekday + ISO, 1 = ISO + Weekday, 2 = Full Text
@@ -59,6 +60,8 @@ const char* get_source_label(ComplicationDataSource source) {
       return "UV";
     case DATA_SOURCE_AQI_UV:
       return "AQI/UV";
+    case DATA_SOURCE_BEATS:
+      return "BEAT";
     case DATA_SOURCE_EMPTY:
       return "";
     default:
@@ -177,9 +180,21 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       snprintf(val_buf, val_len, "%s / %s", aqi_str, uv_str);
       break;
     }
+    case DATA_SOURCE_BEATS:
+      snprintf(val_buf, val_len, "@%03d", s_beats);
+      break;
     default:
       break;
   }
+}
+
+// Swatch Internet Time: the BMT (UTC+1, no DST) day split into 1000 beats of
+// 86.4s. Ticks are per-minute, so the value is exact at each tick and lags by
+// up to one beat before the next — a second-resolution tick isn't worth the
+// battery.
+int compute_beats(time_t utc) {
+  int bmt_seconds = (int)((utc + 3600) % 86400);
+  return (bmt_seconds * 1000) / 86400;
 }
 
 // Helper Functions

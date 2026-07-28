@@ -15,6 +15,7 @@ typedef enum {
   DATA_SOURCE_AQI = 16,
   DATA_SOURCE_UV = 17,
   DATA_SOURCE_AQI_UV = 18,
+  DATA_SOURCE_BEATS = 21,  // 19 is retired (UTC_OFFSET), 20 is EMPTY
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -32,6 +33,7 @@ extern int s_active_minutes_goal;
 extern bool s_connected;
 
 extern int s_date_day;
+extern int s_beats;
 
 extern int s_settings_theme;
 extern int s_settings_units;
@@ -52,5 +54,6 @@ extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
 void format_date_string(int format, struct tm* tick_time, char* buffer, int buf_size);
+int compute_beats(time_t utc);
 void to_upper_str(char* str);
 int tuple_get_int(Tuple* tuple);

@@ -68,6 +68,7 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("AQI", get_source_label(DATA_SOURCE_AQI));
   TEST_ASSERT_EQUAL_STRING("UV", get_source_label(DATA_SOURCE_UV));
   TEST_ASSERT_EQUAL_STRING("AQI/UV", get_source_label(DATA_SOURCE_AQI_UV));
+  TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
@@ -313,6 +314,38 @@ void test_get_source_data_should_format_aqi_and_uv(void) {
   s_weather_uv = 5;
   get_source_data(DATA_SOURCE_AQI_UV, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("42 / 5", buf);
+}
+
+void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
+  // BMT is UTC+1, so the beat day rolls over at 23:00 UTC.
+  TEST_ASSERT_EQUAL_INT(0, compute_beats(82800));         // 23:00:00 UTC = @000
+  TEST_ASSERT_EQUAL_INT(999, compute_beats(82799));       // 22:59:59 UTC = @999
+  TEST_ASSERT_EQUAL_INT(41, compute_beats(0));            // epoch = 01:00 BMT
+  TEST_ASSERT_EQUAL_INT(500, compute_beats(39600));       // 11:00:00 UTC = noon BMT
+  TEST_ASSERT_EQUAL_INT(1, compute_beats(82887));         // one beat is 86.4s
+  TEST_ASSERT_EQUAL_INT(763, compute_beats(1785000000));  // no overflow at modern timestamps
+}
+
+void test_get_source_data_should_format_beats(void) {
+  char buf[16];
+  int percent = -1;
+
+  s_beats = 347;
+  get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("@347", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);  // not a progress source
+
+  s_beats = 0;
+  get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("@000", buf);
+
+  s_beats = 7;
+  get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("@007", buf);
+
+  s_beats = 999;
+  get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("@999", buf);
 }
 
 void test_get_source_color_should_return_appropriate_colors(void) {
@@ -650,6 +683,8 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
+  RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
+  RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
   RUN_TEST(test_format_date_string_should_handle_all_configurations);

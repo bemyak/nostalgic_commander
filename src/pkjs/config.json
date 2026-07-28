@@ -120,6 +120,10 @@
           {
             "label": "AQI / UV Index (next 12h max)",
             "value": "18"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
           }
         ]
       },
@@ -172,6 +176,10 @@
           {
             "label": "AQI / UV Index (next 12h max)",
             "value": "18"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
           }
         ]
       },
@@ -216,6 +224,10 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
           }
         ]
       },
@@ -260,6 +272,10 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
           }
         ]
       },
@@ -304,6 +320,10 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
           }
         ]
       }

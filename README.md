@@ -16,8 +16,8 @@ Built for the modern Pebble lineup; currently targets **emery**
 - **Five complication slots** (two wide on top, three below) you can fill
   from: weather (condition + temperature), steps, sleep, heart rate, active
   minutes, Bluetooth status, air quality (US AQI), UV index (the peak over
-  the next 12 hours — what's coming, not what already happened), or a
-  combined AQI/UV view — or leave empty.
+  the next 12 hours — what's coming, not what already happened), a
+  combined AQI/UV view, or .beat (Swatch Internet Time) — or leave empty.
 - **Edge progress bars**: the left screen edge fills as you approach your
   daily step goal; the right edge shows battery level. These are fixed by
   design.
