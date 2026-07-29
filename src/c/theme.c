@@ -24,32 +24,28 @@ const WatchTheme s_theme_day = {.center_bg = GColorWhite,
                                 .status_yellow = GColorLimerick,
                                 .status_red = GColorRed};
 
-// Commander themes reproduce the EGA 16-color palette exactly: Pebble's 64
-// colors use the same 0x00/0x55/0xAA/0xFF channel steps DOS did.
-
-// Norton Commander's panel: EGA blue ground, cyan frames, white entries, with
-// the warm amber highlight the Volkov palettes favored.
-const WatchTheme s_theme_commander_night = {.center_bg = GColorDukeBlue,       // #0000AA
-                                            .sidebar_bg = GColorOxfordBlue,    // #000055
-                                            .steps_fill = GColorElectricBlue,  // #55FFFF
-                                            .frame = GColorTiffanyBlue,        // #00AAAA
-                                            .text_primary = GColorWhite,       // #FFFFFF
-                                            .text_secondary = GColorElectricBlue,
+// The amber monochrome terminal: black ground, dim amber frames, bright amber
+// text. Status colors stay chromatic so battery and AQI still read as status.
+const WatchTheme s_theme_commander_night = {.center_bg = GColorBlack,             // #000000
+                                            .sidebar_bg = GColorDarkGray,         // #555555
+                                            .steps_fill = GColorChromeYellow,     // #FFAA00
+                                            .frame = GColorWindsorTan,            // #AA5500
+                                            .text_primary = GColorChromeYellow,   // #FFAA00
+                                            .text_secondary = GColorRajah,        // #FFAA55
                                             .status_green = GColorScreaminGreen,  // #55FF55
                                             .status_yellow = GColorChromeYellow,  // #FFAA00
                                             .status_red = GColorSunsetOrange};    // #FF5555
 
-// The DOS dialog surface: light-gray ground with the dark EGA accents that
-// Turbo Vision and Commander setup screens drew on top of it.
-const WatchTheme s_theme_commander_day = {.center_bg = GColorLightGray,  // #AAAAAA
-                                          .sidebar_bg = GColorDarkGray,  // #555555
-                                          .steps_fill = GColorDukeBlue,  // #0000AA
-                                          .frame = GColorDukeBlue,       // #0000AA
-                                          .text_primary = GColorBlack,   // #000000
-                                          .text_secondary = GColorOxfordBlue,
-                                          .status_green = GColorDarkGreen,         // #005500
-                                          .status_yellow = GColorWindsorTan,       // #AA5500
-                                          .status_red = GColorDarkCandyAppleRed};  // #AA0000
+// Norton Commander's panel: EGA blue ground, cyan frames, white entries.
+const WatchTheme s_theme_commander_day = {.center_bg = GColorDukeBlue,       // #0000AA
+                                          .sidebar_bg = GColorOxfordBlue,    // #000055
+                                          .steps_fill = GColorElectricBlue,  // #55FFFF
+                                          .frame = GColorTiffanyBlue,        // #00AAAA
+                                          .text_primary = GColorWhite,       // #FFFFFF
+                                          .text_secondary = GColorElectricBlue,
+                                          .status_green = GColorScreaminGreen,  // #55FF55
+                                          .status_yellow = GColorChromeYellow,  // #FFAA00
+                                          .status_red = GColorSunsetOrange};    // #FF5555
 
 // Auto mode: Day = 6 AM to 5:59 PM
 static bool is_daytime(int current_hour) {

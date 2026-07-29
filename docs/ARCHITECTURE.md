@@ -111,8 +111,8 @@ Four `WatchTheme` palettes (`theme.c`), in two families of light/dark pairs:
 |-------|--------|------|
 | `s_theme_day` | white | default |
 | `s_theme_night` | black | default |
-| `s_theme_commander_day` | `#AAAAAA` light gray | DOS dialog surface, blue frames |
-| `s_theme_commander_night` | `#0000AA` EGA blue | Norton Commander panel, cyan frames |
+| `s_theme_commander_day` | `#0000AA` EGA blue | Norton Commander panel, cyan frames, white entries |
+| `s_theme_commander_night` | `#000000` black | amber monochrome terminal |
 
 The Commander palettes are exact EGA 16-color values — Pebble's 64-color
 display uses the same `0x00/0x55/0xAA/0xFF` channel steps DOS did, so no
