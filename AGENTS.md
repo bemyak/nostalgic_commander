@@ -30,7 +30,7 @@ the change is wrong.
   belongs in testable modules, not inline in UI code.
 - **Configuration stays simple.** Every setting must justify its existence.
   Fewer, better defaults beat option sprawl.
-- **Themes are high contrast.** Day and night palettes must keep text sharply
+- **Themes are high contrast.** Every palette must keep text sharply
   readable; muted/low-contrast color schemes are out of scope.
 - **Utility over approachability.** When the two conflict, pick the version
   that's more useful to a committed user, even if it's less friendly at first
@@ -74,15 +74,14 @@ verification happens in the unit tests, visual verification in the emulator.
 
 ## Architecture
 
-Full tour: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Sidebar design rules:
-[docs/SIDEBARS.md](docs/SIDEBARS.md). The short version:
+Full tour: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The short version:
 
 | Path | Role |
 |------|------|
 | `src/c/main.c` | Lifecycle: window, layers, service subscriptions, settings load |
 | `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, formatters |
-| `src/c/theme.c`/`.h` | Day/night palettes, theme selection, per-source colors |
-| `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, sidebars, slot refresh |
+| `src/c/theme.c`/`.h` | DOS/EGA palettes, theme selection, per-source colors |
+| `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, slot refresh |
 | `src/c/messaging.c`/`.h` | AppMessage: weather requests, inbox parsing, persistence |
 | `src/pkjs/index.js` | Phone side: Clay config, geolocation, Open-Meteo fetches |
 | `src/pkjs/config.json` | Clay settings page definition |
@@ -111,13 +110,6 @@ agent-written code too — follow them.
   `messageKeys`. Never reuse or renumber a `PERSIST_KEY_*` value. (Because of
   this, `messageKeys` in `package.json` is *not* order-sensitive — reordering
   it is safe.)
-- **Sidebars are progress bars; their source is meant to become
-  configurable.** Each renders a 0–100%/goal-progress value (never text or
-  discrete categories) in a fixed position. Today the sources are hardwired —
-  steps (left) and battery (right) — but the design intent is a selectable
-  source per side: off, steps, battery, distance-to-goal, active-minutes, or
-  any metric with a clear start and destination. Don't reintroduce a rule
-  forbidding that. See [docs/SIDEBARS.md](docs/SIDEBARS.md).
 - **New complications require Elizabeth's approval** (see Philosophy —
   proposals welcome, bar high).
 

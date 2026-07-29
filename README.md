@@ -18,15 +18,11 @@ Built for the modern Pebble lineup; currently targets **emery**
   minutes, Bluetooth status, air quality (US AQI), UV index (the peak over
   the next 12 hours — what's coming, not what already happened), a
   combined AQI/UV view, or .beat (Swatch Internet Time) — or leave empty.
-- **Edge progress bars**: the left screen edge fills as you approach your
-  daily step goal; the right edge shows battery level. These are fixed by
-  design.
-- **Day/Night themes** with automatic switching (day from 06:00, night from
-  18:00), or pin either one. All palettes are high contrast.
-- **Commander themes**: a DOS-era pair — the Norton Commander panel by day,
-  cyan frames and white entries over EGA blue; an amber monochrome terminal at
-  night. Exact EGA colors, since Pebble's display uses the same channel steps.
-  Auto-switches on the same schedule.
+- **Three DOS/EGA themes**, no auto-switching — pick one and it stays: the
+  Norton Commander panel (cyan frames, white entries over EGA blue), the same
+  panel in shadow (grey chrome on black, the way Turbo Vision faked a dimmed
+  screen), or a Turbo Vision dialog box (blue frames, black text on light
+  grey). Exact EGA colors, since Pebble's display uses the same channel steps.
 - **Color-coded values**: battery, temperature, AQI, and UV shift
   green/yellow/red (or blue for cold) as conditions change.
 - **Weather without an API key** — data comes from
@@ -40,7 +36,7 @@ deliberately few:
 
 | Setting | Options |
 |---------|---------|
-| Theme | Auto (day/night), Day, Night |
+| Theme | Panel, Shadow, Dialog |
 | Units | Imperial, Metric |
 | Date format | Weekday + ISO, ISO + Weekday, full text |
 | Slots 1–5 | Data source per slot, or Empty |
@@ -61,8 +57,8 @@ tuiface doesn't try to please everyone. It has a point of view:
 
 - **TUI-like, but legible.** The terminal aesthetic serves readability on a
   small e-paper-style screen; where the two conflict, legibility wins.
-- **High-contrast themes.** Both the day and night palettes keep text sharply
-  readable; muted, low-contrast color schemes are out of scope.
+- **High-contrast themes.** Every palette keeps text sharply readable; muted,
+  low-contrast color schemes are out of scope.
 - **Curated complications.** Ever scrolled a settings page with a hundred
   complications trying to find the three you actually care about? tuiface
   adds data sources deliberately and selectively. You are welcome to propose
@@ -112,7 +108,6 @@ cd test && make test
   architecture, and the hard rules
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it all works: data flow,
   modules, the complication system, theming, testing
-- [docs/SIDEBARS.md](docs/SIDEBARS.md) — why the edge bars are fixed
 - [ISSUES.md](ISSUES.md) — known bugs · [TODOs.md](TODOs.md) — planned work ·
   [IDEAS.md](IDEAS.md) — undecided ideas
 

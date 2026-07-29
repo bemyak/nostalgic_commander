@@ -3,10 +3,9 @@
 **tuiface** is a Pebble watchface (SDK 3, currently targeting the `emery`
 platform / Pebble Time 2, 200x228 px) with a text-forward design: the time and
 date sit inside dashed "ASCII window" frames, surrounded by configurable
-complication slots and two hardcoded progress-bar sidebars.
+complication slots.
 
-This document explains how the pieces fit together. See
-[SIDEBARS.md](SIDEBARS.md) for the sidebar-specific design rules.
+This document explains how the pieces fit together.
 
 ## High-level data flow
 
@@ -44,8 +43,8 @@ This document explains how the pieces fit together. See
 |------|------|
 | `main.c` | App lifecycle: window setup, service subscriptions (tick, battery, bluetooth, health), settings load from persistent storage, text layer creation. |
 | `data.c` / `data.h` | Single source of truth for state: sensor/weather caches, settings, the `ComplicationDataSource` enum, slot definitions, and the formatting functions. |
-| `theme.c` / `theme.h` | Day/Night `WatchTheme` color palettes, auto theme selection by hour, and per-source color logic (battery level, temperature bands, AQI/UV thresholds). |
-| `drawing.c` / `drawing.h` | All custom rendering: the dashed ASCII window frames, sidebar progress bars, the split-color AQI/UV complication, and `refresh_complications()` which pushes formatted text into the slot text layers. |
+| `theme.c` / `theme.h` | `WatchTheme` color palettes, theme selection from `SETTINGS_THEME`, and per-source color logic (battery level, temperature bands, AQI/UV thresholds). |
+| `drawing.c` / `drawing.h` | All custom rendering: the dashed ASCII window frames, the split-color AQI/UV complication, and `refresh_complications()` which pushes formatted text into the slot text layers. |
 | `messaging.c` / `messaging.h` | AppMessage in/out: weather requests, inbox parsing, settings persistence. |
 | `main.h` | Exposes `update_time()` so messaging can trigger a full refresh. |
 
@@ -67,14 +66,16 @@ A complication is identified by a `ComplicationDataSource` enum value
 - `get_source_label()` (`data.c`) — the short title drawn in the window frame
   gap (e.g. `STEP`, `BPM`, `AQI/UV`).
 - `get_source_data()` (`data.c`) — formats the value string and optionally a
-  0–100 percent (used by sidebars for fill height).
+  0–100 percent.
 - `get_source_color()` (`theme.c`) — the value's color on color displays
   (e.g. battery green/yellow/red, AQI bands).
 
-There are three placement types:
+There are two placement types:
 
 1. **Slots** — five configurable boxes in `s_complication_slots[]`
-   (`data.c`): two wide ones on top (90px), three narrow on the bottom (60px).
+   (`data.c`): two wide ones on top (93px), three narrow on the bottom
+   (63/62/63px). Neighbours in a row overlap by 2 columns so their 2px borders
+   merge into a single shared divider.
    Each slot has a fixed `box_rect`, a `TextLayer`, and a user-chosen source.
    The slot's frame and label are drawn on the canvas
    (`canvas_update_proc`); the value text lives in the slot's text layer,
@@ -83,10 +84,7 @@ There are three placement types:
    - Special case: `DATA_SOURCE_AQI_UV` skips the text layer and is drawn
      directly on the canvas (`draw_aqi_uv_complication`) so AQI and UV can be
      colored independently.
-2. **Sidebars** — 4px vertical progress bars on the left/right screen edges,
-   hardcoded to Steps (left, fills from top) and Battery (right, fills from
-   bottom). Deliberately not configurable; see [SIDEBARS.md](SIDEBARS.md).
-3. **Fixed elements** — the time (LECO 60pt) and date (Gothic 18pt) text
+2. **Fixed elements** — the time (LECO 60pt) and date (Gothic 18pt) text
    layers inside the TIME and DATE windows.
 
 ### Adding a new complication source
@@ -105,33 +103,37 @@ There are three placement types:
 
 ## Theming
 
-Four `WatchTheme` palettes (`theme.c`), in two families of light/dark pairs:
+Three `WatchTheme` palettes (`theme.c`), all DOS/EGA:
 
 | Theme | Ground | Look |
 |-------|--------|------|
-| `s_theme_day` | white | default |
-| `s_theme_night` | black | default |
-| `s_theme_commander_day` | `#0000AA` EGA blue | Norton Commander panel, cyan frames, white entries |
-| `s_theme_commander_night` | `#000000` black | amber monochrome terminal |
+| `s_theme_panel` | `#0000AA` EGA blue | Norton Commander panel, cyan frames, white entries |
+| `s_theme_shadow` | `#000000` black | the same panel in shadow — Turbo Vision faked a dimmed panel as grey-on-black, so dark-grey frames, light-grey titles, white entries |
+| `s_theme_dialog` | `#AAAAAA` light grey | Turbo Vision/NC dialog box, attribute `0x70` (black on light grey); blue frames, dark-grey titles, black values |
 
-The Commander palettes are exact EGA 16-color values — Pebble's 64-color
-display uses the same `0x00/0x55/0xAA/0xFF` channel steps DOS did, so no
-approximation is needed.
+These are exact EGA 16-color values — Pebble's 64-color display uses the
+same `0x00/0x55/0xAA/0xFF` channel steps DOS did, so no approximation is
+needed.
 
-`SETTINGS_THEME` picks a family and a mode; each family has its own Auto
-value, which switches at 6:00 (day) and 18:00 (night) via `determine_theme()`.
-Unrecognized values fall back to default Auto. The theme is re-evaluated every
-minute because `update_time()` calls `apply_theme()`. All drawing code reads
-colors from `s_active_theme`, never hardcoded colors.
+`SETTINGS_THEME` picks one of the three directly; there is no auto
+switching and no time-of-day logic — `determine_theme(int theme_setting)`
+maps the setting to a `WatchTheme` pointer. Unrecognized values fall back to
+`s_theme_panel`. All drawing code reads colors from `s_active_theme`, never
+hardcoded colors.
 
-`WatchTheme` carries nine colors. `frame` is the ASCII window border stroke,
-kept separate from `text_primary` so the Commander themes can draw cyan
-frames around white text.
+`WatchTheme` carries ten colors. `frame` is the ASCII window border stroke,
+kept separate from `text_primary` so the panel themes can draw cyan frames
+around white text. `mark` is the accent highlight (unit letter, date
+weekday, `.beat` `@`) — Turbo Vision's `0x7E` hotkey color, yellow in all
+three themes, deliberately separate from `status_yellow` since the dialog
+theme's `status_yellow` is brown. `status_ink` is the text color drawn over
+a status-colored fill (the battery chip): black on the two dark themes,
+white on the light dialog theme.
 
 ## Rendering
 
 `canvas_update_proc()` (`drawing.c`) draws, in order: the center background,
-both sidebars, the TIME and DATE windows, then each non-empty slot's window.
+the TIME and DATE windows, then each non-empty slot's window.
 The "ASCII window" look (`draw_ascii_window`) is dashed borders with `+`
 crosses at the corners and a gap in the top border where the title is drawn.
 
@@ -143,7 +145,7 @@ platforms would require deriving these from `layer_get_bounds()`.
 
 | Key | Values | Where used |
 |-----|--------|-----------|
-| `SETTINGS_THEME` | 0 Auto, 1 Day, 2 Night, 3 Commander Auto, 4 Commander Day, 5 Commander Night | `determine_theme()` |
+| `SETTINGS_THEME` | 0 Panel, 1 Shadow, 2 Dialog | `determine_theme()` |
 | `SETTINGS_UNITS` | 0 Imperial, 1 Metric | Temp formatting/colors; JS picks the API unit, and a unit change triggers an immediate re-fetch |
 | `SETTINGS_DATE_FORMAT` | 0 `TUE 2026-06-09`, 1 `2026-06-09 TUE`, 2 `TUE JUNE 9th, 2026` | `format_date_string()` |
 | `SLOT_1`–`SLOT_5` | `ComplicationDataSource` value | Slot sources (1=top-left, 2=top-right, 3=bottom-left, 4=bottom-center, 5=bottom-right) |
