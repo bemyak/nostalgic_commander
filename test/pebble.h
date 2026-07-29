@@ -74,12 +74,15 @@ typedef enum {
 typedef enum { GTextAlignmentLeft, GTextAlignmentCenter, GTextAlignmentRight } GTextAlignment;
 
 typedef const void* GFont;
+typedef void* ResHandle;
 typedef int32_t HealthValue;
 
 #define FONT_KEY_GOTHIC_14_BOLD "FONT_KEY_GOTHIC_14_BOLD"
 #define FONT_KEY_GOTHIC_18_BOLD "FONT_KEY_GOTHIC_18_BOLD"
 #define FONT_KEY_ROBOTO_BOLD_SUBSET_49 "FONT_KEY_ROBOTO_BOLD_SUBSET_49"
 #define FONT_KEY_LECO_60_NUMBERS_AM_PM "font"
+#define RESOURCE_ID_FONT_VGA_16 1
+#define RESOURCE_ID_FONT_VGA_64 2
 
 typedef enum {
   APP_MSG_OK = 0,
@@ -221,6 +224,9 @@ void connection_service_subscribe(ConnectionHandlers handlers);
 Tuple* dict_find(const DictionaryIterator* iter, uint32_t key);
 void dict_write_uint8(DictionaryIterator* iter, uint32_t key, uint8_t value);
 GFont fonts_get_system_font(const char* font_key);
+ResHandle resource_get_handle(uint32_t resource_id);
+GFont fonts_load_custom_font(ResHandle handle);
+void fonts_unload_custom_font(GFont font);
 void graphics_context_set_fill_color(GContext* ctx, GColor color);
 void graphics_context_set_stroke_color(GContext* ctx, GColor color);
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width);

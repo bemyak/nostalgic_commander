@@ -82,6 +82,16 @@ GFont fonts_get_system_font(const char* font_key) {
   return NULL;
 }
 
+ResHandle resource_get_handle(uint32_t resource_id) {
+  return NULL;
+}
+
+GFont fonts_load_custom_font(ResHandle handle) {
+  return NULL;
+}
+
+void fonts_unload_custom_font(GFont font) {}
+
 void graphics_context_set_fill_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}

@@ -39,7 +39,22 @@
       "WEATHER_UV"
     ],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "font",
+          "name": "FONT_VGA_16",
+          "file": "fonts/Px437_IBM_VGA_8x16.ttf",
+          "characterRegex": "[\\x20-\\x7E]",
+          "size": 16
+        },
+        {
+          "type": "font",
+          "name": "FONT_VGA_64",
+          "file": "fonts/Px437_IBM_VGA_8x16.ttf",
+          "characterRegex": "[\\x20-\\x7E]",
+          "size": 64
+        }
+      ]
     }
   }
 }

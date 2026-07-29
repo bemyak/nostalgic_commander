@@ -91,9 +91,8 @@ void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
 
   // Draw title text
   graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
-  graphics_draw_text(ctx, title, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(gap_left, y - 7, gap_right - gap_left, 14), GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, title, vga_font_16(), GRect(gap_left, y - 8, gap_right - gap_left, 16),
+                     GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
 }
 
 static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
@@ -112,7 +111,7 @@ static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
     snprintf(uv_str, sizeof(uv_str), "%d", s_weather_uv);
   }
 
-  GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  GFont font = vga_font_16();
 
   // AQI color logic (0-50 green, 51-100 yellow, >100 red)
   GColor aqi_color = s_active_theme->text_primary;

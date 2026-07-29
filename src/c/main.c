@@ -5,6 +5,17 @@
 #include "drawing.h"
 #include "messaging.h"
 
+// Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
+static GFont s_vga_16;
+static GFont s_vga_64;
+
+GFont vga_font_16(void) {
+  return s_vga_16;
+}
+GFont vga_font_64(void) {
+  return s_vga_64;
+}
+
 // -----------------------------------------------------------------------------
 // Data Updaters
 // -----------------------------------------------------------------------------
@@ -148,18 +159,18 @@ static void main_window_load(Window* window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  s_time_layer = text_layer_create(GRect(12, 57, 176, 60));
+  s_time_layer = text_layer_create(GRect(12, 53, 176, 64));
   text_layer_set_background_color(s_time_layer, GColorClear);
   text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_time_layer, fonts_get_system_font(FONT_KEY_LECO_60_NUMBERS_AM_PM));
+  text_layer_set_font(s_time_layer, vga_font_64());
   layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
 
-  s_date_iso_layer = text_layer_create(GRect(12, 149, 176, 22));
+  s_date_iso_layer = text_layer_create(GRect(12, 152, 176, 22));
   text_layer_set_background_color(s_date_iso_layer, GColorClear);
   text_layer_set_text_color(s_date_iso_layer, s_active_theme->text_primary);
   text_layer_set_text_alignment(s_date_iso_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_date_iso_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  text_layer_set_font(s_date_iso_layer, vga_font_16());
   layer_add_child(window_layer, text_layer_get_layer(s_date_iso_layer));
 
   // Init text layers for slots
@@ -171,7 +182,7 @@ static void main_window_load(Window* window) {
     text_layer_set_background_color(slot->layer, GColorClear);
     text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
     text_layer_set_text_alignment(slot->layer, GTextAlignmentCenter);
-    text_layer_set_font(slot->layer, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+    text_layer_set_font(slot->layer, vga_font_16());
     layer_add_child(window_layer, text_layer_get_layer(slot->layer));
   }
 }
@@ -190,6 +201,9 @@ static void main_window_unload(Window* window) {
 static void init(void) {
   // Load settings from persistent storage
   load_settings();
+
+  s_vga_16 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_16));
+  s_vga_64 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_64));
 
   s_main_window = window_create();
   apply_theme();
@@ -225,6 +239,8 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  fonts_unload_custom_font(s_vga_16);
+  fonts_unload_custom_font(s_vga_64);
   window_destroy(s_main_window);
 }
 
