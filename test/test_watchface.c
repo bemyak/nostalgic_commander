@@ -12,7 +12,7 @@
 
 void setUp(void) {
   // Reset any global states if needed before each test
-  s_settings_theme = 0;  // Auto
+  s_settings_theme = 0;  // Panel
   s_settings_units = 0;  // Imperial
   s_battery_level = 100;
   s_step_count = -1;
@@ -214,15 +214,21 @@ void test_get_source_data_should_format_bluetooth(void) {
   char buf[16];
   int percent = 0;
 
+  // A checkbox, so the glyph carries the state on its own — no color needed.
   s_connected = true;
   get_source_data(DATA_SOURCE_BLUETOOTH, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("OK", buf);
+  TEST_ASSERT_EQUAL_STRING("[x]", buf);
   TEST_ASSERT_EQUAL_INT(100, percent);
 
   s_connected = false;
   get_source_data(DATA_SOURCE_BLUETOOTH, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("LOSS", buf);
+  TEST_ASSERT_EQUAL_STRING("[ ]", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_active_theme = &s_theme_panel;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BLUETOOTH));
+  s_connected = true;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BLUETOOTH));
 }
 
 void test_get_source_data_should_format_active_minutes(void) {
@@ -242,62 +248,93 @@ void test_get_source_data_should_format_active_minutes(void) {
   TEST_ASSERT_EQUAL_INT(100, percent);
 }
 
+// Every theme, so a new one cannot be added without inheriting the guarantees
+// asserted below.
+static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_theme_dialog};
+#define NUM_THEMES (sizeof(all_themes) / sizeof(all_themes[0]))
+
 void test_determine_theme_should_handle_all_configurations(void) {
-  // Theme 1 = Day
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(1, 0));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(1, 12));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(1));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(2));
 
-  // Theme 2 = Night
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(2, 0));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(2, 12));
-
-  // Theme 0 = Auto
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 0));   // Midnight
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 5));   // 5 AM
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(0, 6));     // 6 AM
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(0, 12));    // Noon
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(0, 17));    // 5 PM
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 18));  // 6 PM
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(0, 23));  // 11 PM
-
-  // Theme 4 = Commander Day, 5 = Commander Night (pinned, hour ignored)
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(4, 0));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(4, 23));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(5, 0));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(5, 12));
-
-  // Theme 3 = Commander Auto, same 06:00/18:00 boundaries as theme 0
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(3, 5));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(3, 6));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_day, determine_theme(3, 17));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_commander_night, determine_theme(3, 18));
-
-  // Unknown values fall back to Auto rather than a null theme
-  TEST_ASSERT_EQUAL_PTR(&s_theme_day, determine_theme(99, 12));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_night, determine_theme(99, 3));
+  // No auto mode, so nothing here may depend on the clock, and the values the
+  // old day/night settings used must not resolve to a null theme.
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(3));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(5));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(99));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(-1));
 }
 
-void test_commander_themes_should_keep_text_readable_on_their_ground(void) {
-  // AGENTS.md requires high contrast; the ground and its primary text must
-  // never collapse into each other.
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.center_bg, s_theme_commander_day.text_primary);
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.center_bg, s_theme_commander_night.text_primary);
+void test_themes_should_keep_text_readable_on_their_ground(void) {
+  for (unsigned i = 0; i < NUM_THEMES; i++) {
+    const WatchTheme* t = all_themes[i];
 
-  // Frames are cyan-on-blue / blue-on-gray, so they must differ from the
-  // ground too — this is what the dedicated `frame` field buys us.
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.center_bg, s_theme_commander_day.frame);
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.center_bg, s_theme_commander_night.frame);
+    // AGENTS.md requires high contrast; the ground and its primary text must
+    // never collapse into each other.
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->text_primary);
 
-  // The sidebar fill must stay visible against its own track.
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_day.sidebar_bg, s_theme_commander_day.steps_fill);
-  TEST_ASSERT_NOT_EQUAL(s_theme_commander_night.sidebar_bg, s_theme_commander_night.steps_fill);
+    // The dedicated `frame` field only earns its place if it clears the ground.
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->frame);
+
+    // Cold readings and accent marks are drawn as text on the ground.
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->accent_cold);
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->mark);
+
+    // Titles must stay distinguishable from the frame they sit in, or the
+    // window label disappears into its own border.
+    TEST_ASSERT_NOT_EQUAL(t->frame, t->text_secondary);
+
+    // Status values are drawn as text on the ground too — this is what forces
+    // the light theme to use the low-intensity variants.
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->status_green);
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->status_yellow);
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->status_red);
+  }
 }
 
-void test_default_themes_keep_their_original_frame_color(void) {
-  // The frame field replaced a hardcoded text_primary stroke; Day and Night
-  // must look exactly as they did before.
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, s_theme_day.frame);
-  TEST_ASSERT_EQUAL_HEX(s_theme_night.text_primary, s_theme_night.frame);
+void test_status_ink_should_clear_every_fill_it_is_drawn_on(void) {
+  // The battery chip fills with status_red/status_yellow and writes status_ink
+  // over it. If the ink matches its own fill the reading vanishes — which is
+  // exactly what happened when the chip used text_primary on a light ground.
+  for (unsigned i = 0; i < NUM_THEMES; i++) {
+    TEST_ASSERT_NOT_EQUAL(all_themes[i]->status_ink, all_themes[i]->status_red);
+    TEST_ASSERT_NOT_EQUAL(all_themes[i]->status_ink, all_themes[i]->status_yellow);
+  }
+}
+
+static bool is_dos_palette_color(GColor c) {
+  // The canonical CGA/EGA 16, minus the three the SDK mock has no name for
+  // (#AA00AA, #5555FF, #FF55FF) — no theme uses them. The mock's GColor values
+  // are opaque integers, so membership is asserted by symbol, not by hex.
+  const GColor dos16[] = {
+      GColorBlack,         GColorDukeBlue,     GColorIslamicGreen,      GColorTiffanyBlue,
+      GColorWindsorTan,    GColorLightGray,    GColorDarkCandyAppleRed, GColorDarkGray,
+      GColorScreaminGreen, GColorElectricBlue, GColorSunsetOrange,      GColorIcterine,
+      GColorWhite};
+  for (unsigned i = 0; i < sizeof(dos16) / sizeof(dos16[0]); i++) {
+    if (c == dos16[i]) return true;
+  }
+  return false;
+}
+
+void test_every_theme_should_only_use_dos_palette_colors(void) {
+  // The whole premise is that Pebble's channel steps match DOS's, so every
+  // color must be one of the 16. Off-palette values (#FFAA00, #FFAA55) have
+  // crept in before — this is the guard.
+  for (unsigned i = 0; i < NUM_THEMES; i++) {
+    const WatchTheme* t = all_themes[i];
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->center_bg));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->accent_cold));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->frame));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->text_primary));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->text_secondary));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->mark));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->status_ink));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->status_green));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->status_yellow));
+    TEST_ASSERT_TRUE(is_dos_palette_color(t->status_red));
+  }
 }
 
 void test_format_date_string_should_handle_all_configurations(void) {
@@ -320,6 +357,31 @@ void test_format_date_string_should_handle_all_configurations(void) {
   // Format 2: Full Text
   format_date_string(2, &tick_time, buf, sizeof(buf));
   TEST_ASSERT_EQUAL_STRING("TUE JUNE 9th, 2026", buf);
+}
+
+void test_date_dow_offset_should_locate_the_weekday_in_every_format(void) {
+  char buf[64];
+  struct tm tick_time;
+  memset(&tick_time, 0, sizeof(tick_time));
+  tick_time.tm_mday = 9;
+  tick_time.tm_mon = 5;
+  tick_time.tm_year = 126;
+  tick_time.tm_wday = 2;
+
+  // The weekday leads formats 0 and 2, and trails format 1. Whatever the
+  // offset, the DOW_LEN characters there must be the weekday itself.
+  for (int format = 0; format <= 2; format++) {
+    format_date_string(format, &tick_time, buf, sizeof(buf));
+    int at = date_dow_offset(format, buf);
+    TEST_ASSERT_EQUAL_STRING_LEN("TUE", buf + at, DOW_LEN);
+  }
+
+  format_date_string(1, &tick_time, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_INT((int)strlen(buf) - DOW_LEN, date_dow_offset(1, buf));
+
+  // Degenerate input must stay in bounds rather than index before the string.
+  TEST_ASSERT_EQUAL_INT(0, date_dow_offset(1, ""));
+  TEST_ASSERT_EQUAL_INT(0, date_dow_offset(0, ""));
 }
 
 void test_get_source_data_should_format_aqi_and_uv(void) {
@@ -388,83 +450,83 @@ void test_get_source_data_should_format_beats(void) {
 }
 
 void test_get_source_color_should_return_appropriate_colors(void) {
-  s_active_theme = &s_theme_day;
+  s_active_theme = &s_theme_panel;
 
   // Weather Temp color severity (Imperial: >85 red, <40 blue)
   s_settings_units = 0;
   s_weather_temp = 70;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_TEMP));
   s_weather_temp = 90;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_TEMP));
   s_weather_temp = 35;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.steps_fill, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_WEATHER_TEMP));
 
   // Weather Temp color severity (Metric: >29 red, <4 blue)
   s_settings_units = 1;
   s_weather_temp = 20;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_TEMP));
   s_weather_temp = 30;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_TEMP));
   s_weather_temp = 2;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.steps_fill, get_source_color(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_WEATHER_TEMP));
 
   // AQI color severity levels (0-50 green, 51-100 yellow, >100 red)
   s_weather_aqi = -1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, get_source_color(DATA_SOURCE_AQI));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI));
 
   s_weather_aqi = 34;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_AQI));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_AQI));
 
   s_weather_aqi = 65;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_AQI));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_AQI));
 
   s_weather_aqi = 150;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_AQI));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI));
 
   // UV color severity levels (0-2 green, 3-5 yellow, >=6 red)
   s_weather_uv = -1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.text_primary, get_source_color(DATA_SOURCE_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_UV));
 
   s_weather_uv = 1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_UV));
 
   s_weather_uv = 4;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_UV));
 
   s_weather_uv = 8;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_UV));
 
   // AQI / UV Combined severity
   s_weather_aqi = 34;
   s_weather_uv = 1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_AQI_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_AQI_UV));
 
   s_weather_aqi = 65;  // yellow
   s_weather_uv = 1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_AQI_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_AQI_UV));
 
   s_weather_aqi = 34;
   s_weather_uv = 8;  // red
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_AQI_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI_UV));
 
   // Battery color thresholds (>50 green, >20 yellow, <=20 red)
   s_battery_level = 100;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY));
 
   s_battery_level = 51;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_green, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY));
 
   s_battery_level = 50;  // boundary: yellow
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
 
   s_battery_level = 21;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
 
   s_battery_level = 20;  // boundary: red
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
 
   s_battery_level = 0;
-  TEST_ASSERT_EQUAL_HEX(s_theme_day.status_red, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
 }
 
 void test_weather_cache_should_round_trip_when_fresh(void) {
@@ -726,9 +788,11 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
-  RUN_TEST(test_commander_themes_should_keep_text_readable_on_their_ground);
-  RUN_TEST(test_default_themes_keep_their_original_frame_color);
+  RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);
+  RUN_TEST(test_status_ink_should_clear_every_fill_it_is_drawn_on);
+  RUN_TEST(test_every_theme_should_only_use_dos_palette_colors);
   RUN_TEST(test_format_date_string_should_handle_all_configurations);
+  RUN_TEST(test_date_dow_offset_should_locate_the_weekday_in_every_format);
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);

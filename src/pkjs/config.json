@@ -13,28 +13,16 @@
         "label": "Theme",
         "options": [
           {
-            "label": "Auto (Day/Night)",
+            "label": "Commander Panel (EGA blue)",
             "value": "0"
           },
           {
-            "label": "Day",
+            "label": "Shadowed Panel (black)",
             "value": "1"
           },
           {
-            "label": "Night",
+            "label": "Dialog (light grey)",
             "value": "2"
-          },
-          {
-            "label": "Commander Auto (Day/Night)",
-            "value": "3"
-          },
-          {
-            "label": "Commander Day",
-            "value": "4"
-          },
-          {
-            "label": "Commander Night",
-            "value": "5"
           }
         ]
       },

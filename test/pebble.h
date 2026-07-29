@@ -59,6 +59,8 @@ typedef uint32_t GColor;
 #define GColorScreaminGreen 22
 #define GColorWindsorTan 23
 #define GColorRajah 24
+#define GColorIcterine 25
+#define GColorDarkCandyAppleRed 26
 static inline GColor GColorFromRGB(int r, int g, int b) {
   return (GColor)0;
 }
@@ -200,7 +202,6 @@ typedef struct {
 #define MESSAGE_KEY_WEATHER_LOW 108
 #define MESSAGE_KEY_WEATHER_AQI 109
 #define MESSAGE_KEY_WEATHER_UV 110
-#define MESSAGE_KEY_SIDEBAR_POSITION 111
 #define MESSAGE_KEY_SLOT_1 112
 #define MESSAGE_KEY_SLOT_2 113
 #define MESSAGE_KEY_SLOT_3 114

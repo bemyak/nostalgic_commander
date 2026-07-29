@@ -79,10 +79,9 @@ void update_time() {
   apply_theme();
 
   // The theme can flip while the face is open (Auto mode at 06:00/18:00, or a
-  // settings push); the time/date layers keep their load-time color unless
-  // re-applied here.
+  // settings push); the time layer keeps its load-time color unless re-applied
+  // here. The date is canvas-drawn, so it picks the new theme up on redraw.
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
-  if (s_date_iso_layer) text_layer_set_text_color(s_date_iso_layer, s_active_theme->text_primary);
 
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
@@ -98,10 +97,7 @@ void update_time() {
   }
   text_layer_set_text(s_time_layer, time_str);
 
-  static char s_date_iso_buffer[64];
-  format_date_string(s_settings_date_format, tick_time, s_date_iso_buffer,
-                     sizeof(s_date_iso_buffer));
-  text_layer_set_text(s_date_iso_layer, s_date_iso_buffer);
+  format_date_string(s_settings_date_format, tick_time, s_date_display, sizeof(s_date_display));
 
   update_date_info();
   update_health_info();
@@ -159,25 +155,18 @@ static void main_window_load(Window* window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  s_time_layer = text_layer_create(GRect(12, 53, 176, 64));
+  s_time_layer = text_layer_create(GRect(LAYOUT_X + 4, 49, LAYOUT_W - 8, 64));
   text_layer_set_background_color(s_time_layer, GColorClear);
   text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   text_layer_set_font(s_time_layer, vga_font_64());
   layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
 
-  s_date_iso_layer = text_layer_create(GRect(12, 152, 176, 22));
-  text_layer_set_background_color(s_date_iso_layer, GColorClear);
-  text_layer_set_text_color(s_date_iso_layer, s_active_theme->text_primary);
-  text_layer_set_text_alignment(s_date_iso_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_date_iso_layer, vga_font_16());
-  layer_add_child(window_layer, text_layer_get_layer(s_date_iso_layer));
-
   // Init text layers for slots
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
-    GRect text_rect =
-        GRect(slot->box_rect.origin.x, slot->box_rect.origin.y + 11, slot->box_rect.size.w, 20);
+    GRect text_rect = GRect(slot->box_rect.origin.x, slot->box_rect.origin.y + VALUE_ROW_DY,
+                            slot->box_rect.size.w, VALUE_ROW_H);
     slot->layer = text_layer_create(text_rect);
     text_layer_set_background_color(slot->layer, GColorClear);
     text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
@@ -189,7 +178,6 @@ static void main_window_load(Window* window) {
 
 static void main_window_unload(Window* window) {
   text_layer_destroy(s_time_layer);
-  text_layer_destroy(s_date_iso_layer);
   layer_destroy(s_canvas_layer);
   for (int i = 0; i < NUM_SLOTS; i++) {
     if (s_complication_slots[i].layer) {

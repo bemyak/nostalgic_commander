@@ -17,19 +17,20 @@ int s_active_minutes_goal = 30;
 bool s_connected = true;
 int s_date_day = 10;
 int s_beats = 0;
+char s_date_display[64] = "";
 int s_settings_theme = 0;        // 0 = Auto, 1 = Day, 2 = Night
 int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
 int s_settings_date_format = 0;  // 0 = Weekday + ISO, 1 = ISO + Weekday, 2 = Full Text
 
-ComplicationDataSource s_left_sidebar_source = DATA_SOURCE_STEPS;
-ComplicationDataSource s_right_sidebar_source = DATA_SOURCE_BATTERY;
-
+// Each row tiles LAYOUT_X..LAYOUT_X+LAYOUT_W-1, with neighbours overlapping by
+// 2 columns — the frame border width — so their borders coincide into a single
+// shared divider rather than stacking into a double-width one.
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
-    {.box_rect = {{10, 8}, {90, 36}}, .source = DATA_SOURCE_WEATHER},       // Top Left
-    {.box_rect = {{100, 8}, {90, 36}}, .source = DATA_SOURCE_SLEEP},        // Top Right
-    {.box_rect = {{10, 184}, {60, 36}}, .source = DATA_SOURCE_STEPS},       // Bottom Left
-    {.box_rect = {{70, 184}, {60, 36}}, .source = DATA_SOURCE_HEART_RATE},  // Bottom Center
-    {.box_rect = {{130, 184}, {60, 36}}, .source = DATA_SOURCE_BLUETOOTH}   // Bottom Right
+    {.box_rect = {{LAYOUT_X, 8}, {93, 36}}, .source = DATA_SOURCE_WEATHER},  // Top Left
+    {.box_rect = {{99, 8}, {93, 36}}, .source = DATA_SOURCE_SLEEP},          // Top Right
+    {.box_rect = {{LAYOUT_X, 184}, {63, 36}}, .source = DATA_SOURCE_STEPS},  // Bottom Left
+    {.box_rect = {{69, 184}, {62, 36}}, .source = DATA_SOURCE_HEART_RATE},   // Bottom Center
+    {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH}    // Bottom Right
 };
 
 const char* get_source_label(ComplicationDataSource source) {
@@ -140,7 +141,8 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       snprintf(val_buf, val_len, "%d", s_date_day);
       break;
     case DATA_SOURCE_BLUETOOTH:
-      snprintf(val_buf, val_len, s_connected ? "OK" : "LOSS");
+      // A Turbo Vision checkbox: ticked while the phone is there.
+      snprintf(val_buf, val_len, "%s", s_connected ? "[x]" : "[ ]");
       if (percent) *percent = s_connected ? 100 : 0;
       break;
     case DATA_SOURCE_ACTIVE_MINUTES:
@@ -274,4 +276,15 @@ void format_date_string(int format, struct tm* tick_time, char* buffer, int buf_
     snprintf(buffer, buf_size, "%s %s %d%s, %s", weekday_buf, month_buf, tick_time->tm_mday, suffix,
              year_buf);
   }
+}
+
+// Where the weekday sits in a string built by format_date_string(): format 1
+// trails it, the others lead with it. Kept beside the formatter so the two
+// can't drift apart.
+int date_dow_offset(int format, const char* formatted) {
+  if (format == 1) {
+    int len = strlen(formatted);
+    return len >= DOW_LEN ? len - DOW_LEN : 0;
+  }
+  return 0;
 }

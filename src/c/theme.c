@@ -4,76 +4,64 @@
 
 const WatchTheme* s_active_theme = NULL;
 
-const WatchTheme s_theme_night = {.center_bg = GColorBlack,
-                                  .sidebar_bg = GColorBlack,
-                                  .steps_fill = GColorChromeYellow,
-                                  .frame = GColorWhite,
-                                  .text_primary = GColorWhite,
-                                  .text_secondary = GColorLightGray,
-                                  .status_green = GColorMintGreen,
-                                  .status_yellow = GColorPastelYellow,
-                                  .status_red = GColorSunsetOrange};
+// Norton Commander's panel: EGA blue ground, cyan frames, white entries. Status
+// colors are the high-intensity variants, which is what reads on blue.
+const WatchTheme s_theme_panel = {.center_bg = GColorDukeBlue,           // #0000AA
+                                  .accent_cold = GColorElectricBlue,     // #55FFFF
+                                  .frame = GColorTiffanyBlue,            // #00AAAA
+                                  .text_primary = GColorWhite,           // #FFFFFF
+                                  .text_secondary = GColorElectricBlue,  // #55FFFF
+                                  .mark = GColorIcterine,                // #FFFF55
+                                  .status_ink = GColorBlack,             // #000000
+                                  .status_green = GColorScreaminGreen,   // #55FF55
+                                  .status_yellow = GColorIcterine,       // #FFFF55
+                                  .status_red = GColorSunsetOrange};     // #FF5555
 
-const WatchTheme s_theme_day = {.center_bg = GColorWhite,
-                                .sidebar_bg = GColorWhite,
-                                .steps_fill = GColorBlue,
-                                .frame = GColorBlack,
-                                .text_primary = GColorBlack,
-                                .text_secondary = GColorDarkGray,
-                                .status_green = GColorGreen,
-                                .status_yellow = GColorLimerick,
-                                .status_red = GColorRed};
+// The same panel in shadow. With 16 colors and no way to darken one, DOS-era
+// Turbo Vision faked a dimmed panel by drawing it grey-on-black. Three grey
+// tiers (55 chrome, AA titles, FF values) keep the hierarchy intact.
+const WatchTheme s_theme_shadow = {.center_bg = GColorBlack,             // #000000
+                                   .accent_cold = GColorElectricBlue,    // #55FFFF
+                                   .frame = GColorDarkGray,              // #555555
+                                   .text_primary = GColorWhite,          // #FFFFFF
+                                   .text_secondary = GColorLightGray,    // #AAAAAA
+                                   .mark = GColorIcterine,               // #FFFF55
+                                   .status_ink = GColorBlack,            // #000000
+                                   .status_green = GColorScreaminGreen,  // #55FF55
+                                   .status_yellow = GColorIcterine,      // #FFFF55
+                                   .status_red = GColorSunsetOrange};    // #FF5555
 
-// The amber monochrome terminal: black ground, dim amber frames, bright amber
-// text. Status colors stay chromatic so battery and AQI still read as status.
-const WatchTheme s_theme_commander_night = {.center_bg = GColorBlack,             // #000000
-                                            .sidebar_bg = GColorDarkGray,         // #555555
-                                            .steps_fill = GColorChromeYellow,     // #FFAA00
-                                            .frame = GColorWindsorTan,            // #AA5500
-                                            .text_primary = GColorChromeYellow,   // #FFAA00
-                                            .text_secondary = GColorRajah,        // #FFAA55
-                                            .status_green = GColorScreaminGreen,  // #55FF55
-                                            .status_yellow = GColorChromeYellow,  // #FFAA00
-                                            .status_red = GColorSunsetOrange};    // #FF5555
+// The Turbo Vision dialog box — text attribute 0x70, black on light grey, the
+// palette NC used for its own menus. On a light ground everything drawn as text
+// has to be a low-intensity color to stay legible, brown standing in as the
+// palette's dark yellow, and status_ink flips to white to clear those fills.
+// Turbo Vision highlighted hotkeys with 0x7E, yellow on grey — authentic, but
+// far too faint to read on a watch, so marks take the dark yellow instead.
+const WatchTheme s_theme_dialog = {.center_bg = GColorLightGray,            // #AAAAAA
+                                   .accent_cold = GColorDukeBlue,           // #0000AA
+                                   .frame = GColorDukeBlue,                 // #0000AA
+                                   .text_primary = GColorBlack,             // #000000
+                                   .text_secondary = GColorDarkGray,        // #555555
+                                   .mark = GColorWindsorTan,                // #AA5500
+                                   .status_ink = GColorWhite,               // #FFFFFF
+                                   .status_green = GColorIslamicGreen,      // #00AA00
+                                   .status_yellow = GColorWindsorTan,       // #AA5500
+                                   .status_red = GColorDarkCandyAppleRed};  // #AA0000
 
-// Norton Commander's panel: EGA blue ground, cyan frames, white entries.
-const WatchTheme s_theme_commander_day = {.center_bg = GColorDukeBlue,       // #0000AA
-                                          .sidebar_bg = GColorOxfordBlue,    // #000055
-                                          .steps_fill = GColorElectricBlue,  // #55FFFF
-                                          .frame = GColorTiffanyBlue,        // #00AAAA
-                                          .text_primary = GColorWhite,       // #FFFFFF
-                                          .text_secondary = GColorElectricBlue,
-                                          .status_green = GColorScreaminGreen,  // #55FF55
-                                          .status_yellow = GColorChromeYellow,  // #FFAA00
-                                          .status_red = GColorSunsetOrange};    // #FF5555
-
-// Auto mode: Day = 6 AM to 5:59 PM
-static bool is_daytime(int current_hour) {
-  return current_hour >= 6 && current_hour < 18;
-}
-
-const WatchTheme* determine_theme(int theme_setting, int current_hour) {
+// No auto mode: the chosen theme stays put, so this never consults the clock.
+const WatchTheme* determine_theme(int theme_setting) {
   switch (theme_setting) {
     case 1:
-      return &s_theme_day;
+      return &s_theme_shadow;
     case 2:
-      return &s_theme_night;
-    case 3:
-      return is_daytime(current_hour) ? &s_theme_commander_day : &s_theme_commander_night;
-    case 4:
-      return &s_theme_commander_day;
-    case 5:
-      return &s_theme_commander_night;
-    default:  // 0 = Auto
-      return is_daytime(current_hour) ? &s_theme_day : &s_theme_night;
+      return &s_theme_dialog;
+    default:  // 0, and anything unrecognized
+      return &s_theme_panel;
   }
 }
 
 void apply_theme() {
-  time_t temp = time(NULL);
-  struct tm* tick_time = localtime(&temp);
-
-  s_active_theme = determine_theme(s_settings_theme, tick_time->tm_hour);
+  s_active_theme = determine_theme(s_settings_theme);
 
   if (s_main_window) {
     window_set_background_color(s_main_window, s_active_theme->center_bg);
@@ -88,23 +76,25 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_battery_level > 50) return s_active_theme->status_green;
       if (s_battery_level > 20) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
+    // Plain readouts, drawn in the primary text color. Heart rate belongs here,
+    // not with the status colors: it has no thresholds to encode, so tinting it
+    // only made it look like a warning. Bluetooth says it with a checkbox
+    // glyph, so it needs no color either.
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
-      return s_active_theme->text_primary;
     case DATA_SOURCE_HEART_RATE:
-      return s_active_theme->status_red;
+    case DATA_SOURCE_BLUETOOTH:
+      return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:
     case DATA_SOURCE_WEATHER:
       if (s_settings_units == 1) {  // Metric (Celsius)
         if (s_weather_temp > 29) return s_active_theme->status_red;
-        if (s_weather_temp < 4) return s_active_theme->steps_fill;  // Blue
-      } else {                                                      // Imperial (Fahrenheit)
+        if (s_weather_temp < 4) return s_active_theme->accent_cold;  // Blue
+      } else {                                                       // Imperial (Fahrenheit)
         if (s_weather_temp > 85) return s_active_theme->status_red;
-        if (s_weather_temp < 40) return s_active_theme->steps_fill;  // Blue
+        if (s_weather_temp < 40) return s_active_theme->accent_cold;  // Blue
       }
       return s_active_theme->text_primary;
-    case DATA_SOURCE_BLUETOOTH:
-      return s_connected ? s_active_theme->status_green : s_active_theme->status_red;
     case DATA_SOURCE_AQI:
       if (s_weather_aqi == -1) return s_active_theme->text_primary;
       if (s_weather_aqi > 100) return s_active_theme->status_red;

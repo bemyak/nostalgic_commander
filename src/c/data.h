@@ -35,12 +35,20 @@ extern bool s_connected;
 extern int s_date_day;
 extern int s_beats;
 
+// The date as last formatted by update_time(); drawn on the canvas so the
+// weekday can carry its own color.
+extern char s_date_display[64];
+
 extern int s_settings_theme;
 extern int s_settings_units;
 extern int s_settings_date_format;
 
-extern ComplicationDataSource s_left_sidebar_source;
-extern ComplicationDataSource s_right_sidebar_source;
+// Every frame spans these columns: an 8px margin on each edge, matching the
+// vertical margins. 184 is 23 whole character cells, so the frame lines up with
+// the font's 8px column grid. Lives here because the slot table below has to
+// tile within it.
+#define LAYOUT_X 8
+#define LAYOUT_W 184
 
 #define NUM_SLOTS 5
 typedef struct {
@@ -54,6 +62,10 @@ extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
 void format_date_string(int format, struct tm* tick_time, char* buffer, int buf_size);
+
+// Weekdays are always the 3-letter abbreviation strftime's %a produces.
+#define DOW_LEN 3
+int date_dow_offset(int format, const char* formatted);
 int compute_beats(time_t utc);
 void to_upper_str(char* str);
 int tuple_get_int(Tuple* tuple);
