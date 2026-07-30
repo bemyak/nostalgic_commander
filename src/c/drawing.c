@@ -340,11 +340,10 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
 }
 
 void canvas_update_proc(Layer* layer, GContext* ctx) {
-  GRect bounds = layer_get_bounds(layer);
-
-  // Clean background
-  graphics_context_set_fill_color(ctx, s_active_theme->center_bg);
-  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  // No background fill: the window root layer fills the whole frame with
+  // window->background_color on every render pass (PebbleOS
+  // window_do_layer_update_proc), and apply_theme() keeps it at center_bg.
+  (void)layer;
 
   // TIME is fixed; the centre row is the sixth slot, so the loop below draws
   // its frame and title from whatever source it holds.
