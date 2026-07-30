@@ -287,6 +287,7 @@ extern int32_t mock_heart_rate;
 extern int mock_health_accessible_count;
 extern int mock_health_sum_today_count;
 extern int mock_health_peek_count;
+extern time_t mock_time_offset;
 extern int mock_vibes_count;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;

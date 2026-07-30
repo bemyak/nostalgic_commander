@@ -220,11 +220,30 @@ static void handle_bluetooth(bool connected) {
 }
 
 #if defined(PBL_HEALTH)
+// PebbleOS posts MovementUpdate per accel batch, with no rate limit, for as
+// long as the wearer keeps moving; SleepUpdate rides the same accel-driven
+// cadence. With a step- or sleep-bearing slot visible every one of them
+// changed the snapshot, so the face rendered several times a second while
+// walking. Timestamp-based leading-edge throttle (no app_timer): the 60 s
+// tick stays the freshness floor, and a dropped event's data lands at the
+// next in-window event or tick.
+#define HEALTH_EVENT_THROTTLE_S 5
+static time_t s_last_throttled_health_refresh;
+
 static void health_handler(HealthEventType event, void* context) {
   // SignificantUpdate = the applib health cache was invalidated (day
-  // rollover, subscribe); harmless-while-ticking, and it costs one refresh.
-  if (event == HealthEventMovementUpdate || event == HealthEventHeartRateUpdate ||
-      event == HealthEventSleepUpdate || event == HealthEventSignificantUpdate) {
+  // rollover, subscribe); rare, load-bearing, never throttled. HeartRateUpdate
+  // bypasses the throttle too: a posted reading is already fresh, and stale
+  // BPM is worse than a redraw (see ISSUES.md).
+  if (event == HealthEventHeartRateUpdate || event == HealthEventSignificantUpdate) {
+    update_health_info();
+    request_ui_redraw();
+    return;
+  }
+  if (event == HealthEventMovementUpdate || event == HealthEventSleepUpdate) {
+    time_t now = time(NULL);
+    if (now - s_last_throttled_health_refresh < HEALTH_EVENT_THROTTLE_S) return;
+    s_last_throttled_health_refresh = now;
     update_health_info();
     request_ui_redraw();
   }

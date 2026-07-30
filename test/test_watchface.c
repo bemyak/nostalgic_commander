@@ -24,6 +24,10 @@ void setUp(void) {
   s_quick_view_active = false;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
   mock_set_hidden_count = 0;
+  // Isolate the timestamp-based health throttle: zero both the mock clock
+  // offset and the last-refresh stamp so no test inherits a window.
+  mock_time_offset = 0;
+  s_last_throttled_health_refresh = 0;
   // main_window_load() reads the theme like init() applies one first; the
   // render-gate tests load the window without going through init().
   s_active_theme = &s_theme_panel;
@@ -245,8 +249,8 @@ void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
 }
 
 void test_steps_bar_should_fill_with_the_plain_text_color(void) {
-  // The steps bar encodes no status (unlike the battery bar's thresholds), so
-  // its fill is the plain text color — the rule get_source_color gives STEPS.
+  // The steps bar encodes no status, so its fill is the plain text color —
+  // the rule get_source_color gives STEPS.
   s_complication_slots[5].source = DATA_SOURCE_STEPS_BAR;
   s_step_count = 6000;  // 60% of the 10k goal
   mock_fill_rect_reset();
@@ -264,6 +268,30 @@ void test_steps_bar_should_fill_with_the_plain_text_color(void) {
 
   s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
   s_step_count = -1;
+}
+
+void test_battery_bar_should_fill_with_the_plain_text_color(void) {
+  // The bar fill matches the steps bar: plain text color at any level. The
+  // green/yellow/red thresholds belong to the plain battery slot only.
+  s_complication_slots[5].source = DATA_SOURCE_BATTERY_BAR;
+  s_battery_level = 60;  // mid-level: get_source_color would give green
+  mock_fill_rect_reset();
+
+  canvas_update_proc(NULL, NULL);
+
+  bool saw_bar_fill = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_green);
+    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_yellow);
+    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_red);
+    if (mock_fill_rects[i].size.w > 0 && mock_fill_rect_colors[i] == s_active_theme->text_primary) {
+      saw_bar_fill = true;
+    }
+  }
+  TEST_ASSERT_TRUE(saw_bar_fill);
+
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+  s_battery_level = 100;
 }
 
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
@@ -1146,6 +1174,88 @@ void test_update_health_info_should_read_only_displayed_metrics(void) {
   restore_slots(saved);
 }
 
+// PebbleOS posts MovementUpdate per accel batch at motion rate; a step- or
+// sleep-bearing slot turns every one into a render. HEALTH_EVENT_THROTTLE_S
+// bounds that to one refresh per window.
+void test_health_handler_should_throttle_movement_updates(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
+                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
+                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
+  restore_slots(only_steps);
+
+  mock_health_accessible_count = 0;
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  int dirty_after_first = mock_mark_dirty_count;
+
+  mock_time_offset += 3;  // inside the window: dropped, no work, no redraw
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(dirty_after_first, mock_mark_dirty_count);
+
+  restore_slots(saved);
+}
+
+void test_health_handler_should_refresh_again_after_the_throttle_window(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
+                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
+                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
+  restore_slots(only_steps);
+
+  mock_health_accessible_count = 0;
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+
+  mock_time_offset += HEALTH_EVENT_THROTTLE_S + 1;
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+
+  restore_slots(saved);
+}
+
+// A posted HR reading is already fresh — stale BPM is worse than a redraw
+// (ISSUES.md), so heart-rate events bypass the throttle.
+void test_health_handler_should_not_throttle_heart_rate_updates(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
+                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
+                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
+  restore_slots(only_steps);
+
+  mock_health_accessible_count = 0;
+  health_handler(HealthEventMovementUpdate, NULL);  // opens a throttle window
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  health_handler(HealthEventHeartRateUpdate, NULL);
+  health_handler(HealthEventHeartRateUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(3, mock_health_accessible_count);
+
+  restore_slots(saved);
+}
+
+// SignificantUpdate is the applib cache-invalidated signal — rare and
+// load-bearing, so it never waits out the throttle window.
+void test_health_handler_should_not_throttle_significant_updates(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
+                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
+                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
+  restore_slots(only_steps);
+
+  mock_health_accessible_count = 0;
+  health_handler(HealthEventMovementUpdate, NULL);  // opens a throttle window
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  health_handler(HealthEventSignificantUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+
+  restore_slots(saved);
+}
+
 void test_undisplayed_health_metrics_should_read_as_no_data(void) {
   ComplicationDataSource saved[NUM_SLOTS];
   save_slots(saved);
@@ -1452,6 +1562,7 @@ int main(void) {
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
+  RUN_TEST(test_battery_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
@@ -1489,6 +1600,10 @@ int main(void) {
   RUN_TEST(test_update_health_info_should_read_heart_rate);
   RUN_TEST(test_update_health_info_should_do_nothing_with_no_health_slots);
   RUN_TEST(test_update_health_info_should_read_only_displayed_metrics);
+  RUN_TEST(test_health_handler_should_throttle_movement_updates);
+  RUN_TEST(test_health_handler_should_refresh_again_after_the_throttle_window);
+  RUN_TEST(test_health_handler_should_not_throttle_heart_rate_updates);
+  RUN_TEST(test_health_handler_should_not_throttle_significant_updates);
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_handle_bluetooth_should_vibrate_only_on_disconnect_transition);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);

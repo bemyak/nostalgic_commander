@@ -269,6 +269,16 @@ void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void
 time_t time_start_of_today(void) {
   return 0;
 }
+// Mock wall clock: the health-event throttle is timestamp-based, so tests jump
+// seconds through this offset instead of sleeping.
+time_t mock_time_offset = 0;
+time_t time(time_t* t) {
+  struct timespec ts;
+  timespec_get(&ts, TIME_UTC);
+  time_t now = (time_t)ts.tv_sec + mock_time_offset;
+  if (t) *t = now;
+  return now;
+}
 int mock_vibes_count = 0;
 void vibes_double_pulse(void) {
   mock_vibes_count++;
