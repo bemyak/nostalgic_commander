@@ -24,5 +24,5 @@ extern const WatchTheme s_theme_dialog;  // the Turbo Vision dialog box
 
 // Setting 0 is Auto, which picks by the hour; 1-3 pin one theme.
 const WatchTheme* determine_theme(int theme_setting, int current_hour);
-void apply_theme();
+void apply_theme(struct tm* tick_time);
 GColor get_source_color(ComplicationDataSource source);

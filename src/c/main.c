@@ -20,13 +20,6 @@ GFont vga_font_64(void) {
 // Data Updaters
 // -----------------------------------------------------------------------------
 
-static void update_date_info() {
-  time_t temp = time(NULL);
-  struct tm* tick_time = localtime(&temp);
-
-  s_date_day = tick_time->tm_mday;
-}
-
 static void update_health_info() {
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
@@ -76,15 +69,16 @@ static void update_health_info() {
 }
 
 void update_time() {
-  apply_theme();
+  time_t temp = time(NULL);
+  struct tm* tick_time = localtime(&temp);
+
+  apply_theme(tick_time);
 
   // The theme can change while the face is open (Auto crossing 06:00/14:00/22:00,
   // or a settings push); the time layer keeps its load-time color unless
   // re-applied here. The date is canvas-drawn, so it follows on redraw.
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
-  time_t temp = time(NULL);
-  struct tm* tick_time = localtime(&temp);
   s_beats = compute_beats(temp);
 
   static char s_time_buffer[8];
@@ -97,12 +91,25 @@ void update_time() {
   }
   text_layer_set_text(s_time_layer, time_str);
 
-  format_date_string(s_settings_date_format, s_settings_short_date_format, s_settings_dow_position,
-                     tick_time, s_date_display, sizeof(s_date_display));
-  format_short_date_string(s_settings_short_date_format, s_settings_dow_position, tick_time,
-                           s_short_date_display, sizeof(s_short_date_display));
+  // The date changes at midnight and on settings pushes only; reformat then,
+  // not per tick. Consecutive days never share a tm_yday.
+  static int s_fmt_yday = -1;
+  static int s_fmt_format = -1;
+  static int s_fmt_short = -1;
+  static int s_fmt_dow = -1;
+  if (tick_time->tm_yday != s_fmt_yday || s_settings_date_format != s_fmt_format ||
+      s_settings_short_date_format != s_fmt_short || s_settings_dow_position != s_fmt_dow) {
+    format_date_string(s_settings_date_format, s_settings_short_date_format,
+                       s_settings_dow_position, tick_time, s_date_display, sizeof(s_date_display));
+    format_short_date_string(s_settings_short_date_format, s_settings_dow_position, tick_time,
+                             s_short_date_display, sizeof(s_short_date_display));
+    s_date_day = tick_time->tm_mday;
+    s_fmt_yday = tick_time->tm_yday;
+    s_fmt_format = s_settings_date_format;
+    s_fmt_short = s_settings_short_date_format;
+    s_fmt_dow = s_settings_dow_position;
+  }
 
-  update_date_info();
   update_health_info();
   refresh_complications();
   if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
@@ -198,7 +205,8 @@ static void init(void) {
   s_vga_64 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_64));
 
   s_main_window = window_create();
-  apply_theme();
+  time_t now = time(NULL);
+  apply_theme(localtime(&now));
   window_set_window_handlers(s_main_window, (WindowHandlers){
                                                 .load = main_window_load,
                                                 .unload = main_window_unload,

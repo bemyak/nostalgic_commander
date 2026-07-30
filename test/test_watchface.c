@@ -993,6 +993,32 @@ void test_update_time_should_never_request_weather(void) {
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
 }
 
+void test_update_time_should_reformat_the_date_when_settings_change(void) {
+  s_settings_dow_position = DOW_BEFORE;
+  update_time();  // primes the format cache for (today, these settings)
+  char with_dow[64];
+  strcpy(with_dow, s_date_display);
+
+  s_settings_dow_position = DOW_HIDDEN;
+  update_time();
+  TEST_ASSERT_TRUE(strcmp(with_dow, s_date_display) != 0);
+
+  s_settings_dow_position = DOW_BEFORE;
+  update_time();
+  TEST_ASSERT_EQUAL_STRING(with_dow, s_date_display);
+}
+
+void test_update_time_should_keep_date_output_when_nothing_changes(void) {
+  update_time();
+  char once[64];
+  char once_short[16];
+  strcpy(once, s_date_display);
+  strcpy(once_short, s_short_date_display);
+  update_time();
+  TEST_ASSERT_EQUAL_STRING(once, s_date_display);
+  TEST_ASSERT_EQUAL_STRING(once_short, s_short_date_display);
+}
+
 void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
   struct tm t = {0};
 
@@ -1053,6 +1079,8 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_update_time_should_never_request_weather);
+  RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
+  RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   return UNITY_END();
 }

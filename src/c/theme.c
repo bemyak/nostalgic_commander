@@ -70,10 +70,7 @@ const WatchTheme* determine_theme(int theme_setting, int current_hour) {
   }
 }
 
-void apply_theme() {
-  time_t temp = time(NULL);
-  struct tm* tick_time = localtime(&temp);
-
+void apply_theme(struct tm* tick_time) {
   s_active_theme = determine_theme(s_settings_theme, tick_time->tm_hour);
 
   if (s_main_window) {
