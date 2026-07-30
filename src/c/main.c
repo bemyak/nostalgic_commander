@@ -271,7 +271,7 @@ static void init(void) {
   // AppMessage setup
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
-  app_message_open(512, 512);
+  app_message_open(256, 64);
 
   // Restore cached weather; only hit the network if the cache is stale
   if (!load_weather_cache()) {
