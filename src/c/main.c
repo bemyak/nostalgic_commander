@@ -106,15 +106,16 @@ void update_time() {
   update_health_info();
   refresh_complications();
   if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
-
-  // Request weather update every 30 minutes
-  if (tick_time->tm_min % 30 == 0) {
-    request_weather();
-  }
 }
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   update_time();
+  // Fetch on the tick edge only. update_time() also runs from
+  // inbox_received_callback; triggering there too re-armed the fetch on
+  // every reply for the whole of minutes :00/:30.
+  if (tick_time->tm_min % 30 == 0) {
+    request_weather();
+  }
 }
 
 static void battery_callback(BatteryChargeState state) {

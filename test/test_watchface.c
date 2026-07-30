@@ -872,15 +872,6 @@ void test_handle_bluetooth_should_vibrate_only_on_disconnect_transition(void) {
   TEST_ASSERT_EQUAL_INT(2, mock_vibes_count);
 }
 
-// update_time() (called at the end of inbox_received_callback) requests
-// weather itself when the wall-clock minute is :00 or :30; account for that
-// so the outbox assertions don't flake twice an hour.
-static int expected_tick_fetches(void) {
-  time_t now = time(NULL);
-  struct tm* t = localtime(&now);
-  return (t->tm_min % 30 == 0) ? 1 : 0;
-}
-
 void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -983,14 +974,40 @@ void test_inbox_units_change_should_trigger_weather_refetch(void) {
   int before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(1, s_settings_units);
-  TEST_ASSERT_EQUAL_INT(before + 1 + expected_tick_fetches(), mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
 
   // Same units again: no refetch
   mock_dict_reset();
   mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_UNITS, "1");
   before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
-  TEST_ASSERT_EQUAL_INT(before + expected_tick_fetches(), mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
+void test_update_time_should_never_request_weather(void) {
+  // Regression for the :00/:30 feedback loop: every weather reply ends in
+  // update_time(); when the fetch trigger lived there, each reply re-armed
+  // the request until the minute flipped — 20-60 fetches, twice an hour.
+  int before = mock_outbox_sends;
+  update_time();
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
+void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
+  struct tm t = {0};
+
+  t.tm_min = 14;
+  int before = mock_outbox_sends;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+
+  t.tm_min = 30;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+
+  t.tm_min = 0;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before + 2, mock_outbox_sends);
 }
 
 int main(void) {
@@ -1035,5 +1052,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_slot_assignments);
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
+  RUN_TEST(test_update_time_should_never_request_weather);
+  RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   return UNITY_END();
 }
