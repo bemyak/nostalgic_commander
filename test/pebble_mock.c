@@ -97,9 +97,12 @@ void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
 void graphics_context_set_text_color(GContext* ctx, GColor color) {}
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {}
+int mock_wordwrap_calls = 0;
 void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
                         GTextOverflowMode overflow_mode, GTextAlignment alignment,
-                        GContext* layout_cache) {}
+                        GContext* layout_cache) {
+  if (overflow_mode == GTextOverflowModeWordWrap) mock_wordwrap_calls++;
+}
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
                         GCornerMask corner_mask) {}
 

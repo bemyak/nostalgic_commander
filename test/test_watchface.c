@@ -128,6 +128,15 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
   test_apply_theme();
 }
 
+void test_canvas_procs_should_never_word_wrap(void) {
+  test_apply_theme();
+  s_complication_slots[3].source = DATA_SOURCE_BATTERY_BAR;  // exercise the shade runs too
+  mock_wordwrap_calls = 0;
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, mock_wordwrap_calls);
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
   main_window_load(NULL);
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
@@ -1213,6 +1222,7 @@ int main(void) {
   RUN_TEST(test_render_gate_should_pass_displayed_changes_through);
   RUN_TEST(test_render_gate_should_notice_bar_slot_changes);
   RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
+  RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);

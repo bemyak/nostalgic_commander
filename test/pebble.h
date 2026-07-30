@@ -274,6 +274,7 @@ extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;
 extern int mock_set_text_count;
 extern int mock_set_text_color_count;
+extern int mock_wordwrap_calls;
 void mock_dict_reset(void);
 void mock_dict_add_int(uint32_t key, int32_t value);
 void mock_dict_add_cstring(uint32_t key, const char* str);

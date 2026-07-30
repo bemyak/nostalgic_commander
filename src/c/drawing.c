@@ -47,7 +47,7 @@ void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
   graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
   graphics_draw_text(ctx, title, vga_font_16(),
                      GRect(gap_left, y - VGA16_CELL_H / 2, gap_right - gap_left, VGA16_CELL_H),
-                     GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
 }
 
 // The centred rect a monospace value occupies inside its window: a whole number
@@ -81,7 +81,7 @@ static void draw_run(GContext* ctx, GRect row, int cell, const char* text, int l
   graphics_draw_text(
       ctx, buf, vga_font_16(),
       GRect(row.origin.x + cell * VGA16_CHAR_W, row.origin.y, len * VGA16_CHAR_W, row.size.h),
-      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 // Draws a value with one run picked out in `accent` and the rest in the primary
@@ -157,7 +157,7 @@ static void draw_shade_run(GContext* ctx, GRect row, int cell, int cells, const 
   graphics_draw_text(
       ctx, buf, vga_font_16(),
       GRect(row.origin.x + cell * VGA16_CHAR_W, row.origin.y, cells * VGA16_CHAR_W, row.size.h),
-      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 // A DOS progress bar: full blocks for the filled part, light shade for the
