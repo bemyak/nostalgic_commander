@@ -16,6 +16,7 @@ typedef struct Layer Layer;
 typedef struct TextLayer TextLayer;
 typedef struct GContext GContext;
 typedef struct DictionaryIterator DictionaryIterator;
+typedef void AppTimer;
 
 typedef struct {
   int x;
@@ -220,6 +221,13 @@ void app_message_outbox_send(void);
 void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context));
 void app_message_register_inbox_received(void (*callback)(DictionaryIterator* iterator,
                                                           void* context));
+void app_message_register_outbox_sent(void (*callback)(DictionaryIterator* iterator,
+                                                       void* context));
+void app_message_register_outbox_failed(void (*callback)(DictionaryIterator* iterator,
+                                                         AppMessageResult reason, void* context));
+AppTimer* app_timer_register(uint32_t timeout_ms, void (*callback)(void* data), void* data);
+bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms);
+void app_timer_cancel(AppTimer* timer);
 BatteryChargeState battery_state_service_peek(void);
 void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge));
 bool clock_is_24h_style(void);

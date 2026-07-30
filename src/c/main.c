@@ -33,6 +33,14 @@ static bool any_slot_is_one_of(const ComplicationDataSource* sources, int count)
   return false;
 }
 
+bool any_slot_needs_weather(void) {
+  return any_slot_is_one_of(
+      (ComplicationDataSource[]){DATA_SOURCE_WEATHER, DATA_SOURCE_WEATHER_TEMP,
+                                 DATA_SOURCE_WEATHER_COND, DATA_SOURCE_AQI, DATA_SOURCE_UV,
+                                 DATA_SOURCE_AQI_UV},
+      6);
+}
+
 static void update_health_info() {
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
@@ -158,9 +166,41 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   // Fetch on the tick edge only. update_time() also runs from
   // inbox_received_callback; triggering there too re-armed the fetch on
   // every reply for the whole of minutes :00/:30.
-  if (tick_time->tm_min % 30 == 0) {
+  if (tick_time->tm_min % 30 == 0 && any_slot_needs_weather()) {
     request_weather();
   }
+}
+
+// A weather request that loses the race with the phone's JS runtime is
+// dropped silently, and after Task 11 nothing on the phone side fetches on
+// its own. Bounded retry, reset on the first successful send. The outbox only
+// ever carries the weather trigger, so no message discrimination is needed.
+#define WEATHER_REQUEST_RETRY_MS 5000
+#define WEATHER_REQUEST_MAX_RETRIES 2
+
+static int s_weather_request_retries = 0;
+
+static void weather_retry_callback(void* data) {
+  request_weather();
+}
+
+static void outbox_sent_callback(DictionaryIterator* iterator, void* context) {
+  s_weather_request_retries = 0;
+}
+
+static void outbox_failed_callback(DictionaryIterator* iterator, AppMessageResult reason,
+                                   void* context) {
+  if (s_weather_request_retries >= WEATHER_REQUEST_MAX_RETRIES) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Weather request failed (%d); retries exhausted", (int)reason);
+    return;
+  }
+  s_weather_request_retries++;
+  // One-shot timers free themselves on firing, so the handle is deliberately
+  // discarded. A second failure inside the window arms a second timer and
+  // both fire — the counter bounds the total sends anyway. A NULL return
+  // (timer pool exhausted) silently drops this retry — acceptable at the
+  // weather-request failure rate.
+  app_timer_register(WEATHER_REQUEST_RETRY_MS, weather_retry_callback, NULL);
 }
 
 static void battery_callback(BatteryChargeState state) {
@@ -271,10 +311,14 @@ static void init(void) {
   // AppMessage setup
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
+  app_message_register_outbox_sent(outbox_sent_callback);
+  app_message_register_outbox_failed(outbox_failed_callback);
   app_message_open(256, 64);
 
-  // Restore cached weather; only hit the network if the cache is stale
-  if (!load_weather_cache()) {
+  // Restore cached weather; hit the network only if the cache is stale and
+  // something actually shows weather. && short-circuits left to right, so the
+  // cache load always runs.
+  if (!load_weather_cache() && any_slot_needs_weather()) {
     request_weather();
   }
   update_time();

@@ -1248,6 +1248,76 @@ void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
   TEST_ASSERT_EQUAL_INT(before + 2, mock_outbox_sends);
 }
 
+void test_tick_handler_should_skip_weather_with_no_weather_slots(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
+                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
+                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
+  restore_slots(weather_free);
+
+  struct tm t = {0};
+  t.tm_min = 30;
+  int before = mock_outbox_sends;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+
+  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+
+  restore_slots(saved);
+}
+
+void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
+                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
+                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
+  restore_slots(weather_free);
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SLOT_1, "16");  // DATA_SOURCE_AQI
+  int before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+
+  // Already showing weather: the same push again must not refetch, and a
+  // weather reply (no SLOT_* keys) must not either — that is the :00/:30 loop
+  // reappearing by another route.
+  before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+
+  restore_slots(saved);
+}
+
+void test_dropped_weather_request_should_retry_a_bounded_number_of_times(void) {
+  s_weather_request_retries = 0;
+  int before = mock_outbox_sends;
+
+  // Each failure schedules one retry; the mock timer never fires, so drive it.
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  weather_retry_callback(NULL);
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  weather_retry_callback(NULL);
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);  // exhausted: no third
+
+  TEST_ASSERT_EQUAL_INT(WEATHER_REQUEST_MAX_RETRIES, s_weather_request_retries);
+  TEST_ASSERT_EQUAL_INT(before + WEATHER_REQUEST_MAX_RETRIES, mock_outbox_sends);
+
+  outbox_sent_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+}
+
 void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -1330,6 +1400,9 @@ int main(void) {
   RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
+  RUN_TEST(test_tick_handler_should_skip_weather_with_no_weather_slots);
+  RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);
+  RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
   RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
   RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);
   return UNITY_END();

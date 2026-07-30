@@ -21,6 +21,18 @@ void app_message_outbox_send(void) {
 void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context)) {}
 void app_message_register_inbox_received(void (*callback)(DictionaryIterator* iterator,
                                                           void* context)) {}
+void app_message_register_outbox_sent(void (*callback)(DictionaryIterator* iterator,
+                                                       void* context)) {}
+void app_message_register_outbox_failed(void (*callback)(DictionaryIterator* iterator,
+                                                         AppMessageResult reason, void* context)) {}
+
+AppTimer* app_timer_register(uint32_t timeout_ms, void (*callback)(void* data), void* data) {
+  return NULL;  // host tests drive retries by calling the callback directly
+}
+bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms) {
+  return false;
+}
+void app_timer_cancel(AppTimer* timer) {}
 
 BatteryChargeState battery_state_service_peek(void) {
   BatteryChargeState state = {.charge_percent = 100, .is_charging = false, .is_plugged = false};

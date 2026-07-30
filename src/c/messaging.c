@@ -149,6 +149,10 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
   }
 
+  // Adding a weather slot has to fetch now, or the new slot reads "--" until
+  // the next :00/:30 edge.
+  bool needed_weather = any_slot_needs_weather();
+
   Tuple* slot1 = dict_find(iterator, MESSAGE_KEY_SLOT_1);
   if (slot1) {
     s_complication_slots[0].source = tuple_get_int(slot1);
@@ -185,8 +189,10 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int_if_changed(PERSIST_KEY_SLOT_6, s_complication_slots[5].source);
   }
 
-  // If units changed, request new weather immediately to fetch correct unit
-  if (units_changed) {
+  // A weather reply carries neither SLOT_* nor SETTINGS_UNITS keys, so it
+  // matches needed_weather == needs_weather and never re-arms a request.
+  bool needs_weather = any_slot_needs_weather();
+  if (needs_weather && (units_changed || !needed_weather)) {
     request_weather();
   }
 
