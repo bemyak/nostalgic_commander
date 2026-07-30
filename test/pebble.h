@@ -296,6 +296,7 @@ extern int mock_wordwrap_calls;
 extern int mock_bar_glyph_calls;
 #define MOCK_MAX_FILL_RECTS 128
 extern GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
+extern GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];
 extern int mock_fill_rect_count;
 void mock_fill_rect_reset(void);
 #define MOCK_MAX_SET_HIDDEN 32

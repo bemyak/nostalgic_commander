@@ -244,6 +244,28 @@ void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
   s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
+void test_steps_bar_should_fill_with_the_plain_text_color(void) {
+  // The steps bar encodes no status (unlike the battery bar's thresholds), so
+  // its fill is the plain text color — the rule get_source_color gives STEPS.
+  s_complication_slots[5].source = DATA_SOURCE_STEPS_BAR;
+  s_step_count = 6000;  // 60% of the 10k goal
+  mock_fill_rect_reset();
+
+  canvas_update_proc(NULL, NULL);
+
+  bool saw_bar_fill = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_green);
+    if (mock_fill_rects[i].size.w > 0 && mock_fill_rect_colors[i] == s_active_theme->text_primary) {
+      saw_bar_fill = true;
+    }
+  }
+  TEST_ASSERT_TRUE(saw_bar_fill);
+
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+  s_step_count = -1;
+}
+
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
   main_window_load(NULL);
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
@@ -1429,6 +1451,7 @@ int main(void) {
   RUN_TEST(test_quick_view_should_hide_and_restore_bottom_row_text_layers);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
+  RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);

@@ -109,7 +109,10 @@ bool grect_equal(const GRect* const rect_a, const GRect* const rect_b) {
          rect_a->size.w == rect_b->size.w && rect_a->size.h == rect_b->size.h;
 }
 
-void graphics_context_set_fill_color(GContext* ctx, GColor color) {}
+static GColor s_mock_fill_color = GColorClear;
+void graphics_context_set_fill_color(GContext* ctx, GColor color) {
+  s_mock_fill_color = color;
+}
 void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
 void graphics_context_set_text_color(GContext* ctx, GColor color) {}
@@ -123,6 +126,7 @@ void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
   if (strstr(text, "\xE2\x96\x88")) mock_bar_glyph_calls++;  // U+2588 FULL BLOCK
 }
 GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
+GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];
 int mock_fill_rect_count = 0;
 void mock_fill_rect_reset(void) {
   mock_fill_rect_count = 0;
@@ -130,7 +134,8 @@ void mock_fill_rect_reset(void) {
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
                         GCornerMask corner_mask) {
   if (mock_fill_rect_count < MOCK_MAX_FILL_RECTS) {
-    mock_fill_rects[mock_fill_rect_count++] = rect;
+    mock_fill_rects[mock_fill_rect_count] = rect;
+    mock_fill_rect_colors[mock_fill_rect_count++] = s_mock_fill_color;
   }
 }
 

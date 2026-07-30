@@ -205,14 +205,14 @@ static void draw_steps_bar_complication(GContext* ctx, GRect box_rect) {
   char buf[16];
   int percent = 0;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
-  draw_progress_bar(ctx, box_rect, percent, s_step_count != -1, s_active_theme->status_green);
+  draw_progress_bar(ctx, box_rect, percent, s_step_count != -1, s_active_theme->text_primary);
 }
 
 static void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   int percent = 0;
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
-  draw_progress_bar(ctx, box_rect, percent, true, get_source_color(DATA_SOURCE_BATTERY));
+  draw_progress_bar(ctx, box_rect, percent, true, s_active_theme->text_primary);
 }
 
 static void draw_short_date_complication(GContext* ctx, GRect box_rect) {
