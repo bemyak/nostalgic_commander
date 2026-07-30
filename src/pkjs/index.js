@@ -88,9 +88,38 @@ function getWeather(attempt) {
         var units = settings['SETTINGS_UNITS'] || '0';
         var tempUnit = (units === '1' || units === 1) ? 'celsius' : 'fahrenheit';
 
-        var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
+        var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
+            '&longitude=' + lon +
             '&current_weather=true&timezone=auto&temperature_unit=' + tempUnit +
             '&hourly=uv_index&forecast_hours=' + UV_WINDOW_HOURS;
+        var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
+            '&longitude=' + lon + '&current=us_aqi';
+
+        // The forecast and AQI backends are independent; fan out and join so
+        // the phone radio is up once instead of twice. The join preserves the
+        // old serial semantics: a failed forecast retries the whole fetch
+        // (an in-flight AQI result is discarded); a failed AQI sends with -1.
+        var forecast = null;
+        var aqi = -1;
+        var settled = 0;
+        var failedReason = null;
+
+        function join() {
+          settled++;
+          if (settled < 2) return;
+          if (failedReason) {
+            retryWeather(attempt, failedReason);
+            return;
+          }
+          sendWeatherDict(
+              {
+                'WEATHER_TEMP': forecast.temp,
+                'WEATHER_COND': forecast.cond,
+                'WEATHER_AQI': aqi,
+                'WEATHER_UV': forecast.uv
+              },
+              'Weather, AQI & UV');
+        }
 
         var xhr = new XMLHttpRequest();
         xhr.onload = function() {
@@ -99,10 +128,9 @@ function getWeather(attempt) {
               var json = JSON.parse(this.responseText);
               var temp = Math.round(json.current_weather.temperature);
               var code = json.current_weather.weathercode;
-              // -1 is the watch-side "no data" sentinel (renders as "--").
-              // forecast_hours already windows the hourly data to the next
-              // UV_WINDOW_HOURS starting at the current hour; the timestamp
-              // guard keeps us honest if the API ever returns a wider range.
+              // -1 is the watch-side "no data" sentinel; forecast_hours
+              // already windows the hourly data, the timestamp guard keeps us
+              // honest if the API ever returns a wider range.
               var uv = -1;
               if (json.hourly && json.hourly.uv_index && json.hourly.time) {
                 var windowStart = Date.now() - 3600 * 1000;  // include the in-progress hour
@@ -135,60 +163,46 @@ function getWeather(attempt) {
               } else {
                 cond = 'CLD';
               }
-
-              // Fetch AQI from Air Quality API
-              var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
-                  '&longitude=' + lon + '&current=us_aqi';
-              var aqiXhr = new XMLHttpRequest();
-              aqiXhr.onload = function() {
-                var aqi = -1;
-                if (aqiXhr.status === 200) {
-                  try {
-                    var aqiJson = JSON.parse(this.responseText);
-                    if (aqiJson.current && aqiJson.current.us_aqi !== undefined) {
-                      aqi = Math.round(aqiJson.current.us_aqi);
-                    }
-                  } catch (e) {
-                    console.log('Error parsing AQI: ' + e);
-                  }
-                }
-
-                sendWeatherDict(
-                    {
-                      'WEATHER_TEMP': temp,
-                      'WEATHER_COND': cond,
-                      'WEATHER_AQI': aqi,
-                      'WEATHER_UV': uv
-                    },
-                    'Weather, AQI & UV');
-              };
-              aqiXhr.onerror = function() {
-                sendWeatherDict(
-                    {
-                      'WEATHER_TEMP': temp,
-                      'WEATHER_COND': cond,
-                      'WEATHER_AQI': -1,
-                      'WEATHER_UV': uv
-                    },
-                    'Weather & UV (no AQI)');
-              };
-              aqiXhr.ontimeout = aqiXhr.onerror;
-              aqiXhr.open('GET', aqiUrl);
-              aqiXhr.timeout = 10000;
-              aqiXhr.send();
-
+              forecast = {temp: temp, cond: cond, uv: uv};
             } catch (e) {
-              retryWeather(attempt, 'parse error: ' + e);
+              failedReason = 'parse error: ' + e;
             }
           } else {
-            retryWeather(attempt, 'HTTP status ' + xhr.status);
+            failedReason = 'HTTP status ' + xhr.status;
           }
+          join();
         };
-        xhr.onerror = function() { retryWeather(attempt, 'network error'); };
-        xhr.ontimeout = function() { retryWeather(attempt, 'timeout'); };
-        xhr.open('GET', url);
+        xhr.onerror = function() {
+          failedReason = 'network error';
+          join();
+        };
+        xhr.ontimeout = function() {
+          failedReason = 'timeout';
+          join();
+        };
+        xhr.open('GET', forecastUrl);
         xhr.timeout = 10000;
         xhr.send();
+
+        var aqiXhr = new XMLHttpRequest();
+        aqiXhr.onload = function() {
+          if (aqiXhr.status === 200) {
+            try {
+              var aqiJson = JSON.parse(this.responseText);
+              if (aqiJson.current && aqiJson.current.us_aqi !== undefined) {
+                aqi = Math.round(aqiJson.current.us_aqi);
+              }
+            } catch (e) {
+              console.log('Error parsing AQI: ' + e);
+            }
+          }
+          join();
+        };
+        aqiXhr.onerror = join;
+        aqiXhr.ontimeout = join;
+        aqiXhr.open('GET', aqiUrl);
+        aqiXhr.timeout = 10000;
+        aqiXhr.send();
       },
       function(err) { retryWeather(attempt, 'geolocation: ' + err.message); },
       {timeout: 15000, maximumAge: 60000});
