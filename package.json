@@ -3,7 +3,9 @@
   "author": "Elizardbeth",
   "version": "1.1.0",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
   "dependencies": {
     "@rebble/clay": "^1.0.3"
@@ -30,11 +32,14 @@
       "SETTINGS_THEME",
       "SETTINGS_UNITS",
       "SETTINGS_DATE_FORMAT",
+      "SETTINGS_SHORT_DATE_FORMAT",
+      "SETTINGS_DOW_POSITION",
       "SLOT_1",
       "SLOT_2",
       "SLOT_3",
       "SLOT_4",
       "SLOT_5",
+      "SLOT_6",
       "WEATHER_AQI",
       "WEATHER_UV"
     ],
@@ -44,7 +49,7 @@
           "type": "font",
           "name": "FONT_VGA_16",
           "file": "fonts/Px437_IBM_VGA_8x16.ttf",
-          "characterRegex": "[\\x20-\\x7E]",
+          "characterRegex": "[\\x20-\\x7E\u2588\u2591]",
           "size": 16
         },
         {

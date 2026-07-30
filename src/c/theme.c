@@ -48,20 +48,33 @@ const WatchTheme s_theme_dialog = {.center_bg = GColorLightGray,            // #
                                    .status_yellow = GColorWindsorTan,       // #AA5500
                                    .status_red = GColorDarkCandyAppleRed};  // #AA0000
 
-// No auto mode: the chosen theme stays put, so this never consults the clock.
-const WatchTheme* determine_theme(int theme_setting) {
+// Auto walks the three themes on 8-hour shifts, brightest first: the light
+// dialog through the morning, the blue panel through the afternoon, and the
+// shadowed panel overnight.
+static const WatchTheme* theme_for_hour(int current_hour) {
+  if (current_hour >= 6 && current_hour < 14) return &s_theme_dialog;
+  if (current_hour >= 14 && current_hour < 22) return &s_theme_panel;
+  return &s_theme_shadow;  // 22:00 to 06:00
+}
+
+const WatchTheme* determine_theme(int theme_setting, int current_hour) {
   switch (theme_setting) {
     case 1:
-      return &s_theme_shadow;
-    case 2:
       return &s_theme_dialog;
-    default:  // 0, and anything unrecognized
+    case 2:
       return &s_theme_panel;
+    case 3:
+      return &s_theme_shadow;
+    default:  // 0 = Auto, and anything unrecognized
+      return theme_for_hour(current_hour);
   }
 }
 
 void apply_theme() {
-  s_active_theme = determine_theme(s_settings_theme);
+  time_t temp = time(NULL);
+  struct tm* tick_time = localtime(&temp);
+
+  s_active_theme = determine_theme(s_settings_theme, tick_time->tm_hour);
 
   if (s_main_window) {
     window_set_background_color(s_main_window, s_active_theme->center_bg);
@@ -73,8 +86,8 @@ GColor get_source_color(ComplicationDataSource source) {
 
   switch (source) {
     case DATA_SOURCE_BATTERY:
-      if (s_battery_level > 50) return s_active_theme->status_green;
-      if (s_battery_level > 20) return s_active_theme->status_yellow;
+      if (s_battery_level > BATTERY_LOW_PCT) return s_active_theme->status_green;
+      if (s_battery_level > BATTERY_CRIT_PCT) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
     // Plain readouts, drawn in the primary text color. Heart rate belongs here,
     // not with the status colors: it has no thresholds to encode, so tinting it

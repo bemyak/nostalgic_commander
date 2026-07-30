@@ -78,9 +78,9 @@ static void update_health_info() {
 void update_time() {
   apply_theme();
 
-  // The theme can flip while the face is open (Auto mode at 06:00/18:00, or a
-  // settings push); the time layer keeps its load-time color unless re-applied
-  // here. The date is canvas-drawn, so it picks the new theme up on redraw.
+  // The theme can change while the face is open (Auto crossing 06:00/14:00/22:00,
+  // or a settings push); the time layer keeps its load-time color unless
+  // re-applied here. The date is canvas-drawn, so it follows on redraw.
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
   time_t temp = time(NULL);
@@ -97,7 +97,10 @@ void update_time() {
   }
   text_layer_set_text(s_time_layer, time_str);
 
-  format_date_string(s_settings_date_format, tick_time, s_date_display, sizeof(s_date_display));
+  format_date_string(s_settings_date_format, s_settings_short_date_format, s_settings_dow_position,
+                     tick_time, s_date_display, sizeof(s_date_display));
+  format_short_date_string(s_settings_short_date_format, s_settings_dow_position, tick_time,
+                           s_short_date_display, sizeof(s_short_date_display));
 
   update_date_info();
   update_health_info();

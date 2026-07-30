@@ -58,6 +58,16 @@ static GRect vga16_value_rect(GRect box_rect, const char* value) {
                VALUE_ROW_H);
 }
 
+// A status band spans the whole cell, the way a DOS list highlights a row,
+// inset so the fill never touches the frame. Because it is not tied to glyph
+// cells, the font's spacing column stops showing as slack on one side.
+static GRect status_band_rect(GRect box_rect) {
+  int inset = WINDOW_BORDER_PX + STATUS_BAND_PAD;
+  return GRect(box_rect.origin.x + inset,
+               box_rect.origin.y + VALUE_ROW_DY + (VALUE_ROW_H - VGA16_CELL_H) / 2,
+               box_rect.size.w - 2 * inset, VGA16_CELL_H);
+}
+
 // Draws `len` characters of `text` starting `cell` glyph cells into `row`.
 static void draw_run(GContext* ctx, GRect row, int cell, const char* text, int len, GColor color) {
   if (len <= 0) return;
@@ -109,23 +119,98 @@ static void draw_weather_temp_complication(GContext* ctx, GRect box_rect) {
   draw_unit_value(ctx, box_rect, DATA_SOURCE_WEATHER_TEMP);
 }
 
-// The DATE window's value, with the weekday picked out.
-static void draw_date_value(GContext* ctx, GRect box_rect) {
-  if (!s_date_display[0]) return;
+// A date with its weekday picked out. Shared by the DATE window and the
+// year-less slot complication, which order their weekday the same way.
+static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
+  if (!text[0]) return;
 
-  int at = date_dow_offset(s_settings_date_format, s_date_display);
-  draw_accented_value(ctx, vga16_value_rect(box_rect, s_date_display), s_date_display, at, DOW_LEN,
+  int at = date_dow_offset(s_settings_dow_position, text);
+  draw_accented_value(ctx, vga16_value_rect(box_rect, text), text, at, DOW_LEN,
                       s_active_theme->mark);
 }
 
-// A status band spans the whole cell, the way a DOS list highlights a row,
-// inset so the fill never touches the frame. Because it is not tied to glyph
-// cells, the font's spacing column stops showing as slack on one side.
-static GRect status_band_rect(GRect box_rect) {
-  int inset = WINDOW_BORDER_PX + STATUS_BAND_PAD;
-  return GRect(box_rect.origin.x + inset,
-               box_rect.origin.y + VALUE_ROW_DY + (VALUE_ROW_H - VGA16_CELL_H) / 2,
-               box_rect.size.w - 2 * inset, VGA16_CELL_H);
+static void draw_full_date_complication(GContext* ctx, GRect box_rect) {
+  draw_date_text(ctx, box_rect, s_date_display);
+}
+
+// CP437 shade characters, as UTF-8. FONT_VGA_16's characterRegex admits exactly
+// these two; the 64pt clock never draws them.
+#define BAR_FILL "\xE2\x96\x88"   // U+2588 FULL BLOCK
+#define BAR_TRACK "\xE2\x96\x91"  // U+2591 LIGHT SHADE
+#define BAR_VALUE_CELLS 4         // three digits plus '%'
+#define BAR_VALUE_MAX 999         // ...so this is the largest reading that fits
+
+// Repeats a shade glyph across `cells`. Byte length is not cell count here, so
+// this cannot go through draw_run — the caller states the cell span instead.
+static void draw_shade_run(GContext* ctx, GRect row, int cell, int cells, const char* glyph,
+                           GColor color) {
+  if (cells <= 0) return;
+
+  char buf[3 * 32 + 1];
+  int n = 0;
+  for (int i = 0; i < cells && n + 3 < (int)sizeof(buf); i++, n += 3) {
+    memcpy(buf + n, glyph, 3);
+  }
+  buf[n] = '\0';
+
+  graphics_context_set_text_color(ctx, color);
+  graphics_draw_text(
+      ctx, buf, vga_font_16(),
+      GRect(row.origin.x + cell * VGA16_CHAR_W, row.origin.y, cells * VGA16_CHAR_W, row.size.h),
+      GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+}
+
+// A DOS progress bar: full blocks for the filled part, light shade for the
+// track, and the percentage right-aligned after it. Keeping the reading outside
+// the bar means nothing has to stay legible on top of a fill.
+static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool has_reading,
+                              GColor fill) {
+  GRect band = status_band_rect(box_rect);
+  int cells = band.size.w / VGA16_CHAR_W;
+  int bar_cells = cells - BAR_VALUE_CELLS - 1;  // one cell of gap before the value
+  if (bar_cells < 1) return;
+
+  if (percent < 0) percent = 0;
+
+  // The fill stops at the end of the bar, but the reading beside it does not —
+  // 250% of a step goal is worth seeing. It caps at BAR_VALUE_MAX because that
+  // is the widest number BAR_VALUE_CELLS can hold.
+  int fill_percent = percent > 100 ? 100 : percent;
+  if (percent > BAR_VALUE_MAX) percent = BAR_VALUE_MAX;
+
+  int filled = has_reading ? (fill_percent * bar_cells) / 100 : 0;
+
+  GRect row = GRect(band.origin.x + (band.size.w - cells * VGA16_CHAR_W) / 2,
+                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+
+  draw_shade_run(ctx, row, 0, filled, BAR_FILL, fill);
+  draw_shade_run(ctx, row, filled, bar_cells - filled, BAR_TRACK, s_active_theme->frame);
+
+  char value[8];
+  if (has_reading) {
+    snprintf(value, sizeof(value), "%*d%%", BAR_VALUE_CELLS - 1, percent);
+  } else {
+    snprintf(value, sizeof(value), "%*s", BAR_VALUE_CELLS, "--");
+  }
+  draw_run(ctx, row, bar_cells + 1, value, strlen(value), s_active_theme->text_primary);
+}
+
+static void draw_steps_bar_complication(GContext* ctx, GRect box_rect) {
+  char buf[16];
+  int percent = 0;
+  get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
+  draw_progress_bar(ctx, box_rect, percent, s_step_count != -1, s_active_theme->status_green);
+}
+
+static void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
+  char buf[8];
+  int percent = 0;
+  get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
+  draw_progress_bar(ctx, box_rect, percent, true, get_source_color(DATA_SOURCE_BATTERY));
+}
+
+static void draw_short_date_complication(GContext* ctx, GRect box_rect) {
+  draw_date_text(ctx, box_rect, s_short_date_display);
 }
 
 // One field of the band: `w` pixels from `x`, filled when there is a reading,
@@ -211,11 +296,11 @@ static void draw_battery_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), NULL);
 
-  // Charge has its own thresholds, tighter than get_source_color's: at or above
-  // half the reading just shows the ground, and only a low battery earns a
-  // band.
-  GColor band = s_battery_level < 25 ? s_active_theme->status_red : s_active_theme->status_yellow;
-  draw_banded_value(ctx, box_rect, buf, s_battery_level < 50, band);
+  // A healthy charge just shows the ground rather than sitting under a permanent
+  // green block. Below that it wears exactly the color the bar would use, so the
+  // two can never disagree about the same reading.
+  draw_banded_value(ctx, box_rect, buf, s_battery_level <= BATTERY_LOW_PCT,
+                    get_source_color(DATA_SOURCE_BATTERY));
 }
 
 typedef void (*ComplicationDrawFn)(GContext*, GRect);
@@ -241,6 +326,14 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
       return draw_aqi_complication;
     case DATA_SOURCE_UV:
       return draw_uv_complication;
+    case DATA_SOURCE_SHORT_DATE:
+      return draw_short_date_complication;
+    case DATA_SOURCE_FULL_DATE:
+      return draw_full_date_complication;
+    case DATA_SOURCE_STEPS_BAR:
+      return draw_steps_bar_complication;
+    case DATA_SOURCE_BATTERY_BAR:
+      return draw_battery_bar_complication;
     default:
       return NULL;
   }
@@ -253,11 +346,9 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   graphics_context_set_fill_color(ctx, s_active_theme->center_bg);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
-  // Draw TIME and DATE windows
-  GRect date_box = GRect(LAYOUT_X, 142, LAYOUT_W, 36);
+  // TIME is fixed; the centre row is the sixth slot, so the loop below draws
+  // its frame and title from whatever source it holds.
   draw_ascii_window(ctx, GRect(LAYOUT_X, 50, LAYOUT_W, 86), "TIME");
-  draw_ascii_window(ctx, date_box, "DATE");
-  draw_date_value(ctx, date_box);
 
   // Draw parameterized ASCII windows
   for (int i = 0; i < NUM_SLOTS; i++) {

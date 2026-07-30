@@ -41,6 +41,10 @@ void load_settings(void) {
     s_settings_units = persist_read_int(PERSIST_KEY_SETTINGS_UNITS);
   if (persist_exists(PERSIST_KEY_SETTINGS_DATE_FORMAT))
     s_settings_date_format = persist_read_int(PERSIST_KEY_SETTINGS_DATE_FORMAT);
+  if (persist_exists(PERSIST_KEY_SETTINGS_SHORT_DATE))
+    s_settings_short_date_format = persist_read_int(PERSIST_KEY_SETTINGS_SHORT_DATE);
+  if (persist_exists(PERSIST_KEY_SETTINGS_DOW))
+    s_settings_dow_position = persist_read_int(PERSIST_KEY_SETTINGS_DOW);
   if (persist_exists(PERSIST_KEY_SLOT_1))
     s_complication_slots[0].source = persist_read_int(PERSIST_KEY_SLOT_1);
   if (persist_exists(PERSIST_KEY_SLOT_2))
@@ -51,6 +55,8 @@ void load_settings(void) {
     s_complication_slots[3].source = persist_read_int(PERSIST_KEY_SLOT_4);
   if (persist_exists(PERSIST_KEY_SLOT_5))
     s_complication_slots[4].source = persist_read_int(PERSIST_KEY_SLOT_5);
+  if (persist_exists(PERSIST_KEY_SLOT_6))
+    s_complication_slots[5].source = persist_read_int(PERSIST_KEY_SLOT_6);
 }
 
 void request_weather() {
@@ -111,6 +117,18 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int(PERSIST_KEY_SETTINGS_DATE_FORMAT, s_settings_date_format);
   }
 
+  Tuple* short_date_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT);
+  if (short_date_tuple) {
+    s_settings_short_date_format = tuple_get_int(short_date_tuple);
+    persist_write_int(PERSIST_KEY_SETTINGS_SHORT_DATE, s_settings_short_date_format);
+  }
+
+  Tuple* dow_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_DOW_POSITION);
+  if (dow_tuple) {
+    s_settings_dow_position = tuple_get_int(dow_tuple);
+    persist_write_int(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
+  }
+
   Tuple* slot1 = dict_find(iterator, MESSAGE_KEY_SLOT_1);
   if (slot1) {
     s_complication_slots[0].source = tuple_get_int(slot1);
@@ -139,6 +157,12 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   if (slot5) {
     s_complication_slots[4].source = tuple_get_int(slot5);
     persist_write_int(PERSIST_KEY_SLOT_5, s_complication_slots[4].source);
+  }
+
+  Tuple* slot6 = dict_find(iterator, MESSAGE_KEY_SLOT_6);
+  if (slot6) {
+    s_complication_slots[5].source = tuple_get_int(slot6);
+    persist_write_int(PERSIST_KEY_SLOT_6, s_complication_slots[5].source);
   }
 
   // If units changed, request new weather immediately to fetch correct unit

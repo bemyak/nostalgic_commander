@@ -13,16 +13,20 @@
         "label": "Theme",
         "options": [
           {
-            "label": "Commander Panel (EGA blue)",
+            "label": "Auto (by time of day)",
             "value": "0"
           },
           {
-            "label": "Shadowed Panel (black)",
+            "label": "Dialog (light grey)",
             "value": "1"
           },
           {
-            "label": "Dialog (light grey)",
+            "label": "Commander Panel (EGA blue)",
             "value": "2"
+          },
+          {
+            "label": "Shadowed Panel (black)",
+            "value": "3"
           }
         ]
       },
@@ -46,18 +50,58 @@
         "type": "select",
         "messageKey": "SETTINGS_DATE_FORMAT",
         "defaultValue": "0",
-        "label": "Date Format",
+        "label": "Date format",
         "options": [
           {
-            "label": "Weekday + ISO (TUE 2026-06-09)",
+            "label": "ISO (1970-12-31)",
             "value": "0"
           },
           {
-            "label": "ISO + Weekday (2026-06-09 TUE)",
+            "label": "DOS (31-12-1970)",
             "value": "1"
           },
           {
-            "label": "TUE JUNE 9th, 2026",
+            "label": "Text (DEC 31st, 1970)",
+            "value": "2"
+          },
+          {
+            "label": "Short (no year)",
+            "value": "3"
+          }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SETTINGS_SHORT_DATE_FORMAT",
+        "defaultValue": "0",
+        "label": "Short date format",
+        "options": [
+          {
+            "label": "Month-Day (12-31)",
+            "value": "0"
+          },
+          {
+            "label": "Day-Month (31-12)",
+            "value": "1"
+          }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SETTINGS_DOW_POSITION",
+        "defaultValue": "0",
+        "label": "Day of week",
+        "options": [
+          {
+            "label": "Before date (THU 1970-12-31)",
+            "value": "0"
+          },
+          {
+            "label": "After date (1970-12-31 THU)",
+            "value": "1"
+          },
+          {
+            "label": "Hidden (1970-12-31)",
             "value": "2"
           }
         ]
@@ -124,6 +168,10 @@
           {
             "label": ".beat (Swatch Internet Time)",
             "value": "21"
+          },
+          {
+            "label": "Short Date (no year)",
+            "value": "22"
           }
         ]
       },
@@ -180,6 +228,30 @@
           {
             "label": ".beat (Swatch Internet Time)",
             "value": "21"
+          },
+          {
+            "label": "Short Date (no year)",
+            "value": "22"
+          }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SLOT_6",
+        "defaultValue": "23",
+        "label": "Center Slot",
+        "options": [
+          {
+            "label": "Date",
+            "value": "23"
+          },
+          {
+            "label": "Steps Progress",
+            "value": "24"
+          },
+          {
+            "label": "Battery Progress",
+            "value": "25"
           }
         ]
       },

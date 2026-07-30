@@ -69,6 +69,9 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("UV", get_source_label(DATA_SOURCE_UV));
   TEST_ASSERT_EQUAL_STRING("AQI/UV", get_source_label(DATA_SOURCE_AQI_UV));
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
+  // Both date sources title the same window; one shows the day, one the date.
+  TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
+  TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_SHORT_DATE));
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
@@ -111,11 +114,12 @@ void test_get_source_data_should_format_steps(void) {
   TEST_ASSERT_EQUAL_STRING("5000", buf);
   TEST_ASSERT_EQUAL_INT(50, percent);
 
-  // > 10k steps format
+  // > 10k steps format. The percent is NOT clamped to 100 — beating the goal is
+  // worth seeing, and the progress bar clamps its own fill separately.
   s_step_count = 12500;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("12.5k", buf);
-  TEST_ASSERT_EQUAL_INT(100, percent);  // capped at 100%
+  TEST_ASSERT_EQUAL_INT(125, percent);
 }
 
 void test_get_source_data_should_format_weather(void) {
@@ -202,6 +206,88 @@ void test_get_source_data_should_format_heart_rate(void) {
   TEST_ASSERT_EQUAL_STRING("120", buf);
 }
 
+void test_progress_bar_sources_should_reuse_their_plain_counterparts(void) {
+  char buf[16];
+  int percent = 0;
+
+  // The bars render from the plain sources' value and percent, so the percent
+  // out-parameter has to stay correct — it is what sizes the fill.
+  s_step_goal = 10000;
+  s_step_count = 8200;
+  get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(82, percent);
+
+  s_step_count = -1;
+  get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_battery_level = 45;
+  get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(45, percent);
+
+  // Over-achievement reaches the bar intact, so the reading beside it can show
+  // more than 100% while the fill stays full. The display caps at BAR_VALUE_MAX
+  // so it still fits the 4-cell value field.
+  s_step_count = 25000;
+  get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(250, percent);
+
+  s_step_count = 100 * s_step_goal;  // 10000% of goal
+  get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(10000, percent);
+  TEST_ASSERT_TRUE(percent > BAR_VALUE_MAX);  // the bar is what clamps it
+
+  // Whatever the reading, the rendered value must fit BAR_VALUE_CELLS.
+  char rendered[8];
+  int shown[] = {0, 82, 100, 250, BAR_VALUE_MAX};
+  for (unsigned i = 0; i < sizeof(shown) / sizeof(shown[0]); i++) {
+    snprintf(rendered, sizeof(rendered), "%*d%%", BAR_VALUE_CELLS - 1, shown[i]);
+    TEST_ASSERT_EQUAL_INT(BAR_VALUE_CELLS, (int)strlen(rendered));
+  }
+
+  // Both bars title their window like the plain reading they mirror.
+  TEST_ASSERT_EQUAL_STRING("STEP", get_source_label(DATA_SOURCE_STEPS_BAR));
+  TEST_ASSERT_EQUAL_STRING("BATT", get_source_label(DATA_SOURCE_BATTERY_BAR));
+  TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_FULL_DATE));
+}
+
+void test_battery_band_and_color_should_agree_at_every_level(void) {
+  // The progress bar colors its fill from get_source_color while the bottom
+  // complication decides whether to draw a band. Those used to be two separate
+  // threshold sets that disagreed between 21% and 24% — one yellow, one red.
+  s_active_theme = &s_theme_panel;
+
+  for (int level = 0; level <= 100; level++) {
+    s_battery_level = level;
+    GColor color = get_source_color(DATA_SOURCE_BATTERY);
+    bool banded = level <= BATTERY_LOW_PCT;
+
+    // A band appears exactly when the charge is not healthy, and never in the
+    // healthy color — that equivalence is the whole invariant.
+    TEST_ASSERT_EQUAL_INT(banded, color != s_theme_panel.status_green);
+
+    if (level <= BATTERY_CRIT_PCT) {
+      TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, color);
+    } else if (level <= BATTERY_LOW_PCT) {
+      TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, color);
+    }
+  }
+
+  // The boundary that was wrong: 21% is yellow, not red.
+  s_battery_level = 21;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  s_battery_level = 20;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
+}
+
+void test_centre_slot_should_be_the_sixth_and_default_to_the_date(void) {
+  // SLOT_1..5 keep their persisted indices, so the centre row must be last.
+  TEST_ASSERT_EQUAL_INT(6, NUM_SLOTS);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_FULL_DATE, s_complication_slots[5].source);
+  TEST_ASSERT_EQUAL_INT(LAYOUT_X, s_complication_slots[5].box_rect.origin.x);
+  TEST_ASSERT_EQUAL_INT(LAYOUT_W, s_complication_slots[5].box_rect.size.w);
+}
+
 void test_get_source_data_should_format_date_and_day(void) {
   char buf[16];
 
@@ -254,16 +340,43 @@ static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_the
 #define NUM_THEMES (sizeof(all_themes) / sizeof(all_themes[0]))
 
 void test_determine_theme_should_handle_all_configurations(void) {
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(1));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(2));
+  // Pinned choices ignore the clock entirely.
+  for (int hour = 0; hour < 24; hour++) {
+    TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(1, hour));
+    TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(2, hour));
+    TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(3, hour));
+  }
 
-  // No auto mode, so nothing here may depend on the clock, and the values the
-  // old day/night settings used must not resolve to a null theme.
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(3));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(5));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(99));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(-1));
+  // Auto: three 8-hour shifts, brightest first. Boundaries are the whole point.
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 5));  // 05:00 still night
+  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(0, 6));  // 06:00 dialog starts
+  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(0, 13));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0, 14));  // 14:00 panel starts
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0, 21));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 22));  // 22:00 shadow starts
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 23));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 0));
+
+  // Every hour must resolve to exactly one theme, and each shift must be 8h —
+  // otherwise a gap or overlap would leave some hour unthemed or double-mapped.
+  int dialog = 0, panel = 0, shadow = 0;
+  for (int hour = 0; hour < 24; hour++) {
+    const WatchTheme* t = determine_theme(0, hour);
+    TEST_ASSERT_NOT_NULL(t);
+    if (t == &s_theme_dialog)
+      dialog++;
+    else if (t == &s_theme_panel)
+      panel++;
+    else if (t == &s_theme_shadow)
+      shadow++;
+  }
+  TEST_ASSERT_EQUAL_INT(8, dialog);
+  TEST_ASSERT_EQUAL_INT(8, panel);
+  TEST_ASSERT_EQUAL_INT(8, shadow);
+
+  // Unknown values fall back to Auto rather than a null theme.
+  TEST_ASSERT_EQUAL_PTR(determine_theme(0, 12), determine_theme(99, 12));
+  TEST_ASSERT_EQUAL_PTR(determine_theme(0, 23), determine_theme(-1, 23));
 }
 
 void test_themes_should_keep_text_readable_on_their_ground(void) {
@@ -335,53 +448,6 @@ void test_every_theme_should_only_use_dos_palette_colors(void) {
     TEST_ASSERT_TRUE(is_dos_palette_color(t->status_yellow));
     TEST_ASSERT_TRUE(is_dos_palette_color(t->status_red));
   }
-}
-
-void test_format_date_string_should_handle_all_configurations(void) {
-  char buf[64];
-  struct tm tick_time;
-  memset(&tick_time, 0, sizeof(tick_time));
-  tick_time.tm_mday = 9;
-  tick_time.tm_mon = 5;     // June (0-indexed)
-  tick_time.tm_year = 126;  // 2026
-  tick_time.tm_wday = 2;    // Tuesday
-
-  // Format 0: Weekday + ISO
-  format_date_string(0, &tick_time, buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("TUE 2026-06-09", buf);
-
-  // Format 1: ISO + Weekday
-  format_date_string(1, &tick_time, buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("2026-06-09 TUE", buf);
-
-  // Format 2: Full Text
-  format_date_string(2, &tick_time, buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("TUE JUNE 9th, 2026", buf);
-}
-
-void test_date_dow_offset_should_locate_the_weekday_in_every_format(void) {
-  char buf[64];
-  struct tm tick_time;
-  memset(&tick_time, 0, sizeof(tick_time));
-  tick_time.tm_mday = 9;
-  tick_time.tm_mon = 5;
-  tick_time.tm_year = 126;
-  tick_time.tm_wday = 2;
-
-  // The weekday leads formats 0 and 2, and trails format 1. Whatever the
-  // offset, the DOW_LEN characters there must be the weekday itself.
-  for (int format = 0; format <= 2; format++) {
-    format_date_string(format, &tick_time, buf, sizeof(buf));
-    int at = date_dow_offset(format, buf);
-    TEST_ASSERT_EQUAL_STRING_LEN("TUE", buf + at, DOW_LEN);
-  }
-
-  format_date_string(1, &tick_time, buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_INT((int)strlen(buf) - DOW_LEN, date_dow_offset(1, buf));
-
-  // Degenerate input must stay in bounds rather than index before the string.
-  TEST_ASSERT_EQUAL_INT(0, date_dow_offset(1, ""));
-  TEST_ASSERT_EQUAL_INT(0, date_dow_offset(0, ""));
 }
 
 void test_get_source_data_should_format_aqi_and_uv(void) {
@@ -527,6 +593,127 @@ void test_get_source_color_should_return_appropriate_colors(void) {
 
   s_battery_level = 0;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
+}
+
+// Thursday 31 December 1970 — the same date the settings page uses as its
+// example, so the UI, the docs and the tests all say the same thing.
+static struct tm epoch_new_years_eve(void) {
+  struct tm t;
+  memset(&t, 0, sizeof(t));
+  t.tm_mday = 31;
+  t.tm_mon = 11;   // December
+  t.tm_year = 70;  // 1970
+  t.tm_wday = 4;   // Thursday
+  t.tm_yday = 364;
+  return t;
+}
+
+void test_format_date_string_should_render_every_body(void) {
+  char buf[64];
+  struct tm t = epoch_new_years_eve();
+
+  // Bodies, with the weekday hidden so each is seen on its own.
+  format_date_string(DATE_FORMAT_ISO, SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("1970-12-31", buf);
+
+  format_date_string(DATE_FORMAT_DOS, SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("31-12-1970", buf);
+
+  format_date_string(DATE_FORMAT_TEXT, SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("DEC 31st, 1970", buf);
+
+  // Short defers to the short-date setting for its order.
+  format_date_string(DATE_FORMAT_SHORT, SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("12-31", buf);
+  format_date_string(DATE_FORMAT_SHORT, SHORT_DATE_DAY_MONTH, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("31-12", buf);
+
+  // An unrecognized format falls back to ISO rather than emptying the window.
+  format_date_string(99, SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("1970-12-31", buf);
+}
+
+void test_every_date_combination_should_fit_its_window(void) {
+  // The centre DATE window is LAYOUT_W wide, less its two 2px borders, so it
+  // holds 22 glyph cells. Nothing clips overlong text — vga16_value_rect sizes
+  // the draw rect to the string, not the box — so an overlong date spills over
+  // the frame. The full month name used to do exactly that for about a quarter
+  // of the year, which is why the text format abbreviates.
+  const int cap = (LAYOUT_W - 2 * WINDOW_BORDER_PX) / VGA16_CHAR_W;
+  const int month_days[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  char buf[64];
+  struct tm t = epoch_new_years_eve();
+
+  for (int month = 0; month < 12; month++) {
+    t.tm_mon = month;
+    for (int day = 1; day <= month_days[month]; day++) {
+      t.tm_mday = day;
+      for (int fmt = 0; fmt <= 3; fmt++) {
+        for (int dow = 0; dow <= 2; dow++) {
+          format_date_string(fmt, SHORT_DATE_MONTH_DAY, dow, &t, buf, sizeof(buf));
+          if ((int)strlen(buf) > cap) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "%s = %d cells, over %d", buf, (int)strlen(buf), cap);
+            TEST_FAIL_MESSAGE(msg);
+          }
+        }
+      }
+    }
+  }
+}
+
+void test_weekday_position_should_be_independent_of_the_body(void) {
+  char buf[64];
+  struct tm t = epoch_new_years_eve();
+
+  // The weekday setting applies to every body, which is the whole point of
+  // splitting it out of the format.
+  int bodies[] = {DATE_FORMAT_ISO, DATE_FORMAT_DOS, DATE_FORMAT_TEXT, DATE_FORMAT_SHORT};
+  for (unsigned i = 0; i < sizeof(bodies) / sizeof(bodies[0]); i++) {
+    format_date_string(bodies[i], SHORT_DATE_MONTH_DAY, DOW_BEFORE, &t, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING_LEN("THU ", buf, 4);
+    TEST_ASSERT_EQUAL_INT(0, date_dow_offset(DOW_BEFORE, buf));
+
+    format_date_string(bodies[i], SHORT_DATE_MONTH_DAY, DOW_AFTER, &t, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING("THU", buf + strlen(buf) - DOW_LEN);
+    TEST_ASSERT_EQUAL_INT((int)strlen(buf) - DOW_LEN, date_dow_offset(DOW_AFTER, buf));
+
+    format_date_string(bodies[i], SHORT_DATE_MONTH_DAY, DOW_HIDDEN, &t, buf, sizeof(buf));
+    TEST_ASSERT_NULL(strstr(buf, "THU"));
+    // Hidden means there is nothing to accent.
+    TEST_ASSERT_EQUAL_INT(-1, date_dow_offset(DOW_HIDDEN, buf));
+  }
+
+  format_date_string(DATE_FORMAT_ISO, SHORT_DATE_MONTH_DAY, DOW_BEFORE, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("THU 1970-12-31", buf);
+  format_date_string(DATE_FORMAT_ISO, SHORT_DATE_MONTH_DAY, DOW_AFTER, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("1970-12-31 THU", buf);
+
+  // Degenerate input must stay in bounds rather than index before the string.
+  TEST_ASSERT_EQUAL_INT(-1, date_dow_offset(DOW_AFTER, ""));
+  TEST_ASSERT_EQUAL_INT(0, date_dow_offset(DOW_BEFORE, ""));
+}
+
+void test_short_date_should_stay_short_whatever_the_date_format(void) {
+  char buf[16];
+  struct tm t = epoch_new_years_eve();
+
+  // The complication always renders the year-less form, and must fit the
+  // 11-character top slot in every combination.
+  for (int shortfmt = 0; shortfmt <= 1; shortfmt++) {
+    for (int dow = 0; dow <= 2; dow++) {
+      format_short_date_string(shortfmt, dow, &t, buf, sizeof(buf));
+      TEST_ASSERT_TRUE(strlen(buf) <= 11);
+      TEST_ASSERT_NULL(strstr(buf, "1970"));
+    }
+  }
+
+  format_short_date_string(SHORT_DATE_MONTH_DAY, DOW_BEFORE, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("THU 12-31", buf);
+  format_short_date_string(SHORT_DATE_DAY_MONTH, DOW_AFTER, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("31-12 THU", buf);
+  format_short_date_string(SHORT_DATE_DAY_MONTH, DOW_HIDDEN, &t, buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("31-12", buf);
 }
 
 void test_weather_cache_should_round_trip_when_fresh(void) {
@@ -748,6 +935,44 @@ void test_inbox_should_parse_slot_assignments(void) {
   s_complication_slots[4].source = DATA_SOURCE_BLUETOOTH;
 }
 
+void test_inbox_should_parse_the_newer_settings_and_centre_slot(void) {
+  // Every other setting has a round-trip test; these three were added without
+  // one, and a wiring gap in exactly this plumbing has broken a real build
+  // before — a message key referenced in C but missing from package.json.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT, "1");  // Clay sends strings
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_DOW_POSITION, DOW_HIDDEN);
+  mock_dict_add_cstring(MESSAGE_KEY_SLOT_6, "24");
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(SHORT_DATE_DAY_MONTH, s_settings_short_date_format);
+  TEST_ASSERT_EQUAL_INT(DOW_HIDDEN, s_settings_dow_position);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_STEPS_BAR, s_complication_slots[5].source);
+
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_SHORT_DATE));
+  TEST_ASSERT_EQUAL_INT(DOW_HIDDEN, persist_read_int(PERSIST_KEY_SETTINGS_DOW));
+  TEST_ASSERT_EQUAL_INT(24, persist_read_int(PERSIST_KEY_SLOT_6));
+
+  // ...and load_settings() must restore what the inbox persisted, or the choice
+  // silently reverts on the next launch.
+  s_settings_short_date_format = 0;
+  s_settings_dow_position = 0;
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+
+  load_settings();
+
+  TEST_ASSERT_EQUAL_INT(SHORT_DATE_DAY_MONTH, s_settings_short_date_format);
+  TEST_ASSERT_EQUAL_INT(DOW_HIDDEN, s_settings_dow_position);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_STEPS_BAR, s_complication_slots[5].source);
+
+  // Restore the boot layout for later tests.
+  s_settings_short_date_format = 0;
+  s_settings_dow_position = 0;
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+}
+
 void test_inbox_units_change_should_trigger_weather_refetch(void) {
   mock_persist_reset();
 
@@ -781,6 +1006,9 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_weather_temp_and_cond);
   RUN_TEST(test_get_source_data_should_format_heart_rate);
   RUN_TEST(test_get_source_data_should_format_date_and_day);
+  RUN_TEST(test_progress_bar_sources_should_reuse_their_plain_counterparts);
+  RUN_TEST(test_battery_band_and_color_should_agree_at_every_level);
+  RUN_TEST(test_centre_slot_should_be_the_sixth_and_default_to_the_date);
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
@@ -791,8 +1019,10 @@ int main(void) {
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);
   RUN_TEST(test_status_ink_should_clear_every_fill_it_is_drawn_on);
   RUN_TEST(test_every_theme_should_only_use_dos_palette_colors);
-  RUN_TEST(test_format_date_string_should_handle_all_configurations);
-  RUN_TEST(test_date_dow_offset_should_locate_the_weekday_in_every_format);
+  RUN_TEST(test_format_date_string_should_render_every_body);
+  RUN_TEST(test_every_date_combination_should_fit_its_window);
+  RUN_TEST(test_weekday_position_should_be_independent_of_the_body);
+  RUN_TEST(test_short_date_should_stay_short_whatever_the_date_format);
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);
@@ -803,6 +1033,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);
   RUN_TEST(test_inbox_should_parse_slot_assignments);
+  RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   return UNITY_END();
 }

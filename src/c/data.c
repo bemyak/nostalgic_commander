@@ -18,9 +18,12 @@ bool s_connected = true;
 int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
-int s_settings_theme = 0;        // 0 = Auto, 1 = Day, 2 = Night
-int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
-int s_settings_date_format = 0;  // 0 = Weekday + ISO, 1 = ISO + Weekday, 2 = Full Text
+char s_short_date_display[16] = "";
+int s_settings_theme = 0;              // 0 = Auto, 1 = Dialog, 2 = Panel, 3 = Shadow
+int s_settings_units = 0;              // 0 = Imperial, 1 = Metric
+int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
+int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
+int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 
 // Each row tiles LAYOUT_X..LAYOUT_X+LAYOUT_W-1, with neighbours overlapping by
 // 2 columns — the frame border width — so their borders coincide into a single
@@ -30,14 +33,18 @@ ComplicationSlot s_complication_slots[NUM_SLOTS] = {
     {.box_rect = {{99, 8}, {93, 36}}, .source = DATA_SOURCE_SLEEP},          // Top Right
     {.box_rect = {{LAYOUT_X, 184}, {63, 36}}, .source = DATA_SOURCE_STEPS},  // Bottom Left
     {.box_rect = {{69, 184}, {62, 36}}, .source = DATA_SOURCE_HEART_RATE},   // Bottom Center
-    {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH}    // Bottom Right
-};
+    {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH},   // Bottom Right
+    // The wide centre row. Indexed last so SLOT_1..5 keep their persisted
+    // positions; its own setting is SLOT_6.
+    {.box_rect = {{LAYOUT_X, 142}, {LAYOUT_W, 36}}, .source = DATA_SOURCE_FULL_DATE}};
 
 const char* get_source_label(ComplicationDataSource source) {
   switch (source) {
     case DATA_SOURCE_BATTERY:
+    case DATA_SOURCE_BATTERY_BAR:
       return "BATT";
     case DATA_SOURCE_STEPS:
+    case DATA_SOURCE_STEPS_BAR:
       return "STEP";
     case DATA_SOURCE_SLEEP:
       return "SLEEP";
@@ -50,6 +57,8 @@ const char* get_source_label(ComplicationDataSource source) {
     case DATA_SOURCE_HEART_RATE:
       return "BPM";
     case DATA_SOURCE_DATE:
+    case DATA_SOURCE_SHORT_DATE:
+    case DATA_SOURCE_FULL_DATE:
       return "DATE";
     case DATA_SOURCE_BLUETOOTH:
       return "BT";
@@ -90,8 +99,10 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
         snprintf(val_buf, val_len, "%d", s_step_count);
       }
       if (percent) {
+        // True progress, deliberately not clamped to 100: beating the goal is
+        // worth seeing. Consumers clamp for their own needs — a progress bar
+        // can only fill to its end, but the reading beside it keeps counting.
         *percent = s_step_count > 0 ? (s_step_count * 100) / s_step_goal : 0;
-        if (*percent > 100) *percent = 100;
       }
       break;
     case DATA_SOURCE_SLEEP: {
@@ -139,6 +150,12 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       break;
     case DATA_SOURCE_DATE:
       snprintf(val_buf, val_len, "%d", s_date_day);
+      break;
+    case DATA_SOURCE_SHORT_DATE:
+      snprintf(val_buf, val_len, "%s", s_short_date_display);
+      break;
+    case DATA_SOURCE_FULL_DATE:
+      snprintf(val_buf, val_len, "%s", s_date_display);
       break;
     case DATA_SOURCE_BLUETOOTH:
       // A Turbo Vision checkbox: ticked while the phone is there.
@@ -248,43 +265,74 @@ static void ordinal_suffix(int day, char* buf) {
   }
 }
 
-void format_date_string(int format, struct tm* tick_time, char* buffer, int buf_size) {
-  if (format == 0) {
-    // TUE 2026-06-09
-    strftime(buffer, buf_size, "%a %Y-%m-%d", tick_time);
-    to_upper_str(buffer);
-  } else if (format == 1) {
-    // 2026-06-09 TUE
-    strftime(buffer, buf_size, "%Y-%m-%d %a", tick_time);
-    to_upper_str(buffer);
-  } else if (format == 2) {
-    // TUE JUNE 9th, 2026
-    char weekday_buf[8];
-    char month_buf[16];
-    char year_buf[8];
+// The date itself, without the weekday.
+static void format_date_body(int format, int short_format, struct tm* tick_time, char* buffer,
+                             int buf_size) {
+  switch (format) {
+    case DATE_FORMAT_DOS:
+      strftime(buffer, buf_size, "%d-%m-%Y", tick_time);
+      break;
+    case DATE_FORMAT_TEXT: {
+      char month_buf[16];
+      char year_buf[8];
+      char suffix[3];
 
-    strftime(weekday_buf, sizeof(weekday_buf), "%a", tick_time);
-    strftime(month_buf, sizeof(month_buf), "%B", tick_time);
-    strftime(year_buf, sizeof(year_buf), "%Y", tick_time);
+      strftime(month_buf, sizeof(month_buf), "%b", tick_time);
+      strftime(year_buf, sizeof(year_buf), "%Y", tick_time);
+      to_upper_str(month_buf);
+      ordinal_suffix(tick_time->tm_mday, suffix);
 
-    to_upper_str(weekday_buf);
-    to_upper_str(month_buf);
-
-    char suffix[3];
-    ordinal_suffix(tick_time->tm_mday, suffix);
-
-    snprintf(buffer, buf_size, "%s %s %d%s, %s", weekday_buf, month_buf, tick_time->tm_mday, suffix,
-             year_buf);
+      snprintf(buffer, buf_size, "%s %d%s, %s", month_buf, tick_time->tm_mday, suffix, year_buf);
+      break;
+    }
+    case DATE_FORMAT_SHORT:
+      strftime(buffer, buf_size, short_format == SHORT_DATE_DAY_MONTH ? "%d-%m" : "%m-%d",
+               tick_time);
+      break;
+    default:
+      strftime(buffer, buf_size, "%Y-%m-%d", tick_time);
+      break;
   }
 }
 
-// Where the weekday sits in a string built by format_date_string(): format 1
-// trails it, the others lead with it. Kept beside the formatter so the two
-// can't drift apart.
-int date_dow_offset(int format, const char* formatted) {
-  if (format == 1) {
+// Attaches the weekday where the Day of week setting wants it. Every date the
+// face draws goes through here, so the position never depends on the format.
+static void format_with_weekday(int dow_position, struct tm* tick_time, const char* body,
+                                char* buffer, int buf_size) {
+  if (dow_position == DOW_HIDDEN) {
+    snprintf(buffer, buf_size, "%s", body);
+    return;
+  }
+
+  char weekday_buf[8];
+  strftime(weekday_buf, sizeof(weekday_buf), "%a", tick_time);
+  to_upper_str(weekday_buf);
+
+  if (dow_position == DOW_AFTER) {
+    snprintf(buffer, buf_size, "%s %s", body, weekday_buf);
+  } else {
+    snprintf(buffer, buf_size, "%s %s", weekday_buf, body);
+  }
+}
+
+void format_date_string(int format, int short_format, int dow_position, struct tm* tick_time,
+                        char* buffer, int buf_size) {
+  char body[32];
+  format_date_body(format, short_format, tick_time, body, sizeof(body));
+  format_with_weekday(dow_position, tick_time, body, buffer, buf_size);
+}
+
+void format_short_date_string(int short_format, int dow_position, struct tm* tick_time,
+                              char* buffer, int buf_size) {
+  format_date_string(DATE_FORMAT_SHORT, short_format, dow_position, tick_time, buffer, buf_size);
+}
+
+// Kept beside the formatters so the two can't drift apart.
+int date_dow_offset(int dow_position, const char* formatted) {
+  if (dow_position == DOW_HIDDEN) return -1;
+  if (dow_position == DOW_AFTER) {
     int len = strlen(formatted);
-    return len >= DOW_LEN ? len - DOW_LEN : 0;
+    return len >= DOW_LEN ? len - DOW_LEN : -1;
   }
   return 0;
 }

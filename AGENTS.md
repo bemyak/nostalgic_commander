@@ -22,9 +22,11 @@ the change is wrong.
   forking is the sanctioned escape hatch. When someone wants a feature that
   doesn't fit tuiface, pointing them at a fork (see
   [CONTRIBUTING.md](CONTRIBUTING.md)) is a good outcome, not a brush-off.
-- **TUI-like, but legible.** The aesthetic is a terminal UI — dashed borders,
+- **TUI-like, but legible.** The aesthetic is a terminal UI — framed windows,
   monospace-feeling layouts, text over icons. If a TUI flourish hurts
-  legibility on the watch, legibility wins.
+  legibility on the watch, legibility wins: the frames are solid 2px strokes
+  rather than character-drawn rules, because box-drawing glyphs render thin and
+  uneven at this size.
 - **Everything is tested.** New logic comes with unit tests, expanded and run
   to prove it holds up. Pure logic (formatting, thresholds, theme selection)
   belongs in testable modules, not inline in UI code.

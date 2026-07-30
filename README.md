@@ -1,8 +1,8 @@
 # tuiface
 
 An opinionated, TUI-styled watchface for Pebble. Time, date, and the data you
-care about, framed in dashed terminal-style windows — text over icons,
-contrast over decoration, utility over hand-holding.
+care about, framed in terminal-style windows — text over icons, contrast over
+decoration, utility over hand-holding.
 
 ![tuiface screenshot](screenshot_current.png)
 
@@ -11,18 +11,25 @@ Built for the modern Pebble lineup; currently targets **emery**
 
 ## Features
 
-- **Big, legible time** in the system LECO font, with your choice of ISO-style
-  date formats (`TUE 2026-06-09`, `2026-06-09 TUE`, or `TUE JUNE 9th, 2026`).
-- **Five complication slots** (two wide on top, three below) you can fill
-  from: weather (condition + temperature), steps, sleep, heart rate, active
-  minutes, Bluetooth status, air quality (US AQI), UV index (the peak over
-  the next 12 hours — what's coming, not what already happened), a
-  combined AQI/UV view, or .beat (Swatch Internet Time) — or leave empty.
-- **Three DOS/EGA themes**, no auto-switching — pick one and it stays: the
-  Norton Commander panel (cyan frames, white entries over EGA blue), the same
-  panel in shadow (grey chrome on black, the way Turbo Vision faked a dimmed
-  screen), or a Turbo Vision dialog box (blue frames, black text on light
-  grey). Exact EGA colors, since Pebble's display uses the same channel steps.
+- **Big, legible time** in an IBM VGA 8x16 bitmap font at 4x, with your choice
+  of date formats (`1970-12-31`, `31-12-1970`, `DEC 31st, 1970`, or the
+  year-less short form), and the weekday before, after, or hidden.
+- **Six complication slots** (two wide on top, three below, one wide in the
+  middle) you can fill from: weather (condition + temperature), steps, sleep,
+  heart rate, active minutes, Bluetooth status, air quality (US AQI), UV index
+  (the peak over the next 12 hours — what's coming, not what already
+  happened), a combined AQI/UV view, a short date (`THU 12-31`, top slots
+  only), or .beat (Swatch Internet Time) — or leave empty.
+- **The middle slot** holds the date, or a DOS progress bar for steps or
+  battery — `█` blocks against a `░` track, with the percentage after it.
+- **Four DOS/EGA themes, Auto by default.** Auto cycles the other three on
+  8-hour shifts, brightest to darkest as the day goes on: Dialog (Turbo
+  Vision dialog box, blue frames, black text on light grey) 06:00–14:00,
+  Commander Panel (Norton Commander panel, cyan frames, white entries over
+  EGA blue) 14:00–22:00, Shadowed Panel (the same panel dimmed to grey
+  chrome on black, the way Turbo Vision faked it) 22:00–06:00. Pick a theme
+  directly to lock it in. Exact EGA colors, since Pebble's display uses the
+  same channel steps.
 - **Color-coded values**: battery, temperature, AQI, and UV shift
   green/yellow/red (or blue for cold) as conditions change.
 - **Weather without an API key** — data comes from
@@ -36,10 +43,12 @@ deliberately few:
 
 | Setting | Options |
 |---------|---------|
-| Theme | Panel, Shadow, Dialog |
+| Theme | Auto, Dialog, Commander Panel, Shadowed Panel |
 | Units | Imperial, Metric |
-| Date format | Weekday + ISO, ISO + Weekday, full text |
-| Slots 1–5 | Data source per slot, or Empty |
+| Date format | ISO, DOS, full text, short |
+| Short date format | Month-Day, Day-Month |
+| Day of week | Before date, after date, hidden |
+| Slots 1–6 | Data source per slot, or Empty |
 
 That's the whole surface. tuiface favors good defaults over knobs; if a
 behavior isn't configurable, that's a decision, not an oversight.
