@@ -235,6 +235,20 @@ static void health_handler(HealthEventType event, void* context) {
 // Window Management
 // -----------------------------------------------------------------------------
 
+// Timeline Quick View: honest occlusion. While the system overlay is up the
+// face stops drawing what it covers (the bottom slot row; drawing.c) instead
+// of reflowing the layout. will_change fires too early for show/hide
+// decisions, so only did_change is wired.
+static void quick_view_did_change(void* context) {
+  Layer* root_layer = window_get_root_layer(s_main_window);
+  GRect full = layer_get_bounds(root_layer);
+  GRect unobstructed = layer_get_unobstructed_bounds(root_layer);
+  bool obstructed = !grect_equal(&full, &unobstructed);
+  if (obstructed == s_quick_view_active) return;
+  s_quick_view_active = obstructed;
+  request_ui_redraw();
+}
+
 static void main_window_load(Window* window) {
   Layer* window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
@@ -267,6 +281,12 @@ static void main_window_load(Window* window) {
   // must apply unconditionally, not match a previous layer tree's snapshot.
   reset_ui_snapshot();
   s_shown_time[0] = '\0';
+
+  // Layers exist now: subscribe, and evaluate once so the face comes up
+  // correct if Quick View is already up (e.g. a relaunch with the peek out).
+  UnobstructedAreaHandlers handlers = {.did_change = quick_view_did_change};
+  unobstructed_area_service_subscribe(handlers, NULL);
+  quick_view_did_change(NULL);
 }
 
 static void main_window_unload(Window* window) {

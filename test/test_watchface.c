@@ -21,6 +21,9 @@ void setUp(void) {
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
   s_connected = true;
+  s_quick_view_active = false;
+  mock_unobstructed_bounds = GRect(0, 0, 200, 228);
+  mock_set_hidden_count = 0;
   // main_window_load() reads the theme like init() applies one first; the
   // render-gate tests load the window without going through init().
   s_active_theme = &s_theme_panel;
@@ -126,6 +129,77 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
   TEST_ASSERT_TRUE(mock_set_text_color_count > 0);    // slots recolor…
   TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // …but no string changed
   test_apply_theme();
+}
+
+void test_quick_view_did_change_should_gate_and_restore(void) {
+  main_window_load(NULL);
+  request_ui_redraw();  // baseline full apply
+  int marks = mock_mark_dirty_count;
+
+  mock_unobstructed_bounds = GRect(0, 0, 200, 184);  // Quick View over the bottom row
+  quick_view_did_change(NULL);
+  TEST_ASSERT_TRUE(s_quick_view_active);
+  // The render is scheduled purely off the obstruction change — no text moved.
+  TEST_ASSERT_EQUAL_INT(marks + 1, mock_mark_dirty_count);
+
+  quick_view_did_change(NULL);  // same unobstructed area: no-op
+  TEST_ASSERT_TRUE(s_quick_view_active);
+  TEST_ASSERT_EQUAL_INT(marks + 1, mock_mark_dirty_count);
+
+  mock_unobstructed_bounds = GRect(0, 0, 200, 228);  // Quick View drops
+  quick_view_did_change(NULL);
+  TEST_ASSERT_FALSE(s_quick_view_active);
+  TEST_ASSERT_EQUAL_INT(marks + 2, mock_mark_dirty_count);
+}
+
+void test_canvas_should_skip_the_bottom_row_while_quick_view_is_up(void) {
+  test_apply_theme();
+  s_quick_view_active = false;
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  int full = mock_fill_rect_count;
+
+  s_quick_view_active = true;
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  int occluded = mock_fill_rect_count;
+
+  TEST_ASSERT_TRUE(occluded < full);
+  // Three bottom-row windows skipped; each frame is its five border rects.
+  TEST_ASSERT_EQUAL_INT(full - 15, occluded);
+  // Nothing still drawn lands in the covered row's band.
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    TEST_ASSERT_LESS_THAN_INT(184, mock_fill_rects[i].origin.y);
+  }
+}
+
+void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
+  main_window_load(NULL);
+  request_ui_redraw();  // baseline: hidden flags recorded for slots 0..NUM_SLOTS-1
+  mock_set_hidden_count = 0;
+
+  mock_unobstructed_bounds = GRect(0, 0, 200, 184);
+  quick_view_did_change(NULL);
+
+  TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
+  // The bottom row hides under the overlay; the top text slot stays visible.
+  // Slots 0 (WEATHER) and 5 (FULL_DATE) paint onto the canvas instead, so
+  // their text layers are hidden either way.
+  TEST_ASSERT_TRUE(mock_set_hidden_states[2]);
+  TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
+  TEST_ASSERT_TRUE(mock_set_hidden_states[4]);
+  TEST_ASSERT_FALSE(mock_set_hidden_states[1]);
+  TEST_ASSERT_TRUE(mock_set_hidden_states[0]);
+  TEST_ASSERT_TRUE(mock_set_hidden_states[5]);
+
+  mock_set_hidden_count = 0;
+  mock_unobstructed_bounds = GRect(0, 0, 200, 228);
+  quick_view_did_change(NULL);
+
+  TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
+  TEST_ASSERT_FALSE(mock_set_hidden_states[2]);
+  TEST_ASSERT_FALSE(mock_set_hidden_states[3]);
+  TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
 }
 
 void test_canvas_procs_should_never_word_wrap(void) {
@@ -1350,6 +1424,9 @@ int main(void) {
   RUN_TEST(test_render_gate_should_pass_displayed_changes_through);
   RUN_TEST(test_render_gate_should_notice_bar_slot_changes);
   RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
+  RUN_TEST(test_quick_view_did_change_should_gate_and_restore);
+  RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
+  RUN_TEST(test_quick_view_should_hide_and_restore_bottom_row_text_layers);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);

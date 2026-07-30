@@ -41,6 +41,9 @@ extern int s_weather_uv;
 extern int s_active_minutes;
 extern int s_active_minutes_goal;
 extern bool s_connected;
+// Timeline Quick View: true while the system overlay covers the bottom slot
+// row. Written only by the UnobstructedArea handler in main.c.
+extern bool s_quick_view_active;
 
 extern int s_date_day;
 extern int s_beats;

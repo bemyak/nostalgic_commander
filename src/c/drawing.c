@@ -345,6 +345,13 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   }
 }
 
+// The bottom slot row (indexes 2-4, y=184 and down) is what Timeline Quick
+// View covers; while it is up these slots simply stop drawing — honest
+// occlusion, no reflow.
+static bool quick_view_covers_slot(int index) {
+  return index >= 2 && index <= 4;
+}
+
 void canvas_update_proc(Layer* layer, GContext* ctx) {
   // No background fill: the window root layer fills the whole frame with
   // window->background_color on every render pass (PebbleOS
@@ -358,6 +365,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   // Draw parameterized ASCII windows
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
+    if (s_quick_view_active && quick_view_covers_slot(i)) continue;
     if (slot->source != DATA_SOURCE_EMPTY) {
       draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       ComplicationDrawFn draw = canvas_drawer(slot->source);
@@ -371,6 +379,9 @@ typedef struct {
   ComplicationDataSource source[NUM_SLOTS];
   char text[NUM_SLOTS][40];
   int percent[NUM_SLOTS];
+  // Obstruction is display state: the bottom row vanishing must pass the
+  // memcmp gate even when no string or fill changed.
+  bool quick_view_active;
 } UiSnapshot;
 
 // What the last scheduled render will draw. Compared whole; build_snapshot
@@ -405,6 +416,7 @@ static ComplicationDataSource snapshot_source(ComplicationDataSource source) {
 static void build_snapshot(UiSnapshot* s) {
   memset(s, 0, sizeof(*s));
   s->theme = s_active_theme;
+  s->quick_view_active = s_quick_view_active;
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
     // The label and frame follow the configured source; the value follows
@@ -432,7 +444,10 @@ void request_ui_redraw(void) {
     ComplicationSlot* slot = &s_complication_slots[i];
     if (!slot->layer) continue;
     bool text_backed = slot->source != DATA_SOURCE_EMPTY && !canvas_drawer(slot->source);
-    layer_set_hidden(text_layer_get_layer(slot->layer), !text_backed);
+    // A covered row's text layers hide while Quick View is over them; their
+    // text keeps tracking underneath, so the restore shows current values.
+    bool covered = now.quick_view_active && quick_view_covers_slot(i);
+    layer_set_hidden(text_layer_get_layer(slot->layer), !text_backed || covered);
     if (!text_backed) continue;
     if (strcmp(now.text[i], s_slot_text[i]) != 0 || now.source[i] != s_shown_ui.source[i]) {
       strcpy(s_slot_text[i], now.text[i]);

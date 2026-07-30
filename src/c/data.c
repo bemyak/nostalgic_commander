@@ -15,6 +15,7 @@ int s_weather_uv = -1;   // -1 indicates no data
 int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
+bool s_quick_view_active = false;
 int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";

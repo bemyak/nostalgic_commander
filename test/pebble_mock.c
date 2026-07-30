@@ -104,6 +104,11 @@ GFont fonts_load_custom_font(ResHandle handle) {
 
 void fonts_unload_custom_font(GFont font) {}
 
+bool grect_equal(const GRect* const rect_a, const GRect* const rect_b) {
+  return rect_a->origin.x == rect_b->origin.x && rect_a->origin.y == rect_b->origin.y &&
+         rect_a->size.w == rect_b->size.w && rect_a->size.h == rect_b->size.h;
+}
+
 void graphics_context_set_fill_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
@@ -176,13 +181,27 @@ Layer* layer_create(GRect frame) {
 }
 void layer_destroy(Layer* layer) {}
 GRect layer_get_bounds(Layer* layer) {
-  return GRect(0, 0, 144, 168);
+  // The face targets emery, so the root layer spans the 200x228 screen.
+  return GRect(0, 0, 200, 228);
+}
+// Tests shrink this from the bottom to stand in for a Quick View overlay.
+GRect mock_unobstructed_bounds = GRect(0, 0, 200, 228);
+GRect layer_get_unobstructed_bounds(Layer* layer) {
+  return mock_unobstructed_bounds;
 }
 int mock_mark_dirty_count = 0;
 void layer_mark_dirty(Layer* layer) {
   mock_mark_dirty_count++;
 }
-void layer_set_hidden(Layer* layer, bool hidden) {}
+// Records each call's hidden flag in order; request_ui_redraw applies slots
+// 0..NUM_SLOTS-1 in order, so buffer indices are slot indices within one call of it.
+bool mock_set_hidden_states[MOCK_MAX_SET_HIDDEN];
+int mock_set_hidden_count = 0;
+void layer_set_hidden(Layer* layer, bool hidden) {
+  if (mock_set_hidden_count < MOCK_MAX_SET_HIDDEN) {
+    mock_set_hidden_states[mock_set_hidden_count++] = hidden;
+  }
+}
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {}
 
 char mock_persist_strings[256][64];
@@ -241,6 +260,7 @@ void text_layer_set_text_color(TextLayer* text_layer, GColor color) {
 
 void tick_timer_service_subscribe(TimeUnits tick_units,
                                   void (*handler)(struct tm* tick_time, TimeUnits units_changed)) {}
+void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context) {}
 time_t time_start_of_today(void) {
   return 0;
 }

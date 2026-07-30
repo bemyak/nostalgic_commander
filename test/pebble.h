@@ -138,6 +138,13 @@ typedef struct {
   void (*pebblekit_connection_handler)(bool connected);
 } ConnectionHandlers;
 
+typedef uint32_t AnimationProgress;
+typedef struct {
+  void (*will_change)(GRect final_unobstructed_pixel_area, void* context);
+  void (*change)(AnimationProgress progress, void* context);
+  void (*did_change)(void* context);
+} UnobstructedAreaHandlers;
+
 typedef enum {
   HealthEventSignificantUpdate,
   HealthEventMovementUpdate,
@@ -239,6 +246,7 @@ GFont fonts_get_system_font(const char* font_key);
 ResHandle resource_get_handle(uint32_t resource_id);
 GFont fonts_load_custom_font(ResHandle handle);
 void fonts_unload_custom_font(GFont font);
+bool grect_equal(const GRect* const rect_a, const GRect* const rect_b);
 void graphics_context_set_fill_color(GContext* ctx, GColor color);
 void graphics_context_set_stroke_color(GContext* ctx, GColor color);
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width);
@@ -263,6 +271,7 @@ void layer_add_child(Layer* parent, Layer* child);
 Layer* layer_create(GRect frame);
 void layer_destroy(Layer* layer);
 GRect layer_get_bounds(Layer* layer);
+GRect layer_get_unobstructed_bounds(Layer* layer);
 void layer_mark_dirty(Layer* layer);
 void layer_set_hidden(Layer* layer, bool hidden);
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx));
@@ -289,6 +298,10 @@ extern int mock_bar_glyph_calls;
 extern GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
 extern int mock_fill_rect_count;
 void mock_fill_rect_reset(void);
+#define MOCK_MAX_SET_HIDDEN 32
+extern bool mock_set_hidden_states[MOCK_MAX_SET_HIDDEN];
+extern int mock_set_hidden_count;
+extern GRect mock_unobstructed_bounds;
 void mock_dict_reset(void);
 void mock_dict_add_int(uint32_t key, int32_t value);
 void mock_dict_add_cstring(uint32_t key, const char* str);
@@ -302,6 +315,7 @@ void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_al
 void text_layer_set_text_color(TextLayer* text_layer, GColor color);
 void tick_timer_service_subscribe(TimeUnits tick_units,
                                   void (*handler)(struct tm* tick_time, TimeUnits units_changed));
+void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context);
 time_t time_start_of_today(void);
 void vibes_double_pulse(void);
 Window* window_create(void);
