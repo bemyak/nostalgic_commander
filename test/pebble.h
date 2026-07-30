@@ -266,6 +266,9 @@ int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_si
 // Test helpers/knobs below are not part of the real SDK
 void mock_persist_reset(void);
 extern int32_t mock_heart_rate;
+extern int mock_health_accessible_count;
+extern int mock_health_sum_today_count;
+extern int mock_health_peek_count;
 extern int mock_vibes_count;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;

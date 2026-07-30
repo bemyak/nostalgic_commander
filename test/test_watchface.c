@@ -12,7 +12,7 @@
 
 void setUp(void) {
   // Reset any global states if needed before each test
-  s_settings_theme = 0;  // Panel
+  s_settings_theme = 0;  // Auto
   s_settings_units = 0;  // Imperial
   s_battery_level = 100;
   s_step_count = -1;
@@ -112,6 +112,7 @@ void test_render_gate_should_notice_bar_slot_changes(void) {
 
 void test_render_gate_should_reapply_colors_on_theme_change(void) {
   main_window_load(NULL);
+  s_settings_theme = 2;  // pin Panel so the Shadow swap below is unconditional
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   test_apply_theme();
   request_ui_redraw();
@@ -960,6 +961,68 @@ void test_update_health_info_should_read_heart_rate(void) {
   TEST_ASSERT_EQUAL_STRING("--", buf);
 }
 
+static void save_slots(ComplicationDataSource* saved) {
+  for (int i = 0; i < NUM_SLOTS; i++) saved[i] = s_complication_slots[i].source;
+}
+
+static void restore_slots(const ComplicationDataSource* saved) {
+  for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = saved[i];
+}
+
+void test_update_health_info_should_do_nothing_with_no_health_slots(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,   DATA_SOURCE_BLUETOOTH,
+                                                    DATA_SOURCE_BEATS,  DATA_SOURCE_SHORT_DATE,
+                                                    DATA_SOURCE_AQI_UV, DATA_SOURCE_FULL_DATE};
+  restore_slots(weather_free);
+
+  mock_health_accessible_count = 0;
+  mock_health_sum_today_count = 0;
+  mock_health_peek_count = 0;
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(0, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
+
+  restore_slots(saved);
+}
+
+void test_update_health_info_should_read_only_displayed_metrics(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
+                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
+                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
+  restore_slots(only_steps);
+
+  mock_health_accessible_count = 0;
+  mock_health_sum_today_count = 0;
+  mock_health_peek_count = 0;
+  update_health_info();
+  // Steps alone: one accessibility check, one sum; no sleep/active/HR reads.
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
+
+  restore_slots(saved);
+}
+
+void test_undisplayed_health_metrics_should_read_as_no_data(void) {
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,   DATA_SOURCE_BLUETOOTH,
+                                                    DATA_SOURCE_BEATS,  DATA_SOURCE_SHORT_DATE,
+                                                    DATA_SOURCE_AQI_UV, DATA_SOURCE_FULL_DATE};
+  restore_slots(weather_free);
+
+  s_step_count = 4321;
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(-1, s_step_count);
+
+  restore_slots(saved);
+}
+
 void test_handle_bluetooth_should_vibrate_only_on_disconnect_transition(void) {
   mock_vibes_count = 0;
 
@@ -1185,6 +1248,9 @@ int main(void) {
   RUN_TEST(test_settings_should_round_trip_through_persistence);
   RUN_TEST(test_settings_persistence_is_decoupled_from_message_key_ids);
   RUN_TEST(test_update_health_info_should_read_heart_rate);
+  RUN_TEST(test_update_health_info_should_do_nothing_with_no_health_slots);
+  RUN_TEST(test_update_health_info_should_read_only_displayed_metrics);
+  RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_handle_bluetooth_should_vibrate_only_on_disconnect_transition);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);

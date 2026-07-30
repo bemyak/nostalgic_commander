@@ -13,5 +13,5 @@ can request 1-second sampling via `health_service_set_heart_rate_sample_period()
 Deliberately not fixed. The filtered value is the right glanceable number — it
 drops bad readings from hand movement and poor sensor contact — and a watchface
 is displayed all day, so requesting faster sampling would run the HRM
-continuously and cost battery. The refresh path is not at fault: health data is
-re-read every tick and on `HealthEventHeartRateUpdate`.
+continuously and cost battery. The refresh path is not at fault: health data for
+every displayed metric is re-read every tick and on `HealthEventHeartRateUpdate`.

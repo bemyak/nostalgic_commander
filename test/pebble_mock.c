@@ -107,10 +107,14 @@ void health_service_events_subscribe(void (*handler)(HealthEventType event, void
                                      void* context) {}
 void health_service_events_unsubscribe(void) {}
 int32_t mock_heart_rate = 0;
+int mock_health_accessible_count = 0;
+int mock_health_sum_today_count = 0;
+int mock_health_peek_count = 0;
 
 HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric metric,
                                                                 time_t time_start,
                                                                 time_t time_end) {
+  mock_health_accessible_count++;
   // Mirror real firmware: heart-rate accessibility is only reported for an
   // instant query; a time-range query comes back unsupported.
   if (metric == HealthMetricHeartRateBPM && time_start != time_end) {
@@ -123,6 +127,7 @@ HealthServiceAccessibilityMask health_service_metric_averaged_accessible(
   return HealthServiceAccessibilityMaskAvailable;
 }
 int32_t health_service_peek_current_value(HealthMetric metric) {
+  mock_health_peek_count++;
   if (metric == HealthMetricHeartRateBPM) return mock_heart_rate;
   return 0;
 }
@@ -131,6 +136,7 @@ int32_t health_service_sum_averaged(HealthMetric metric, time_t time_start, time
   return 10000;
 }
 int32_t health_service_sum_today(HealthMetric metric) {
+  mock_health_sum_today_count++;
   return 5000;
 }
 

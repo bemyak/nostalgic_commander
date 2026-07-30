@@ -24,43 +24,71 @@ GFont vga_font_64(void) {
 // Data Updaters
 // -----------------------------------------------------------------------------
 
+static bool any_slot_is_one_of(const ComplicationDataSource* sources, int count) {
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    for (int j = 0; j < count; j++) {
+      if (s_complication_slots[i].source == sources[j]) return true;
+    }
+  }
+  return false;
+}
+
 static void update_health_info() {
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
   time_t end = time(NULL);
 
-  HealthServiceAccessibilityMask step_mask =
-      health_service_metric_accessible(HealthMetricStepCount, start, end);
-  if (step_mask & HealthServiceAccessibilityMaskAvailable) {
-    s_step_count = (int)health_service_sum_today(HealthMetricStepCount);
-    s_step_goal = 10000;
+  // Each read is a real syscall; skip metrics nothing displays. Values fall
+  // back to their sentinels so a later slot assignment never shows stale
+  // data — the tick that follows the settings push refills them.
+  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_STEPS, DATA_SOURCE_STEPS_BAR}, 2)) {
+    HealthServiceAccessibilityMask step_mask =
+        health_service_metric_accessible(HealthMetricStepCount, start, end);
+    if (step_mask & HealthServiceAccessibilityMaskAvailable) {
+      s_step_count = (int)health_service_sum_today(HealthMetricStepCount);
+      s_step_goal = 10000;
+    } else {
+      s_step_count = -1;
+    }
   } else {
     s_step_count = -1;
   }
 
-  HealthServiceAccessibilityMask sleep_mask =
-      health_service_metric_accessible(HealthMetricSleepSeconds, start, end);
-  if (sleep_mask & HealthServiceAccessibilityMaskAvailable) {
-    s_sleep_seconds = (int)health_service_sum_today(HealthMetricSleepSeconds);
+  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_SLEEP}, 1)) {
+    HealthServiceAccessibilityMask sleep_mask =
+        health_service_metric_accessible(HealthMetricSleepSeconds, start, end);
+    if (sleep_mask & HealthServiceAccessibilityMaskAvailable) {
+      s_sleep_seconds = (int)health_service_sum_today(HealthMetricSleepSeconds);
+    } else {
+      s_sleep_seconds = -1;
+    }
   } else {
     s_sleep_seconds = -1;
   }
 
-  HealthServiceAccessibilityMask active_mask =
-      health_service_metric_accessible(HealthMetricActiveSeconds, start, end);
-  if (active_mask & HealthServiceAccessibilityMaskAvailable) {
-    s_active_minutes = (int)(health_service_sum_today(HealthMetricActiveSeconds) / 60);
+  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_ACTIVE_MINUTES}, 1)) {
+    HealthServiceAccessibilityMask active_mask =
+        health_service_metric_accessible(HealthMetricActiveSeconds, start, end);
+    if (active_mask & HealthServiceAccessibilityMaskAvailable) {
+      s_active_minutes = (int)(health_service_sum_today(HealthMetricActiveSeconds) / 60);
+    } else {
+      s_active_minutes = 0;
+    }
   } else {
     s_active_minutes = 0;
   }
 
   // Heart rate accessibility must be checked at an instant, not over a day
   // range — the range form reports the metric unavailable and BPM never shows.
-  HealthServiceAccessibilityMask hr_mask =
-      health_service_metric_accessible(HealthMetricHeartRateBPM, end, end);
-  if (hr_mask & HealthServiceAccessibilityMaskAvailable) {
-    HealthValue hr = health_service_peek_current_value(HealthMetricHeartRateBPM);
-    s_heart_rate = (int)hr;
+  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_HEART_RATE}, 1)) {
+    HealthServiceAccessibilityMask hr_mask =
+        health_service_metric_accessible(HealthMetricHeartRateBPM, end, end);
+    if (hr_mask & HealthServiceAccessibilityMaskAvailable) {
+      HealthValue hr = health_service_peek_current_value(HealthMetricHeartRateBPM);
+      s_heart_rate = (int)hr;
+    } else {
+      s_heart_rate = 0;
+    }
   } else {
     s_heart_rate = 0;
   }
