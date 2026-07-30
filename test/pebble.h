@@ -265,6 +265,7 @@ int persist_write_string(const uint32_t key, const char* cstring);
 int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_size);
 // Test helpers/knobs below are not part of the real SDK
 void mock_persist_reset(void);
+extern int mock_persist_write_count;
 extern int32_t mock_heart_rate;
 extern int mock_health_accessible_count;
 extern int mock_health_sum_today_count;

@@ -4,11 +4,31 @@
 #include "main.h"
 #include "drawing.h"
 
+static void persist_write_int_if_changed(uint32_t key, int32_t value) {
+  if (!persist_exists(key) || persist_read_int(key) != value) {
+    persist_write_int(key, value);
+  }
+}
+
+static void persist_write_string_if_changed(uint32_t key, const char* value) {
+  if (!persist_exists(key)) {
+    persist_write_string(key, value);
+    return;
+  }
+  char current[16];
+  persist_read_string(key, current, sizeof(current));
+  if (strcmp(current, value) != 0) {
+    persist_write_string(key, value);
+  }
+}
+
 void save_weather_cache(void) {
-  persist_write_int(PERSIST_KEY_WEATHER_TEMP, s_weather_temp);
-  persist_write_string(PERSIST_KEY_WEATHER_COND, s_weather_cond);
-  persist_write_int(PERSIST_KEY_WEATHER_AQI, s_weather_aqi);
-  persist_write_int(PERSIST_KEY_WEATHER_UV, s_weather_uv);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_TEMP, s_weather_temp);
+  persist_write_string_if_changed(PERSIST_KEY_WEATHER_COND, s_weather_cond);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_AQI, s_weather_aqi);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_UV, s_weather_uv);
+  // Always: the timestamp is the freshness marker; skipping it would age the
+  // cache and cost a network fetch on next launch.
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
 }
 
@@ -97,7 +117,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   Tuple* theme_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_THEME);
   if (theme_tuple) {
     s_settings_theme = tuple_get_int(theme_tuple);
-    persist_write_int(PERSIST_KEY_SETTINGS_THEME, s_settings_theme);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_THEME, s_settings_theme);
   }
 
   Tuple* units_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_UNITS);
@@ -108,61 +128,61 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
       s_settings_units = val;
       units_changed = true;
     }
-    persist_write_int(PERSIST_KEY_SETTINGS_UNITS, s_settings_units);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_UNITS, s_settings_units);
   }
 
   Tuple* date_format_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_DATE_FORMAT);
   if (date_format_tuple) {
     s_settings_date_format = tuple_get_int(date_format_tuple);
-    persist_write_int(PERSIST_KEY_SETTINGS_DATE_FORMAT, s_settings_date_format);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DATE_FORMAT, s_settings_date_format);
   }
 
   Tuple* short_date_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT);
   if (short_date_tuple) {
     s_settings_short_date_format = tuple_get_int(short_date_tuple);
-    persist_write_int(PERSIST_KEY_SETTINGS_SHORT_DATE, s_settings_short_date_format);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_SHORT_DATE, s_settings_short_date_format);
   }
 
   Tuple* dow_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_DOW_POSITION);
   if (dow_tuple) {
     s_settings_dow_position = tuple_get_int(dow_tuple);
-    persist_write_int(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
   }
 
   Tuple* slot1 = dict_find(iterator, MESSAGE_KEY_SLOT_1);
   if (slot1) {
     s_complication_slots[0].source = tuple_get_int(slot1);
-    persist_write_int(PERSIST_KEY_SLOT_1, s_complication_slots[0].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_1, s_complication_slots[0].source);
   }
 
   Tuple* slot2 = dict_find(iterator, MESSAGE_KEY_SLOT_2);
   if (slot2) {
     s_complication_slots[1].source = tuple_get_int(slot2);
-    persist_write_int(PERSIST_KEY_SLOT_2, s_complication_slots[1].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_2, s_complication_slots[1].source);
   }
 
   Tuple* slot3 = dict_find(iterator, MESSAGE_KEY_SLOT_3);
   if (slot3) {
     s_complication_slots[2].source = tuple_get_int(slot3);
-    persist_write_int(PERSIST_KEY_SLOT_3, s_complication_slots[2].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_3, s_complication_slots[2].source);
   }
 
   Tuple* slot4 = dict_find(iterator, MESSAGE_KEY_SLOT_4);
   if (slot4) {
     s_complication_slots[3].source = tuple_get_int(slot4);
-    persist_write_int(PERSIST_KEY_SLOT_4, s_complication_slots[3].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_4, s_complication_slots[3].source);
   }
 
   Tuple* slot5 = dict_find(iterator, MESSAGE_KEY_SLOT_5);
   if (slot5) {
     s_complication_slots[4].source = tuple_get_int(slot5);
-    persist_write_int(PERSIST_KEY_SLOT_5, s_complication_slots[4].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_5, s_complication_slots[4].source);
   }
 
   Tuple* slot6 = dict_find(iterator, MESSAGE_KEY_SLOT_6);
   if (slot6) {
     s_complication_slots[5].source = tuple_get_int(slot6);
-    persist_write_int(PERSIST_KEY_SLOT_6, s_complication_slots[5].source);
+    persist_write_int_if_changed(PERSIST_KEY_SLOT_6, s_complication_slots[5].source);
   }
 
   // If units changed, request new weather immediately to fetch correct unit

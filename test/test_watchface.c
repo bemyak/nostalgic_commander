@@ -1248,6 +1248,31 @@ void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
   TEST_ASSERT_EQUAL_INT(before + 2, mock_outbox_sends);
 }
 
+void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  inbox_received_callback(NULL, NULL);
+
+  int writes = mock_persist_write_count;
+  inbox_received_callback(NULL, NULL);  // identical payload
+  // Only the timestamp is rewritten.
+  TEST_ASSERT_EQUAL_INT(writes + 1, mock_persist_write_count);
+}
+
+void test_settings_message_should_not_rewrite_unchanged_keys(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_THEME, "2");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(2, persist_read_int(PERSIST_KEY_SETTINGS_THEME));
+
+  int writes = mock_persist_write_count;
+  inbox_received_callback(NULL, NULL);  // same setting again
+  TEST_ASSERT_EQUAL_INT(writes, mock_persist_write_count);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_render_gate_should_go_silent_when_nothing_changes);
@@ -1305,5 +1330,7 @@ int main(void) {
   RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
+  RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
+  RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);
   return UNITY_END();
 }

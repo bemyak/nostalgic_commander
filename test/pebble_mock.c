@@ -174,6 +174,7 @@ void layer_set_hidden(Layer* layer, bool hidden) {}
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {}
 
 char mock_persist_strings[256][64];
+int mock_persist_write_count = 0;
 
 bool persist_exists(const uint32_t key) {
   return mock_persist_exists[key % 256];
@@ -182,10 +183,12 @@ int32_t persist_read_int(const uint32_t key) {
   return mock_persist_storage[key % 256];
 }
 void persist_write_int(const uint32_t key, const int32_t value) {
+  mock_persist_write_count++;
   mock_persist_storage[key % 256] = value;
   mock_persist_exists[key % 256] = true;
 }
 int persist_write_string(const uint32_t key, const char* cstring) {
+  mock_persist_write_count++;
   strncpy(mock_persist_strings[key % 256], cstring, sizeof(mock_persist_strings[0]) - 1);
   mock_persist_strings[key % 256][sizeof(mock_persist_strings[0]) - 1] = '\0';
   mock_persist_exists[key % 256] = true;
