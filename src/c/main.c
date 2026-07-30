@@ -9,6 +9,10 @@
 static GFont s_vga_16;
 static GFont s_vga_64;
 
+// What the clock layer currently says (guards the unconditional
+// text_layer_set_text dirty-mark, below). Cleared on window load.
+static char s_shown_time[8] = "";
+
 GFont vga_font_16(void) {
   return s_vga_16;
 }
@@ -89,7 +93,14 @@ void update_time() {
   if (!clock_is_24h_style() && s_time_buffer[0] == '0') {
     time_str++;  // strip leading zero
   }
-  text_layer_set_text(s_time_layer, time_str);
+  // Guards the unconditional dirty-mark in text_layer_set_text: an unchanged
+  // string here would schedule a render and defeat the gate on every inbox
+  // message. On a MINUTE_UNIT tick the string always differs — the 1440/day
+  // floor is unaffected. s_shown_time is file-scope (see main_window_load).
+  if (strcmp(time_str, s_shown_time) != 0) {
+    strncpy(s_shown_time, time_str, sizeof(s_shown_time) - 1);
+    text_layer_set_text(s_time_layer, time_str);
+  }
 
   // The date changes at midnight and on settings pushes only; reformat then,
   // not per tick. Consecutive days never share a tm_yday.
@@ -111,8 +122,7 @@ void update_time() {
   }
 
   update_health_info();
-  refresh_complications();
-  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+  request_ui_redraw();
 }
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
@@ -127,15 +137,13 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
 
 static void battery_callback(BatteryChargeState state) {
   s_battery_level = state.charge_percent;
-  refresh_complications();
-  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+  request_ui_redraw();
 }
 
 static void handle_bluetooth(bool connected) {
   bool was_connected = s_connected;
   s_connected = connected;
-  refresh_complications();
-  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+  request_ui_redraw();
   // Buzz only on a genuine drop, not when launched already-disconnected —
   // otherwise every return to the watchface vibrates while the phone is away.
   if (was_connected && !connected) {
@@ -145,11 +153,12 @@ static void handle_bluetooth(bool connected) {
 
 #if defined(PBL_HEALTH)
 static void health_handler(HealthEventType event, void* context) {
+  // SignificantUpdate = the applib health cache was invalidated (day
+  // rollover, subscribe); harmless-while-ticking, and it costs one refresh.
   if (event == HealthEventMovementUpdate || event == HealthEventHeartRateUpdate ||
-      event == HealthEventSleepUpdate) {
+      event == HealthEventSleepUpdate || event == HealthEventSignificantUpdate) {
     update_health_info();
-    refresh_complications();
-    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+    request_ui_redraw();
   }
 }
 #endif
@@ -185,6 +194,11 @@ static void main_window_load(Window* window) {
     text_layer_set_font(slot->layer, vga_font_16());
     layer_add_child(window_layer, text_layer_get_layer(slot->layer));
   }
+
+  // Fresh layers hold no text yet: the next request_ui_redraw()/update_time()
+  // must apply unconditionally, not match a previous layer tree's snapshot.
+  reset_ui_snapshot();
+  s_shown_time[0] = '\0';
 }
 
 static void main_window_unload(Window* window) {

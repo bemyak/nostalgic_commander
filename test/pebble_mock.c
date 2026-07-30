@@ -135,14 +135,21 @@ int32_t health_service_sum_today(HealthMetric metric) {
 }
 
 void layer_add_child(Layer* parent, Layer* child) {}
+// Return sentinels instead of NULL so layer-attached code paths are testable.
+static char mock_layer_storage[8];
+static int mock_layers_given = 0;
 Layer* layer_create(GRect frame) {
-  return NULL;
+  (void)frame;
+  return (Layer*)&mock_layer_storage[mock_layers_given++ % 8];
 }
 void layer_destroy(Layer* layer) {}
 GRect layer_get_bounds(Layer* layer) {
   return GRect(0, 0, 144, 168);
 }
-void layer_mark_dirty(Layer* layer) {}
+int mock_mark_dirty_count = 0;
+void layer_mark_dirty(Layer* layer) {
+  mock_mark_dirty_count++;
+}
 void layer_set_hidden(Layer* layer, bool hidden) {}
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {}
 
@@ -175,8 +182,11 @@ void mock_persist_reset(void) {
   memset(mock_persist_strings, 0, sizeof(mock_persist_strings));
 }
 
+static char mock_text_layer_storage[8];
+static int mock_text_layers_given = 0;
 TextLayer* text_layer_create(GRect frame) {
-  return NULL;
+  (void)frame;
+  return (TextLayer*)&mock_text_layer_storage[mock_text_layers_given++ % 8];
 }
 void text_layer_destroy(TextLayer* text_layer) {}
 Layer* text_layer_get_layer(TextLayer* text_layer) {
@@ -184,9 +194,15 @@ Layer* text_layer_get_layer(TextLayer* text_layer) {
 }
 void text_layer_set_background_color(TextLayer* text_layer, GColor color) {}
 void text_layer_set_font(TextLayer* text_layer, GFont font) {}
-void text_layer_set_text(TextLayer* text_layer, const char* text) {}
+int mock_set_text_count = 0;
+void text_layer_set_text(TextLayer* text_layer, const char* text) {
+  mock_set_text_count++;
+}
 void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment) {}
-void text_layer_set_text_color(TextLayer* text_layer, GColor color) {}
+int mock_set_text_color_count = 0;
+void text_layer_set_text_color(TextLayer* text_layer, GColor color) {
+  mock_set_text_color_count++;
+}
 
 void tick_timer_service_subscribe(TimeUnits tick_units,
                                   void (*handler)(struct tm* tick_time, TimeUnits units_changed)) {}

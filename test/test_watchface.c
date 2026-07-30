@@ -21,6 +21,18 @@ void setUp(void) {
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
   s_connected = true;
+  // main_window_load() reads the theme like init() applies one first; the
+  // render-gate tests load the window without going through init().
+  s_active_theme = &s_theme_panel;
+
+  // Slot contents gate health reads and the render snapshot, and the inbox
+  // tests rewrite them; restore the shipped layout before every test.
+  const ComplicationDataSource defaults[NUM_SLOTS] = {DATA_SOURCE_WEATHER,   DATA_SOURCE_SLEEP,
+                                                      DATA_SOURCE_STEPS,     DATA_SOURCE_HEART_RATE,
+                                                      DATA_SOURCE_BLUETOOTH, DATA_SOURCE_FULL_DATE};
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    s_complication_slots[i].source = defaults[i];
+  }
 }
 
 void tearDown(void) {}
@@ -28,6 +40,101 @@ void tearDown(void) {}
 // -----------------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------------
+
+// apply_theme() takes a tm after the clock-consolidation refactor; keep the
+// plumbing in one place.
+static void test_apply_theme(void) {
+  time_t now = time(NULL);
+  apply_theme(localtime(&now));
+}
+
+void test_render_gate_should_go_silent_when_nothing_changes(void) {
+  main_window_load(NULL);
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  memset(s_slot_text, 0, sizeof(s_slot_text));
+  mock_mark_dirty_count = 0;
+  mock_set_text_count = 0;
+
+  request_ui_redraw();  // cold: zeroed snapshot differs, applies once
+  int marks = mock_mark_dirty_count;
+  int texts = mock_set_text_count;
+
+  request_ui_redraw();
+  request_ui_redraw();
+  TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
+  TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);
+}
+
+void test_render_gate_should_ignore_changes_nobody_displays(void) {
+  main_window_load(NULL);
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+
+  s_battery_level = 5;  // the default layout shows no battery slot
+  request_ui_redraw();
+  TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
+  s_battery_level = 100;
+}
+
+void test_render_gate_should_pass_displayed_changes_through(void) {
+  main_window_load(NULL);
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+  int texts = mock_set_text_count;
+
+  s_step_count = 4321;  // bottom-left slot shows STEPS by default
+  request_ui_redraw();
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+  TEST_ASSERT_TRUE(mock_set_text_count > texts);
+  s_step_count = -1;
+}
+
+void test_render_gate_should_notice_bar_slot_changes(void) {
+  // Regression: the bar sources have no get_source_data case, so a snapshot
+  // keyed on slot->source records empty text forever and the bar freezes
+  // between minute ticks. snapshot_source() maps them to their plain source.
+  main_window_load(NULL);
+  s_complication_slots[2].source = DATA_SOURCE_STEPS_BAR;
+  s_step_count = 1000;
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+
+  s_step_count = 6000;  // same "--"/number shape, different fill and reading
+  request_ui_redraw();
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+
+  s_step_count = -1;
+  s_complication_slots[2].source = DATA_SOURCE_STEPS;
+}
+
+void test_render_gate_should_reapply_colors_on_theme_change(void) {
+  main_window_load(NULL);
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  test_apply_theme();
+  request_ui_redraw();
+  mock_set_text_color_count = 0;
+  int texts = mock_set_text_count;
+  int marks = mock_mark_dirty_count;
+
+  s_active_theme = &s_theme_shadow;  // e.g. Auto crossing 22:00
+  request_ui_redraw();
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);    // canvas frames recolor
+  TEST_ASSERT_TRUE(mock_set_text_color_count > 0);    // slots recolor…
+  TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // …but no string changed
+  test_apply_theme();
+}
+
+void test_battery_callback_should_coalesce_unchanged_levels(void) {
+  main_window_load(NULL);
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  battery_callback((BatteryChargeState){.charge_percent = 100});
+  int marks = mock_mark_dirty_count;
+  battery_callback((BatteryChargeState){.charge_percent = 100});
+  TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
+}
 
 void test_to_upper_str_should_convert_lowercase_to_uppercase(void) {
   char str1[] = "hello 123";
@@ -1038,6 +1145,12 @@ void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_render_gate_should_go_silent_when_nothing_changes);
+  RUN_TEST(test_render_gate_should_ignore_changes_nobody_displays);
+  RUN_TEST(test_render_gate_should_pass_displayed_changes_through);
+  RUN_TEST(test_render_gate_should_notice_bar_slot_changes);
+  RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
+  RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
   RUN_TEST(test_get_source_label_should_return_correct_labels);

@@ -308,7 +308,7 @@ typedef void (*ComplicationDrawFn)(GContext*, GRect);
 // Sources that paint their value straight onto the canvas instead of using the
 // slot's TextLayer: AQI/UV so its halves can be coloured independently, BEATS
 // and BATTERY so they land on whole glyph cells. Both canvas_update_proc and
-// refresh_complications go through here, so the set is stated exactly once —
+// request_ui_redraw go through here, so the set is stated exactly once —
 // returning NULL means "this source uses the generic text layer".
 static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   switch (source) {
@@ -361,27 +361,87 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   }
 }
 
-void refresh_complications() {
-  static char s_slot_buffers[NUM_SLOTS][40];
+typedef struct {
+  const WatchTheme* theme;
+  ComplicationDataSource source[NUM_SLOTS];
+  char text[NUM_SLOTS][40];
+  int percent[NUM_SLOTS];
+} UiSnapshot;
+
+// What the last scheduled render will draw. Compared whole; build_snapshot
+// memsets first so padding and string slack can't poison the memcmp.
+static UiSnapshot s_shown_ui;
+
+// Backing for the slot TextLayers: text_layer_set_text keeps the pointer, so
+// the strings must outlive the call.
+static char s_slot_text[NUM_SLOTS][40];
+
+// The bar sources have no get_source_data case of their own — their drawers
+// read the plain counterpart (draw_steps_bar_complication passes
+// DATA_SOURCE_STEPS, draw_battery_bar_complication passes
+// DATA_SOURCE_BATTERY). Snapshotting slot->source for a bar would record
+// empty text and percent 0 forever, so a bar would never register a change.
+static ComplicationDataSource snapshot_source(ComplicationDataSource source) {
+  switch (source) {
+    case DATA_SOURCE_STEPS_BAR:
+      return DATA_SOURCE_STEPS;
+    case DATA_SOURCE_BATTERY_BAR:
+      return DATA_SOURCE_BATTERY;
+    default:
+      return source;
+  }
+}
+
+// Everything on screen is derived from slot contents and the theme: values
+// and bar fills come out of get_source_data's text and percent, bands and
+// accents out of theme colors and the thresholds it reads. A change nothing
+// displays (e.g. battery with no battery slot) never shows up here — which
+// is exactly the gate.
+static void build_snapshot(UiSnapshot* s) {
+  memset(s, 0, sizeof(*s));
+  s->theme = s_active_theme;
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    ComplicationSlot* slot = &s_complication_slots[i];
+    // The label and frame follow the configured source; the value follows
+    // whatever the drawer actually reads.
+    s->source[i] = slot->source;
+    get_source_data(snapshot_source(slot->source), s->text[i], sizeof(s->text[i]), &s->percent[i]);
+  }
+}
+
+void reset_ui_snapshot(void) {
+  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
+  memset(s_slot_text, 0, sizeof(s_slot_text));
+}
+
+// Schedules a render only when what the screen shows has changed. The tick's
+// clock set_text already guarantees one full-tree render a minute (PebbleOS
+// marks carry no region and re-run every visible layer's update_proc), so
+// this gate is about events: health, battery, Bluetooth, inbox.
+void request_ui_redraw(void) {
+  UiSnapshot now;
+  build_snapshot(&now);
+  if (memcmp(&now, &s_shown_ui, sizeof(now)) == 0) return;
 
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
-    if (slot->source != DATA_SOURCE_EMPTY && slot->layer) {
-      if (canvas_drawer(slot->source)) {
-        layer_set_hidden(text_layer_get_layer(slot->layer), true);
-      } else {
-        layer_set_hidden(text_layer_get_layer(slot->layer), false);
-        get_source_data(slot->source, s_slot_buffers[i], sizeof(s_slot_buffers[i]), NULL);
-        text_layer_set_text(slot->layer, s_slot_buffers[i]);
-
-#if defined(PBL_COLOR)
-        text_layer_set_text_color(slot->layer, get_source_color(slot->source));
-#else
-        text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
-#endif
-      }
-    } else if (slot->layer) {
-      layer_set_hidden(text_layer_get_layer(slot->layer), true);
+    if (!slot->layer) continue;
+    bool text_backed = slot->source != DATA_SOURCE_EMPTY && !canvas_drawer(slot->source);
+    layer_set_hidden(text_layer_get_layer(slot->layer), !text_backed);
+    if (!text_backed) continue;
+    if (strcmp(now.text[i], s_slot_text[i]) != 0 || now.source[i] != s_shown_ui.source[i]) {
+      strcpy(s_slot_text[i], now.text[i]);
+      text_layer_set_text(slot->layer, s_slot_text[i]);
     }
+    // Colors re-apply even when the string is unchanged (theme rollover);
+    // text_layer_set_text_color early-returns when nothing changed.
+#if defined(PBL_COLOR)
+    text_layer_set_text_color(slot->layer, get_source_color(slot->source));
+#else
+    text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
+#endif
   }
+
+  s_shown_ui = now;
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }

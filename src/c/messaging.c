@@ -172,7 +172,6 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
 
   // Redraw UI with new settings/weather
   update_time();
-  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }
 
 void inbox_dropped_callback(AppMessageResult reason, void* context) {

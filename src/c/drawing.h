@@ -31,7 +31,15 @@ extern TextLayer* s_time_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
 void canvas_update_proc(Layer* layer, GContext* ctx);
-void refresh_complications();
+// Build a snapshot of all displayed state and schedule the one full-tree
+// render iff it differs from what the last render drew. Safe to call from
+// any event handler; no-ops when nothing visible changed.
+void request_ui_redraw(void);
+
+// Clear the snapshot and layer-text caches. main_window_load calls this:
+// fresh layers hold no text, so the next request_ui_redraw() must apply
+// unconditionally rather than match a previous layer tree's snapshot.
+void reset_ui_snapshot(void);
 
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
 GFont vga_font_16(void);
