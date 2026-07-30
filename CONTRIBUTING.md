@@ -1,4 +1,4 @@
-# Contributing to tuiface
+# Contributing to Nostalgic Commander
 
 To be honest, I didn't think anyone was going to be interested in downloading
 this watchface, let alone want to contribute to it. It seemed a bit silly to
@@ -40,7 +40,7 @@ if you get them wrong:
 - Don't renumber `ComplicationDataSource` values or reuse a `PERSIST_KEY_*`
   constant — both are on-disk identifiers.
 - If you're forking, change the `uuid` and `displayName` in `package.json` so
-  your build doesn't collide with installed copies of tuiface.
+  your build doesn't collide with installed copies of Nostalgic Commander.
 
 ## Conventions
 

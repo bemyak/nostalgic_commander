@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**tuiface** is a Pebble watchface (SDK 3, currently targeting the `emery`
+**Nostalgic Commander** is a Pebble watchface (SDK 3, currently targeting the `emery`
 platform / Pebble Time 2, 200x228 px) with a text-forward design: the time and
 date sit inside "ASCII window" frames, surrounded by configurable
 complication slots.

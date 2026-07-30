@@ -27,7 +27,7 @@ fonts (`fonts_get_system_font`), which ship with the firmware (Apache 2.0).
 Open-Meteo's CC BY 4.0 attribution: include "Weather data by
 [Open-Meteo.com](https://open-meteo.com/)" where people encounter the work.
 Today that's the README (the settings page deliberately carries no
-about/credits section). **If tuiface ever ships to the Rebble store, put the
+about/credits section). **If Nostalgic Commander ever ships to the Rebble store, put the
 attribution in the store listing description** — end users don't see the
 README.
 

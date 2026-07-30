@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate redundant renders, network round trips, persistence writes, and per-render drawing cost in the tuiface watchface. Every task is behavior-preserving except two, both reviewed and accepted and both called out at their task: Task 10 lets the reported location age to the weather cadence, and Task 11 skips weather fetches — watch- and phone-side — until a weather slot exists, with an immediate fetch when one first appears. Task 11 also removes a double fetch on relaunch, which is a straight bug fix.
+**Goal:** Eliminate redundant renders, network round trips, persistence writes, and per-render drawing cost in the Nostalgic Commander watchface. Every task is behavior-preserving except two, both reviewed and accepted and both called out at their task: Task 10 lets the reported location age to the weather cadence, and Task 11 skips weather fetches — watch- and phone-side — until a weather slot exists, with an immediate fetch when one first appears. Task 11 also removes a double fetch on relaunch, which is a straight bug fix.
 
 **Architecture:** PebbleOS scheduling model (verified against `coredevices/pebbleos@main`, 2026-07-30): `layer_mark_dirty` carries no region (layer.c:105), it only sets `window->is_render_scheduled` (window.c:150); `window_render` then calls `update_proc` on every visible layer (window.c:113, layer.c:181). Marks within one event coalesce into one render. Consequences:
 

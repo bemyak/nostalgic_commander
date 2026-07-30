@@ -1,6 +1,7 @@
 PolyForm Noncommercial License 1.0.0
 
 Required Notice: Copyright Elizardbeth
+Required Notice: Copyright bemyak
 
 
 <https://polyformproject.org/licenses/noncommercial/1.0.0>

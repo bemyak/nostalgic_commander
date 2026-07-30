@@ -1,13 +1,31 @@
-# tuiface
+# Nostalgic Commander
 
-An opinionated, TUI-styled watchface for Pebble. Time, date, and the data you
-care about, framed in terminal-style windows — text over icons, contrast over
-decoration, utility over hand-holding.
+A Norton Commander-styled watchface for Pebble: time, date, and the data you
+care about, in exact EGA colors — cyan frames over panel blue, the dimmed
+shadow of it after dark. Text over icons, contrast over decoration, utility
+over hand-holding.
 
-![tuiface screenshot](screenshot_current.png)
+![Nostalgic Commander](screenshot_current.png)
 
 Built for the modern Pebble lineup; currently targets **emery**
 (Pebble Time 2).
+
+Nostalgic Commander is forked from
+[tuiface](https://github.com/lizwinn/tuiface) by Elizardbeth and reworked
+hard toward the DOS aesthetic: VGA bitmap font, EGA palettes, block-glyph
+progress bars, .beat time. The backbone — the complication system, weather
+pipeline, test harness, much of the runtime — is upstream's work. See
+[License](#license); the upstream copyright notice ships unchanged.
+
+## Gallery
+
+| Commander Panel | Dialog | Shadowed Panel |
+|---|---|---|
+| ![Commander Panel](screenshots/01_theme_ega.png) | ![Dialog](screenshots/02_theme_dialog.png) | ![Shadowed Panel](screenshots/03_theme_shadow.png) |
+
+| Complication combo | | Minimal layout |
+|---|---|---|
+| ![Complication layout A](screenshots/04_config1.png) | ![Complication layout B](screenshots/05_config2.png) | ![Minimal](screenshots/06_minimal.png) |
 
 ## Features
 
@@ -50,46 +68,25 @@ deliberately few:
 | Day of week | Before date, after date, hidden |
 | Slots 1–6 | Data source per slot, or Empty |
 
-That's the whole surface. tuiface favors good defaults over knobs; if a
-behavior isn't configurable, that's a decision, not an oversight.
+That's the whole surface. Good defaults over knobs; if a behavior isn't
+configurable, that's a decision, not an oversight.
 
 ## Philosophy
 
-Inspired by various terminal watchfaces. I've always liked the idea, but they
-always had a few shortcomings for me. Most mimic a shell calling single-value
-scripts or commands, which always struck me as a missed opportunity. Terminal
-UIs don't need to be hard to scan at a glance. They can be quite legible,
-dare I say aesthetically pleasing. tuiface is my attempt at the legible part;
-you can judge the aesthetics yourself.
-
-tuiface doesn't try to please everyone. It has a point of view:
+Inherited from upstream, held to more strictly, not less:
 
 - **TUI-like, but legible.** The terminal aesthetic serves readability on a
   small e-paper-style screen; where the two conflict, legibility wins.
 - **High-contrast themes.** Every palette keeps text sharply readable; muted,
   low-contrast color schemes are out of scope.
 - **Curated complications.** Ever scrolled a settings page with a hundred
-  complications trying to find the three you actually care about? tuiface
-  adds data sources deliberately and selectively. You are welcome to propose
-  things — however, I'm unlikely to implement them *for you*. I might
-  implement them for *me*, if that makes any sense. Forking is always an
-  option! (See [CONTRIBUTING.md](CONTRIBUTING.md).)
+  complications trying to find the three you actually care about? Data sources
+  are added deliberately and selectively.
 - **Utility first.** When usefulness and approachability pull in different
-  directions, tuiface picks useful.
+  directions, useful wins.
 - **Minimal configuration.** Every setting has to earn its place.
-- **Fork-friendly.** tuiface can afford to be this opinionated *because*
-  forking is cheap and encouraged. If your three essential complications
-  aren't my three, don't settle — fork it and make it yours.
-  [CONTRIBUTING.md](CONTRIBUTING.md) has notes to get you started.
-
-## A note on scope
-
-I write software for other people at work. tuiface is the one I build for
-me — so I'm keeping it that way. I'm happy to take bug fixes and well-scoped
-PRs, but I'm unlikely to implement someone else's feature idea *for* them;
-turning requests into a backlog is the part of work I'm deliberately not
-recreating here. If there's something you want that I won't build, that's
-genuinely what forking is for — and I'd love to see what you make.
+- **Fork-friendly.** This face only exists because upstream lives by that
+  value. It applies here too: fork it, make it yours.
 
 ## Building from source
 
@@ -111,12 +108,10 @@ cd test && make test
 
 ## Development
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute or fork, plus the
-  coding conventions
-- [AGENTS.md](AGENTS.md) — orientation for AI agents: build/test workflow,
-  architecture, and the hard rules
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it all works: data flow,
   modules, the complication system, theming, testing
+- [AGENTS.md](AGENTS.md) / [CONTRIBUTING.md](CONTRIBUTING.md) — upstream's
+  notes for agents and contributors; conventions here also apply
 - [ISSUES.md](ISSUES.md) — known bugs · [TODOs.md](TODOs.md) — planned work ·
   [IDEAS.md](IDEAS.md) — undecided ideas
 
@@ -124,22 +119,22 @@ Full SDK docs, tutorials, and API reference: <https://developer.repebble.com>
 
 ## AI disclosure
 
-tuiface was developed with assistance from AI coding agents — Google's
-**Gemini** and Anthropic's **Claude** — under human direction and review.
-This includes code, tests, and documentation.
+Upstream tuiface was developed with assistance from AI coding agents —
+Google's **Gemini** and Anthropic's **Claude** — and this fork continues the
+same practice, under human direction and review. This includes code, tests,
+and documentation.
 
 If you'd rather not use a watchface built with AI assistance, that's
 completely fair — no hard feelings.
 
 ## License
 
-This project is licensed under the
+This project is licensed, like upstream, under the
 [PolyForm Noncommercial License 1.0.0](LICENSE.md). In short: you may fork it,
-modify it, and redistribute your own versions freely — for any **noncommercial**
-purpose. Selling this watchface or a derivative of it is not permitted.
-
-If you make improvements, contributing them back upstream via a pull request
-is warmly appreciated (though not required).
+modify it, and redistribute your own versions freely — for any
+**noncommercial** purpose. Selling this watchface or a derivative of it is
+not permitted. Upstream's required copyright notice ("Copyright Elizardbeth")
+is retained in [LICENSE.md](LICENSE.md).
 
 Weather, UV, and air-quality data is provided by
 [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0, free for non-commercial

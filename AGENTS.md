@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Working notes for AI agents (and new contributors) on **tuiface**, an
-opinionated Pebble watchface. Read this first; deeper material is linked
+Working notes for AI agents (and new contributors) on **Nostalgic
+Commander**, an opinionated Pebble watchface. Read this first; deeper material is linked
 throughout.
 
 ## Philosophy & goals
@@ -9,18 +9,19 @@ throughout.
 These are project values, not suggestions. When a change conflicts with them,
 the change is wrong.
 
-- **tuiface has an opinion.** It cannot please everyone and we don't try.
+- **Nostalgic Commander has an opinion.** It cannot please everyone and we
+  don't try.
   "Add an option for it" is not the default answer — prefer choosing the right
   behavior over making behavior configurable.
-- **Complications are curated, hard.** Proposals are welcome — but Elizabeth
-  Winn approves every complication personally and plans to be *very*
-  selective. Watchfaces offering hundreds of complications bury the three you
-  actually care about; tuiface won't become one. Propose first, don't
+- **Complications are curated, hard.** Proposals are welcome — but bemyak
+  approves every complication personally and plans to be *very* selective.
+  Watchfaces offering hundreds of complications bury the three you actually
+  care about; Nostalgic Commander won't become one. Propose first, don't
   implement speculatively, and don't take a "no" as a verdict on the idea —
   it's usually about protecting focus.
 - **Forking is encouraged.** The strict curation above only works because
   forking is the sanctioned escape hatch. When someone wants a feature that
-  doesn't fit tuiface, pointing them at a fork (see
+  doesn't fit Nostalgic Commander, pointing them at a fork (see
   [CONTRIBUTING.md](CONTRIBUTING.md)) is a good outcome, not a brush-off.
 - **TUI-like, but legible.** The aesthetic is a terminal UI — framed windows,
   monospace-feeling layouts, text over icons. If a TUI flourish hurts
@@ -112,7 +113,7 @@ agent-written code too — follow them.
   `messageKeys`. Never reuse or renumber a `PERSIST_KEY_*` value. (Because of
   this, `messageKeys` in `package.json` is *not* order-sensitive — reordering
   it is safe.)
-- **New complications require Elizabeth's approval** (see Philosophy —
+- **New complications require bemyak's approval** (see Philosophy —
   proposals welcome, bar high).
 
 ## Adding a complication (once approved)
