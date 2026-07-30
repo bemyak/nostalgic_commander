@@ -275,6 +275,11 @@ extern int mock_mark_dirty_count;
 extern int mock_set_text_count;
 extern int mock_set_text_color_count;
 extern int mock_wordwrap_calls;
+extern int mock_bar_glyph_calls;
+#define MOCK_MAX_FILL_RECTS 128
+extern GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
+extern int mock_fill_rect_count;
+void mock_fill_rect_reset(void);
 void mock_dict_reset(void);
 void mock_dict_add_int(uint32_t key, int32_t value);
 void mock_dict_add_cstring(uint32_t key, const char* str);

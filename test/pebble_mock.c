@@ -98,13 +98,24 @@ void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
 void graphics_context_set_text_color(GContext* ctx, GColor color) {}
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {}
 int mock_wordwrap_calls = 0;
+int mock_bar_glyph_calls = 0;
 void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
                         GTextOverflowMode overflow_mode, GTextAlignment alignment,
                         GContext* layout_cache) {
   if (overflow_mode == GTextOverflowModeWordWrap) mock_wordwrap_calls++;
+  if (strstr(text, "\xE2\x96\x88")) mock_bar_glyph_calls++;  // U+2588 FULL BLOCK
+}
+GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
+int mock_fill_rect_count = 0;
+void mock_fill_rect_reset(void) {
+  mock_fill_rect_count = 0;
 }
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
-                        GCornerMask corner_mask) {}
+                        GCornerMask corner_mask) {
+  if (mock_fill_rect_count < MOCK_MAX_FILL_RECTS) {
+    mock_fill_rects[mock_fill_rect_count++] = rect;
+  }
+}
 
 void health_service_events_subscribe(void (*handler)(HealthEventType event, void* context),
                                      void* context) {}

@@ -135,7 +135,6 @@ static void draw_full_date_complication(GContext* ctx, GRect box_rect) {
 
 // CP437 shade characters, as UTF-8. FONT_VGA_16's characterRegex admits exactly
 // these two; the 64pt clock never draws them.
-#define BAR_FILL "\xE2\x96\x88"   // U+2588 FULL BLOCK
 #define BAR_TRACK "\xE2\x96\x91"  // U+2591 LIGHT SHADE
 #define BAR_VALUE_CELLS 4         // three digits plus '%'
 #define BAR_VALUE_MAX 999         // ...so this is the largest reading that fits
@@ -183,7 +182,14 @@ static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool h
   GRect row = GRect(band.origin.x + (band.size.w - cells * VGA16_CHAR_W) / 2,
                     box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
 
-  draw_shade_run(ctx, row, 0, filled, BAR_FILL, fill);
+  // The fill is a solid block: one rect, not a glyph run. The track stays
+  // glyphs — ░ is a dither pattern, not a color. Rect geometry is the ink box
+  // the █ run occupied; pixel-identity is screenshot-gated, not assumed.
+  if (filled > 0) {
+    graphics_context_set_fill_color(ctx, fill);
+    graphics_fill_rect(ctx, GRect(row.origin.x, band.origin.y, filled * VGA16_CHAR_W, VGA16_CELL_H),
+                       0, GCornerNone);
+  }
   draw_shade_run(ctx, row, filled, bar_cells - filled, BAR_TRACK, s_active_theme->frame);
 
   char value[8];

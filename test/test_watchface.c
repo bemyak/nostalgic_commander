@@ -137,6 +137,39 @@ void test_canvas_procs_should_never_word_wrap(void) {
   s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
+void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
+  test_apply_theme();
+  s_complication_slots[3].source = DATA_SOURCE_BATTERY_BAR;
+  s_battery_level = 100;  // full bar
+  mock_fill_rect_reset();
+  mock_bar_glyph_calls = 0;
+
+  canvas_update_proc(NULL, NULL);
+
+  // Expected fill: every bar cell, one cell high, aligned with the band.
+  GRect band = status_band_rect(s_complication_slots[3].box_rect);
+  int cells = band.size.w / VGA16_CHAR_W;
+  int bar_cells = cells - BAR_VALUE_CELLS - 1;
+  GRect row = GRect(band.origin.x + (band.size.w - cells * VGA16_CHAR_W) / 2,
+                    s_complication_slots[3].box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W,
+                    VALUE_ROW_H);
+  GRect expected = GRect(row.origin.x, band.origin.y, bar_cells * VGA16_CHAR_W, VGA16_CELL_H);
+
+  bool found = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].origin.x == expected.origin.x &&
+        mock_fill_rects[i].origin.y == expected.origin.y &&
+        mock_fill_rects[i].size.w == expected.size.w &&
+        mock_fill_rects[i].size.h == expected.size.h) {
+      found = true;
+    }
+  }
+  TEST_ASSERT_TRUE(found);
+  TEST_ASSERT_EQUAL_INT(0, mock_bar_glyph_calls);  // no block glyphs for the fill
+
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
   main_window_load(NULL);
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
@@ -1223,6 +1256,7 @@ int main(void) {
   RUN_TEST(test_render_gate_should_notice_bar_slot_changes);
   RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
+  RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
