@@ -28,6 +28,11 @@ void save_weather_cache(void) {
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_AQI, s_weather_aqi);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_UV, s_weather_uv);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_HUMIDITY, s_weather_humidity);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_PCP, s_weather_pcp);
+  persist_write_string_if_changed(PERSIST_KEY_WEATHER_SUNRISE, s_sunrise_time);
+  persist_write_string_if_changed(PERSIST_KEY_WEATHER_SUNSET, s_sunset_time);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_HIGH, s_temp_high);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_LOW, s_temp_low);
   // Always: the timestamp is the freshness marker; skipping it would age the
   // cache and cost a network fetch on next launch.
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
@@ -54,6 +59,21 @@ bool load_weather_cache(void) {
   }
   if (persist_exists(PERSIST_KEY_WEATHER_HUMIDITY)) {
     s_weather_humidity = persist_read_int(PERSIST_KEY_WEATHER_HUMIDITY);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_PCP)) {
+    s_weather_pcp = persist_read_int(PERSIST_KEY_WEATHER_PCP);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_SUNRISE)) {
+    persist_read_string(PERSIST_KEY_WEATHER_SUNRISE, s_sunrise_time, sizeof(s_sunrise_time));
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_SUNSET)) {
+    persist_read_string(PERSIST_KEY_WEATHER_SUNSET, s_sunset_time, sizeof(s_sunset_time));
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_HIGH)) {
+    s_temp_high = persist_read_int(PERSIST_KEY_WEATHER_HIGH);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_LOW)) {
+    s_temp_low = persist_read_int(PERSIST_KEY_WEATHER_LOW);
   }
   return true;
 }
@@ -116,6 +136,31 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     s_weather_humidity = humidity_tuple->value->int32;
   }
 
+  Tuple* pcp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_PCP);
+  if (pcp_tuple) {
+    s_weather_pcp = pcp_tuple->value->int32;
+  }
+
+  Tuple* sunrise_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_SUNRISE);
+  if (sunrise_tuple) {
+    snprintf(s_sunrise_time, sizeof(s_sunrise_time), "%s", sunrise_tuple->value->cstring);
+  }
+
+  Tuple* sunset_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_SUNSET);
+  if (sunset_tuple) {
+    snprintf(s_sunset_time, sizeof(s_sunset_time), "%s", sunset_tuple->value->cstring);
+  }
+
+  Tuple* high_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_HIGH);
+  if (high_tuple) {
+    s_temp_high = high_tuple->value->int32;
+  }
+
+  Tuple* low_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_LOW);
+  if (low_tuple) {
+    s_temp_low = low_tuple->value->int32;
+  }
+
   // Persist the weather cache only for a real weather payload, so a
   // settings-only message can't refresh the timestamp.
   if (temp_tuple && cond_tuple) {
@@ -158,50 +203,64 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
   }
 
-  // Adding a weather slot has to fetch now, or the new slot reads "--" until
-  // the next :00/:30 edge.
+  // Assigning or rearranging slots has to fetch now, or a newly shown weather
+  // reading sits at "--" until the next :00/:30 edge. Rearranging non-weather
+  // slots also pays one fetch — a rare settings edit, not worth gating finer.
   bool needed_weather = any_slot_needs_weather();
+  bool slots_changed = false;
 
   Tuple* slot1 = dict_find(iterator, MESSAGE_KEY_SLOT_1);
   if (slot1) {
-    s_complication_slots[0].source = tuple_get_int(slot1);
+    ComplicationDataSource source = tuple_get_int(slot1);
+    if (s_complication_slots[0].source != source) slots_changed = true;
+    s_complication_slots[0].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_1, s_complication_slots[0].source);
   }
 
   Tuple* slot2 = dict_find(iterator, MESSAGE_KEY_SLOT_2);
   if (slot2) {
-    s_complication_slots[1].source = tuple_get_int(slot2);
+    ComplicationDataSource source = tuple_get_int(slot2);
+    if (s_complication_slots[1].source != source) slots_changed = true;
+    s_complication_slots[1].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_2, s_complication_slots[1].source);
   }
 
   Tuple* slot3 = dict_find(iterator, MESSAGE_KEY_SLOT_3);
   if (slot3) {
-    s_complication_slots[2].source = tuple_get_int(slot3);
+    ComplicationDataSource source = tuple_get_int(slot3);
+    if (s_complication_slots[2].source != source) slots_changed = true;
+    s_complication_slots[2].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_3, s_complication_slots[2].source);
   }
 
   Tuple* slot4 = dict_find(iterator, MESSAGE_KEY_SLOT_4);
   if (slot4) {
-    s_complication_slots[3].source = tuple_get_int(slot4);
+    ComplicationDataSource source = tuple_get_int(slot4);
+    if (s_complication_slots[3].source != source) slots_changed = true;
+    s_complication_slots[3].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_4, s_complication_slots[3].source);
   }
 
   Tuple* slot5 = dict_find(iterator, MESSAGE_KEY_SLOT_5);
   if (slot5) {
-    s_complication_slots[4].source = tuple_get_int(slot5);
+    ComplicationDataSource source = tuple_get_int(slot5);
+    if (s_complication_slots[4].source != source) slots_changed = true;
+    s_complication_slots[4].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_5, s_complication_slots[4].source);
   }
 
   Tuple* slot6 = dict_find(iterator, MESSAGE_KEY_SLOT_6);
   if (slot6) {
-    s_complication_slots[5].source = tuple_get_int(slot6);
+    ComplicationDataSource source = tuple_get_int(slot6);
+    if (s_complication_slots[5].source != source) slots_changed = true;
+    s_complication_slots[5].source = source;
     persist_write_int_if_changed(PERSIST_KEY_SLOT_6, s_complication_slots[5].source);
   }
 
-  // A weather reply carries neither SLOT_* nor SETTINGS_UNITS keys, so it
-  // matches needed_weather == needs_weather and never re-arms a request.
+  // A weather reply carries no SLOT_*/UNITS keys and changes no assignments,
+  // so it never re-arms a request.
   bool needs_weather = any_slot_needs_weather();
-  if (needs_weather && (units_changed || !needed_weather)) {
+  if (needs_weather && (units_changed || !needed_weather || slots_changed)) {
     request_weather();
   }
 

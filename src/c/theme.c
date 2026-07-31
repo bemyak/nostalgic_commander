@@ -78,6 +78,19 @@ void apply_theme(struct tm* tick_time) {
   }
 }
 
+// Hot/cold bands, shared by every temperature reading (temp alone, the
+// combined weather value, and the day's high) so the thresholds live once.
+static GColor temp_band_color(int temp) {
+  if (s_settings_units == 1) {  // Metric (Celsius)
+    if (temp > 29) return s_active_theme->status_red;
+    if (temp < 4) return s_active_theme->accent_cold;  // Blue
+  } else {                                             // Imperial (Fahrenheit)
+    if (temp > 85) return s_active_theme->status_red;
+    if (temp < 40) return s_active_theme->accent_cold;  // Blue
+  }
+  return s_active_theme->text_primary;
+}
+
 GColor get_source_color(ComplicationDataSource source) {
   if (!s_active_theme) return GColorWhite;
 
@@ -97,14 +110,7 @@ GColor get_source_color(ComplicationDataSource source) {
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:
     case DATA_SOURCE_WEATHER:
-      if (s_settings_units == 1) {  // Metric (Celsius)
-        if (s_weather_temp > 29) return s_active_theme->status_red;
-        if (s_weather_temp < 4) return s_active_theme->accent_cold;  // Blue
-      } else {                                                       // Imperial (Fahrenheit)
-        if (s_weather_temp > 85) return s_active_theme->status_red;
-        if (s_weather_temp < 40) return s_active_theme->accent_cold;  // Blue
-      }
-      return s_active_theme->text_primary;
+      return temp_band_color(s_weather_temp);
     case DATA_SOURCE_AQI:
       if (s_weather_aqi == -1) return s_active_theme->text_primary;
       if (s_weather_aqi > 100) return s_active_theme->status_red;
@@ -123,6 +129,18 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_humidity <= 60) return s_active_theme->status_green;
       if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
+    case DATA_SOURCE_WEATHER_PCP:
+      // Likelihood, not severity: at or under 30 the day reads dry, past 30 it
+      // is worth a thought, past 60 plan around it.
+      if (s_weather_pcp == -1) return s_active_theme->text_primary;
+      if (s_weather_pcp > 60) return s_active_theme->status_red;
+      if (s_weather_pcp > 30) return s_active_theme->status_yellow;
+      return s_active_theme->status_green;
+    case DATA_SOURCE_TEMP_HIGH_LOW:
+      // The high is the day's headline, so it alone carries the color — a
+      // freezing low under a mild high stays neutral.
+      if (s_temp_high == -999) return s_active_theme->text_primary;
+      return temp_band_color(s_temp_high);
     case DATA_SOURCE_AQI_UV: {
       if (s_weather_aqi == -1 && s_weather_uv == -1) return s_active_theme->text_primary;
       bool is_red = (s_weather_aqi > 100 || s_weather_uv >= 6);

@@ -162,8 +162,20 @@
             "value": "5"
           },
           {
+            "label": "High / Low Temperature",
+            "value": "30"
+          },
+          {
+            "label": "Precipitation (next 12h max)",
+            "value": "28"
+          },
+          {
             "label": "Humidity",
             "value": "26"
+          },
+          {
+            "label": "Sunrise & Sunset",
+            "value": "29"
           },
           {
             "label": "Air Quality (AQI)",
@@ -226,8 +238,20 @@
             "value": "5"
           },
           {
+            "label": "High / Low Temperature",
+            "value": "30"
+          },
+          {
+            "label": "Precipitation (next 12h max)",
+            "value": "28"
+          },
+          {
             "label": "Humidity",
             "value": "26"
+          },
+          {
+            "label": "Sunrise & Sunset",
+            "value": "29"
           },
           {
             "label": "Air Quality (AQI)",

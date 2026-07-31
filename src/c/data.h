@@ -22,6 +22,9 @@ typedef enum {
   DATA_SOURCE_BATTERY_BAR = 25,
   DATA_SOURCE_HUMIDITY = 26,
   DATA_SOURCE_WEATHER_FULL = 27,
+  DATA_SOURCE_WEATHER_PCP = 28,
+  DATA_SOURCE_SUN_TIMES = 29,
+  DATA_SOURCE_TEMP_HIGH_LOW = 30,
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -41,6 +44,11 @@ extern char s_weather_cond[16];
 extern int s_weather_aqi;
 extern int s_weather_uv;
 extern int s_weather_humidity;
+extern int s_weather_pcp;
+extern char s_sunrise_time[8];
+extern char s_sunset_time[8];
+extern int s_temp_high;
+extern int s_temp_low;
 extern int s_active_minutes;
 extern int s_active_minutes_goal;
 extern bool s_connected;

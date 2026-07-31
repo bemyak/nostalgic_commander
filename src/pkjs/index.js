@@ -4,6 +4,19 @@ var clay = new Clay(clayConfig);
 
 var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
+// Everything the watch consumes. The whole reply is cached verbatim and
+// resent on ready; an older build's cache is missing newer keys — safe (the
+// watch guards each field) but worth completing at once rather than at the
+// next :00/:30 edge.
+var WEATHER_DICT_KEYS = [
+  'WEATHER_TEMP', 'WEATHER_COND', 'WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
+  'WEATHER_SUNRISE', 'WEATHER_SUNSET', 'WEATHER_HIGH', 'WEATHER_LOW'
+];
+
+function isCompleteWeatherPayload(payload) {
+  return WEATHER_DICT_KEYS.every(function(k) { return payload[k] !== undefined; });
+}
+
 // A failed fetch is otherwise not retried until the next :00/:30 tick, which
 // leaves the watch blank for up to 30 minutes after a launch-time blip.
 var WEATHER_MAX_RETRIES = 2;
@@ -58,6 +71,12 @@ Pebble.addEventListener('ready', function(e) {
     Pebble.sendAppMessage(
         cached, function(e) { console.log('Cached weather sent successfully!'); },
         function(e) { console.log('Error sending: ' + JSON.stringify(e)); });
+    // Cached by an older build: the resend is fine, but fill the missing
+    // fields now instead of leaving new slots at "--" until the next edge.
+    if (!isCompleteWeatherPayload(cached)) {
+      console.log('Cached payload predates current keys; fetching to complete');
+      getWeather();
+    }
   }
   // Nothing fresh cached: don't fetch proactively. The watch requests on
   // launch when its own cache is stale and a weather slot exists, retries a
@@ -95,7 +114,9 @@ function getWeather(attempt) {
         var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
             '&longitude=' + lon +
             '&current=temperature_2m,weather_code,relative_humidity_2m&timezone=auto' +
-            '&temperature_unit=' + tempUnit + '&hourly=uv_index&forecast_hours=' + UV_WINDOW_HOURS;
+            '&temperature_unit=' + tempUnit +
+            '&hourly=uv_index,precipitation_probability&forecast_hours=' + UV_WINDOW_HOURS +
+            '&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min&forecast_days=1';
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
             '&longitude=' + lon + '&current=us_aqi';
 
@@ -121,9 +142,14 @@ function getWeather(attempt) {
                 'WEATHER_COND': forecast.cond,
                 'WEATHER_AQI': aqi,
                 'WEATHER_UV': forecast.uv,
-                'WEATHER_HUMIDITY': forecast.humidity
+                'WEATHER_HUMIDITY': forecast.humidity,
+                'WEATHER_PCP': forecast.pcp,
+                'WEATHER_SUNRISE': forecast.sunrise,
+                'WEATHER_SUNSET': forecast.sunset,
+                'WEATHER_HIGH': forecast.high,
+                'WEATHER_LOW': forecast.low
               },
-              'Weather, AQI, UV & humidity');
+              'Weather bundle');
         }
 
         var xhr = new XMLHttpRequest();
@@ -141,19 +167,41 @@ function getWeather(attempt) {
               }
               // -1 is the watch-side "no data" sentinel; forecast_hours
               // already windows the hourly data, the timestamp guard keeps us
-              // honest if the API ever returns a wider range.
+              // honest if the API ever returns a wider range. Both readings
+              // below are next-12h maxima, computed in one pass.
               var uv = -1;
-              if (json.hourly && json.hourly.uv_index && json.hourly.time) {
+              var pcp = -1;
+              if (json.hourly && json.hourly.time) {
                 var windowStart = Date.now() - 3600 * 1000;  // include the in-progress hour
                 var windowEnd = Date.now() + UV_WINDOW_HOURS * 3600 * 1000;
-                for (var i = 0; i < json.hourly.uv_index.length; i++) {
-                  var v = json.hourly.uv_index[i];
+                var uvArr = json.hourly.uv_index || [];
+                var pcpArr = json.hourly.precipitation_probability || [];
+                for (var i = 0; i < json.hourly.time.length; i++) {
                   var t = new Date(json.hourly.time[i]).getTime();
-                  if (typeof v === 'number' && t >= windowStart && t <= windowEnd && v > uv) {
-                    uv = v;
-                  }
+                  if (!(t >= windowStart && t <= windowEnd)) continue;  // NaN-safe
+                  if (typeof uvArr[i] === 'number' && uvArr[i] > uv) uv = uvArr[i];
+                  // The API nulls probability where no precip is forecast at
+                  // all; a window of nulls at least still reads "no data".
+                  if (typeof pcpArr[i] === 'number' && pcpArr[i] > pcp) pcp = pcpArr[i];
                 }
-                if (uv >= 0) uv = Math.round(uv);
+              }
+              if (uv >= 0) uv = Math.round(uv);
+              if (pcp >= 0) pcp = Math.round(pcp);
+
+              // Sun times arrive as local ISO 'YYYY-MM-DDTHH:MM' strings; the
+              // watch renders the HH:MM they carry, unit-independent.
+              var daily = json.daily || {};
+              var sunrise =
+                  (daily.sunrise && daily.sunrise[0]) ? daily.sunrise[0].substr(11, 5) : '--:--';
+              var sunset =
+                  (daily.sunset && daily.sunset[0]) ? daily.sunset[0].substr(11, 5) : '--:--';
+              var high = -999;
+              var low = -999;
+              if (daily.temperature_2m_max && typeof daily.temperature_2m_max[0] === 'number') {
+                high = Math.round(daily.temperature_2m_max[0]);
+              }
+              if (daily.temperature_2m_min && typeof daily.temperature_2m_min[0] === 'number') {
+                low = Math.round(daily.temperature_2m_min[0]);
               }
 
               var cond = 'SUN';
@@ -174,7 +222,17 @@ function getWeather(attempt) {
               } else {
                 cond = 'CLD';
               }
-              forecast = {temp: temp, cond: cond, uv: uv, humidity: humidity};
+              forecast = {
+                temp: temp,
+                cond: cond,
+                uv: uv,
+                humidity: humidity,
+                pcp: pcp,
+                sunrise: sunrise,
+                sunset: sunset,
+                high: high,
+                low: low
+              };
             } catch (e) {
               failedReason = 'parse error: ' + e;
             }

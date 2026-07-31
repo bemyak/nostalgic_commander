@@ -343,6 +343,11 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("UV", get_source_label(DATA_SOURCE_UV));
   TEST_ASSERT_EQUAL_STRING("AQI/UV", get_source_label(DATA_SOURCE_AQI_UV));
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
+  TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
+  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  // Top-slot titles cap at 9 characters (93px window); RISE/SET is the widest
+  TEST_ASSERT_EQUAL_STRING("RISE/SET", get_source_label(DATA_SOURCE_SUN_TIMES));
+  TEST_ASSERT_TRUE(strlen(get_source_label(DATA_SOURCE_SUN_TIMES)) <= 9);
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
@@ -839,6 +844,74 @@ void test_full_weather_captions_should_align_with_the_strip(void) {
   TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W + 4 <= LAYOUT_W - 10);
 }
 
+void test_get_source_data_should_format_pcp(void) {
+  char buf[16];
+  int percent = -1;
+
+  s_weather_pcp = -1;
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_weather_pcp = 45;
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("45%", buf);
+  TEST_ASSERT_EQUAL_INT(45, percent);
+
+  s_weather_pcp = 0;
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("0%", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);  // zero probability is real data
+}
+
+void test_get_source_data_should_format_sun_times(void) {
+  char buf[24];
+
+  strcpy(s_sunrise_time, "--:--");
+  strcpy(s_sunset_time, "--:--");
+  get_source_data(DATA_SOURCE_SUN_TIMES, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("--:--/--:--", buf);
+
+  strcpy(s_sunrise_time, "05:00");
+  strcpy(s_sunset_time, "21:52");
+  get_source_data(DATA_SOURCE_SUN_TIMES, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("05:00/21:52", buf);
+}
+
+void test_get_source_data_should_format_high_low(void) {
+  char buf[24];
+
+  // Either side missing must not leak a half-number
+  s_temp_high = -999;
+  s_temp_low = 61;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+
+  // …and the other half too
+  s_temp_high = 82;
+  s_temp_low = -999;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+
+  s_settings_units = 0;
+  s_temp_high = 82;
+  s_temp_low = 61;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("82/61F", buf);
+
+  s_settings_units = 1;
+  s_temp_high = 28;
+  s_temp_low = 4;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("28/4C", buf);
+
+  // Top-slot values cap at 11 cells even at winter extremes
+  s_temp_high = 3;
+  s_temp_low = -25;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_TRUE(strlen(buf) <= 11);
+}
+
 void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
   // BMT is UTC+1, so the beat day rolls over at 23:00 UTC.
   TEST_ASSERT_EQUAL_INT(0, compute_beats(82800));         // 23:00:00 UTC = @000
@@ -952,6 +1025,41 @@ void test_get_source_color_should_return_appropriate_colors(void) {
 
   s_weather_humidity = 71;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_HUMIDITY));
+
+  // Precipitation probability bands (<=30 green, 31-60 yellow, >60 red)
+  s_weather_pcp = -1;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  s_weather_pcp = 30;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  s_weather_pcp = 31;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  s_weather_pcp = 60;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  s_weather_pcp = 61;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  // High/low takes the SHARED temperature bands of the day's high; the low
+  // never colors it, and missing data stays neutral
+  s_temp_high = -999;
+  s_temp_low = -999;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+
+  s_settings_units = 1;
+  s_temp_high = 30;
+  s_temp_low = 18;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+
+  s_temp_high = 3;
+  s_temp_low = -10;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+
+  s_temp_high = 20;
+  s_temp_low = -10;  // a freezing low must not tint a mild day
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
 
   // Battery color thresholds (>50 green, >20 yellow, <=20 red)
   s_battery_level = 100;
@@ -1102,6 +1210,11 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_aqi = 42;
   s_weather_uv = 5;
   s_weather_humidity = 55;
+  s_weather_pcp = 35;
+  strcpy(s_sunrise_time, "05:00");
+  strcpy(s_sunset_time, "21:52");
+  s_temp_high = 82;
+  s_temp_low = 61;
   save_weather_cache();
 
   // Simulate a relaunch: globals reset to sentinels
@@ -1110,6 +1223,11 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_aqi = -1;
   s_weather_uv = -1;
   s_weather_humidity = -1;
+  s_weather_pcp = -1;
+  strcpy(s_sunrise_time, "--:--");
+  strcpy(s_sunset_time, "--:--");
+  s_temp_high = -999;
+  s_temp_low = -999;
 
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
@@ -1117,6 +1235,11 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
+  TEST_ASSERT_EQUAL_STRING("05:00", s_sunrise_time);
+  TEST_ASSERT_EQUAL_STRING("21:52", s_sunset_time);
+  TEST_ASSERT_EQUAL_INT(82, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 }
 
 void test_weather_cache_should_reject_missing_or_stale_data(void) {
@@ -1405,6 +1528,11 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 42);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 7);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 35);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_SUNRISE, "05:00");
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_SUNSET, "21:52");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
 
   inbox_received_callback(NULL, NULL);
 
@@ -1413,6 +1541,11 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(7, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
+  TEST_ASSERT_EQUAL_STRING("05:00", s_sunrise_time);
+  TEST_ASSERT_EQUAL_STRING("21:52", s_sunset_time);
+  TEST_ASSERT_EQUAL_INT(82, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 
   // A weather payload must persist the cache
   TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP));
@@ -1615,6 +1748,21 @@ void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
   restore_slots(saved);
 }
 
+void test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown(void) {
+  // Defaults show WEATHER in slot 0: weather is already needed, so the
+  // first-appears trigger can't fire — an actual assignment change must.
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SLOT_2, "28");  // sleep -> PCP
+  int before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+
+  // Re-pushing an unchanged assignment stays silent
+  before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
 void test_dropped_weather_request_should_retry_a_bounded_number_of_times(void) {
   s_weather_request_retries = 0;
   int before = mock_outbox_sends;
@@ -1693,6 +1841,9 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_humidity);
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
+  RUN_TEST(test_get_source_data_should_format_pcp);
+  RUN_TEST(test_get_source_data_should_format_sun_times);
+  RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
@@ -1729,6 +1880,7 @@ int main(void) {
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   RUN_TEST(test_tick_handler_should_skip_weather_with_no_weather_slots);
   RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);
+  RUN_TEST(test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown);
   RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
   RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
   RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);

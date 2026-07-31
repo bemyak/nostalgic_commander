@@ -27,9 +27,10 @@ This document explains how the pieces fit together.
    minute tick (`update_time()` in `main.c`).
 2. The JS side (`index.js`) receives any AppMessage, gets the phone's location,
    and calls two Open-Meteo endpoints: the forecast API (current temperature,
-   weather code, and relative humidity from the `current` block, plus hourly
-   UV reduced to the peak over the next 12 hours) and the air-quality API
-   (US AQI). It maps the
+   weather code and humidity from the `current` block; hourly UV and
+   precipitation probability, each reduced to the peak over the next 12 hours;
+   today's sunrise, sunset and high/low from the `daily` block) and the
+   air-quality API (US AQI). It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
    `SNOW`, `TSTM`) and sends everything back in one dictionary.
 3. `inbox_received_callback()` (`messaging.c`) writes the values into the
@@ -54,8 +55,9 @@ This document explains how the pieces fit together.
 - State lives in globals (`s_`-prefixed) declared in `data.h` and defined in
   `data.c`; other modules reference them via `extern`. There is no
   encapsulation layer — this is idiomatic for Pebble's C SDK.
-- "No data" sentinels: `-1` for steps/sleep/AQI/UV, `-999` for temperature,
-  `0` for heart rate. Formatters render these as `--`.
+- "No data" sentinels: `-1` for steps/sleep/AQI/UV/humidity/PCP, `-999` for
+  temperatures (including high/low), `"--:--"` for sun times, `0` for heart
+  rate. Formatters render these as `--`.
 - Everything that changes state calls `refresh_complications()` and marks the
   canvas layer dirty rather than redrawing directly.
 
