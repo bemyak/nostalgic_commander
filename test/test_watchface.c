@@ -345,9 +345,6 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
   TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
   TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
-  // Top-slot titles cap at 9 characters (93px window); RISE/SET is the widest
-  TEST_ASSERT_EQUAL_STRING("RISE/SET", get_source_label(DATA_SOURCE_SUN_TIMES));
-  TEST_ASSERT_TRUE(strlen(get_source_label(DATA_SOURCE_SUN_TIMES)) <= 9);
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
@@ -864,20 +861,6 @@ void test_get_source_data_should_format_pcp(void) {
   TEST_ASSERT_EQUAL_INT(0, percent);  // zero probability is real data
 }
 
-void test_get_source_data_should_format_sun_times(void) {
-  char buf[24];
-
-  strcpy(s_sunrise_time, "--:--");
-  strcpy(s_sunset_time, "--:--");
-  get_source_data(DATA_SOURCE_SUN_TIMES, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("--:--/--:--", buf);
-
-  strcpy(s_sunrise_time, "05:00");
-  strcpy(s_sunset_time, "21:52");
-  get_source_data(DATA_SOURCE_SUN_TIMES, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("05:00/21:52", buf);
-}
-
 void test_get_source_data_should_format_high_low(void) {
   char buf[24];
 
@@ -1211,8 +1194,6 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_uv = 5;
   s_weather_humidity = 55;
   s_weather_pcp = 35;
-  strcpy(s_sunrise_time, "05:00");
-  strcpy(s_sunset_time, "21:52");
   s_temp_high = 82;
   s_temp_low = 61;
   save_weather_cache();
@@ -1224,8 +1205,6 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_uv = -1;
   s_weather_humidity = -1;
   s_weather_pcp = -1;
-  strcpy(s_sunrise_time, "--:--");
-  strcpy(s_sunset_time, "--:--");
   s_temp_high = -999;
   s_temp_low = -999;
 
@@ -1236,8 +1215,6 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
   TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
-  TEST_ASSERT_EQUAL_STRING("05:00", s_sunrise_time);
-  TEST_ASSERT_EQUAL_STRING("21:52", s_sunset_time);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 }
@@ -1529,8 +1506,6 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 7);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 35);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_SUNRISE, "05:00");
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_SUNSET, "21:52");
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
 
@@ -1542,8 +1517,6 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(7, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
   TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
-  TEST_ASSERT_EQUAL_STRING("05:00", s_sunrise_time);
-  TEST_ASSERT_EQUAL_STRING("21:52", s_sunset_time);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 
@@ -1842,7 +1815,6 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
   RUN_TEST(test_get_source_data_should_format_pcp);
-  RUN_TEST(test_get_source_data_should_format_sun_times);
   RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);

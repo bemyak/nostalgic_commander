@@ -44,8 +44,6 @@
       "WEATHER_UV",
       "WEATHER_HUMIDITY",
       "WEATHER_PCP",
-      "WEATHER_SUNRISE",
-      "WEATHER_SUNSET",
       "WEATHER_HIGH",
       "WEATHER_LOW"
     ],

@@ -10,14 +10,12 @@ int s_sleep_seconds = -1;   // -1 indicates no data
 int s_heart_rate = 0;       // Default to 0 (displays "--" if no HRM is present)
 int s_weather_temp = -999;  // -999 indicates no data
 char s_weather_cond[16] = "--";
-int s_weather_aqi = -1;            // -1 indicates no data
-int s_weather_uv = -1;             // -1 indicates no data
-int s_weather_humidity = -1;       // -1 indicates no data
-int s_weather_pcp = -1;            // -1 indicates no data
-char s_sunrise_time[8] = "--:--";  // "--:--" indicates no data
-char s_sunset_time[8] = "--:--";
-int s_temp_high = -999;  // -999 indicates no data
-int s_temp_low = -999;   // -999 indicates no data
+int s_weather_aqi = -1;       // -1 indicates no data
+int s_weather_uv = -1;        // -1 indicates no data
+int s_weather_humidity = -1;  // -1 indicates no data
+int s_weather_pcp = -1;       // -1 indicates no data
+int s_temp_high = -999;       // -999 indicates no data
+int s_temp_low = -999;        // -999 indicates no data
 int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
@@ -81,8 +79,6 @@ const char* get_source_label(ComplicationDataSource source) {
       return "HUM";
     case DATA_SOURCE_WEATHER_PCP:
       return "PCP";
-    case DATA_SOURCE_SUN_TIMES:
-      return "RISE/SET";
     case DATA_SOURCE_TEMP_HIGH_LOW:
       return "HI/LO";
     case DATA_SOURCE_WEATHER_FULL:
@@ -236,10 +232,6 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
         snprintf(val_buf, val_len, "%d%%", s_weather_pcp);
         if (percent) *percent = s_weather_pcp;
       }
-      break;
-    case DATA_SOURCE_SUN_TIMES:
-      // Rise then set, in local 24h; the phone supplies the HH:MM strings.
-      snprintf(val_buf, val_len, "%s/%s", s_sunrise_time, s_sunset_time);
       break;
     case DATA_SOURCE_TEMP_HIGH_LOW:
       // Either side missing sinks the pair: a half-number reads as data.

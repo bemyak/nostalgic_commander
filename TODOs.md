@@ -23,9 +23,11 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
 
 ## Done
 
-- [x] Extended weather trio: precipitation probability (next-12h max),
-  sunrise/sunset, daily high/low — top slots, still one Open-Meteo request.
-  Spec: [docs/superpowers/specs/2026-07-31-extended-weather-design.md](docs/superpowers/specs/2026-07-31-extended-weather-design.md).
+- [x] Extended weather: precipitation probability (next-12h max) and daily
+  high/low — top slots, still one Open-Meteo request. (sunrise/sunset was
+  part of this batch, pulled after the emulator check: the 11-cell value
+  crowded the 93px top slot's borders.) Spec:
+  [docs/superpowers/specs/2026-07-31-extended-weather-design.md](docs/superpowers/specs/2026-07-31-extended-weather-design.md).
 - [x] Full-weather centre complication: five captioned status chips. Spec:
   [docs/superpowers/specs/2026-07-31-full-weather-centre-design.md](docs/superpowers/specs/2026-07-31-full-weather-centre-design.md).
 - [x] Humidity complication (comfort-band colors); config lists reordered

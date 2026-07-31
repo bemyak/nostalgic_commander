@@ -174,10 +174,6 @@
             "value": "26"
           },
           {
-            "label": "Sunrise & Sunset",
-            "value": "29"
-          },
-          {
             "label": "Air Quality (AQI)",
             "value": "16"
           },
@@ -248,10 +244,6 @@
           {
             "label": "Humidity",
             "value": "26"
-          },
-          {
-            "label": "Sunrise & Sunset",
-            "value": "29"
           },
           {
             "label": "Air Quality (AQI)",

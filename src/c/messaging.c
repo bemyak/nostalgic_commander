@@ -29,8 +29,6 @@ void save_weather_cache(void) {
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_UV, s_weather_uv);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_HUMIDITY, s_weather_humidity);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_PCP, s_weather_pcp);
-  persist_write_string_if_changed(PERSIST_KEY_WEATHER_SUNRISE, s_sunrise_time);
-  persist_write_string_if_changed(PERSIST_KEY_WEATHER_SUNSET, s_sunset_time);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_HIGH, s_temp_high);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_LOW, s_temp_low);
   // Always: the timestamp is the freshness marker; skipping it would age the
@@ -62,12 +60,6 @@ bool load_weather_cache(void) {
   }
   if (persist_exists(PERSIST_KEY_WEATHER_PCP)) {
     s_weather_pcp = persist_read_int(PERSIST_KEY_WEATHER_PCP);
-  }
-  if (persist_exists(PERSIST_KEY_WEATHER_SUNRISE)) {
-    persist_read_string(PERSIST_KEY_WEATHER_SUNRISE, s_sunrise_time, sizeof(s_sunrise_time));
-  }
-  if (persist_exists(PERSIST_KEY_WEATHER_SUNSET)) {
-    persist_read_string(PERSIST_KEY_WEATHER_SUNSET, s_sunset_time, sizeof(s_sunset_time));
   }
   if (persist_exists(PERSIST_KEY_WEATHER_HIGH)) {
     s_temp_high = persist_read_int(PERSIST_KEY_WEATHER_HIGH);
@@ -139,16 +131,6 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   Tuple* pcp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_PCP);
   if (pcp_tuple) {
     s_weather_pcp = pcp_tuple->value->int32;
-  }
-
-  Tuple* sunrise_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_SUNRISE);
-  if (sunrise_tuple) {
-    snprintf(s_sunrise_time, sizeof(s_sunrise_time), "%s", sunrise_tuple->value->cstring);
-  }
-
-  Tuple* sunset_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_SUNSET);
-  if (sunset_tuple) {
-    snprintf(s_sunset_time, sizeof(s_sunset_time), "%s", sunset_tuple->value->cstring);
   }
 
   Tuple* high_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_HIGH);

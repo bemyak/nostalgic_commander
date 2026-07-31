@@ -10,7 +10,7 @@ var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 // next :00/:30 edge.
 var WEATHER_DICT_KEYS = [
   'WEATHER_TEMP', 'WEATHER_COND', 'WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
-  'WEATHER_SUNRISE', 'WEATHER_SUNSET', 'WEATHER_HIGH', 'WEATHER_LOW'
+  'WEATHER_HIGH', 'WEATHER_LOW'
 ];
 
 function isCompleteWeatherPayload(payload) {
@@ -116,7 +116,7 @@ function getWeather(attempt) {
             '&current=temperature_2m,weather_code,relative_humidity_2m&timezone=auto' +
             '&temperature_unit=' + tempUnit +
             '&hourly=uv_index,precipitation_probability&forecast_hours=' + UV_WINDOW_HOURS +
-            '&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min&forecast_days=1';
+            '&daily=temperature_2m_max,temperature_2m_min&forecast_days=1';
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
             '&longitude=' + lon + '&current=us_aqi';
 
@@ -144,8 +144,6 @@ function getWeather(attempt) {
                 'WEATHER_UV': forecast.uv,
                 'WEATHER_HUMIDITY': forecast.humidity,
                 'WEATHER_PCP': forecast.pcp,
-                'WEATHER_SUNRISE': forecast.sunrise,
-                'WEATHER_SUNSET': forecast.sunset,
                 'WEATHER_HIGH': forecast.high,
                 'WEATHER_LOW': forecast.low
               },
@@ -188,13 +186,7 @@ function getWeather(attempt) {
               if (uv >= 0) uv = Math.round(uv);
               if (pcp >= 0) pcp = Math.round(pcp);
 
-              // Sun times arrive as local ISO 'YYYY-MM-DDTHH:MM' strings; the
-              // watch renders the HH:MM they carry, unit-independent.
               var daily = json.daily || {};
-              var sunrise =
-                  (daily.sunrise && daily.sunrise[0]) ? daily.sunrise[0].substr(11, 5) : '--:--';
-              var sunset =
-                  (daily.sunset && daily.sunset[0]) ? daily.sunset[0].substr(11, 5) : '--:--';
               var high = -999;
               var low = -999;
               if (daily.temperature_2m_max && typeof daily.temperature_2m_max[0] === 'number') {
@@ -228,8 +220,6 @@ function getWeather(attempt) {
                 uv: uv,
                 humidity: humidity,
                 pcp: pcp,
-                sunrise: sunrise,
-                sunset: sunset,
                 high: high,
                 low: low
               };

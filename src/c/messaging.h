@@ -12,8 +12,8 @@
 #define PERSIST_KEY_WEATHER_TIMESTAMP 1004
 #define PERSIST_KEY_WEATHER_HUMIDITY 1005
 #define PERSIST_KEY_WEATHER_PCP 1006
-#define PERSIST_KEY_WEATHER_SUNRISE 1007
-#define PERSIST_KEY_WEATHER_SUNSET 1008
+// 1007-1008 are retired (SUNRISE/SUNSET) — written to some watches already,
+// never reused.
 #define PERSIST_KEY_WEATHER_HIGH 1009
 // 1010-1020 fall inside the settings block below; the weather cluster resumes
 // after it.
