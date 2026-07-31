@@ -311,6 +311,14 @@ static const FullWeatherField s_full_weather_fields[] = {
 
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
 
+// Chips earn their fill from a severity color only; a neutral reading would
+// paint its chip in the plain text color, which reads as a permanent
+// highlight rather than status.
+static bool strip_field_is_banded(const FullWeatherField* field) {
+  if (*field->reading == field->sentinel) return false;
+  return !gcolor_equal(get_source_color(field->source), s_active_theme->text_primary);
+}
+
 static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   // Centred strip; the caption label above is the same width, also centred,
   // so its tokens land cell-for-cell on the chips drawn here.
@@ -328,10 +336,40 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
     } else {
       get_source_data(field->source, buf, sizeof(buf), NULL);
     }
-    draw_status_field(ctx, box_rect, x, w, buf, *field->reading != field->sentinel,
+    draw_status_field(ctx, box_rect, x, w, buf, strip_field_is_banded(field),
                       get_source_color(field->source));
     x += w + VGA16_CHAR_W;
   }
+}
+
+// The full-weather bar's caption row replaces its top border outright: at 22
+// cells the caption would leave 2-3px stubs of top line, which read as a
+// broken frame rather than a title gap. The Norton menu bar carries no top
+// line either.
+static void draw_captioned_bar(GContext* ctx, GRect rect, const char* title) {
+  int x = rect.origin.x;
+  int y = rect.origin.y;
+  int w = rect.size.w;
+  int h = rect.size.h;
+
+  graphics_context_set_fill_color(ctx, s_active_theme->frame);
+
+  // Verticals and bottom only; the missing top line is intentional.
+  int top = y + TITLE_BORDER_DROP;
+  int side_h = h - TITLE_BORDER_DROP;
+  graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, side_h), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, side_h), 0,
+                     GCornerNone);
+  graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+
+  // Left-anchored at the strip's own origin: centring let the trailing
+  // caption space read as ink width and skewed the row 4px off the chips.
+  int strip_x = x + (w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
+  graphics_draw_text(
+      ctx, title, vga_font_16(),
+      GRect(strip_x, y - VGA16_CELL_H / 2, FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W, VGA16_CELL_H),
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 static void draw_beats_complication(GContext* ctx, GRect box_rect) {
@@ -413,7 +451,11 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
     ComplicationSlot* slot = &s_complication_slots[i];
     if (s_quick_view_active && quick_view_covers_slot(i)) continue;
     if (slot->source != DATA_SOURCE_EMPTY) {
-      draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
+      if (slot->source == DATA_SOURCE_WEATHER_FULL) {
+        draw_captioned_bar(ctx, slot->box_rect, get_source_label(slot->source));
+      } else {
+        draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
+      }
       ComplicationDrawFn draw = canvas_drawer(slot->source);
       if (draw) draw(ctx, slot->box_rect);
     }

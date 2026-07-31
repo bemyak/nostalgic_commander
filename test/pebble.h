@@ -35,6 +35,7 @@ typedef struct {
 #define GPoint(x, y) ((GPoint){(x), (y)})
 
 typedef uint32_t GColor;
+#define gcolor_equal(a, b) ((a) == (b))
 #define GColorClear 0
 #define GColorBlack 1
 #define GColorWhite 2

@@ -902,21 +902,62 @@ void test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric(void)
   TEST_ASSERT_TRUE(strlen(buf) <= 7);
 }
 
+void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
+  const FullWeatherField* cond = &s_full_weather_fields[0];
+  const FullWeatherField* temp = &s_full_weather_fields[1];
+  const FullWeatherField* hum = &s_full_weather_fields[2];
+  const FullWeatherField* hilo = &s_full_weather_fields[3];
+
+  // Neutral weather (panel theme, imperial): everything plain text
+  s_weather_temp = 72;
+  strcpy(s_weather_cond, "SUN");
+  s_weather_humidity = -1;
+  s_temp_high = -999;
+  s_temp_low = -999;
+  TEST_ASSERT_FALSE(strip_field_is_banded(cond));
+  TEST_ASSERT_FALSE(strip_field_is_banded(temp));
+  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  TEST_ASSERT_FALSE(strip_field_is_banded(hilo));
+
+  // Extremes and comfort statuses earn their fills
+  s_weather_temp = 90;
+  TEST_ASSERT_TRUE(strip_field_is_banded(temp));
+  s_weather_humidity = 45;  // comfort green is still a status
+  TEST_ASSERT_TRUE(strip_field_is_banded(hum));
+  s_temp_high = 90;
+  s_temp_low = 70;
+  TEST_ASSERT_TRUE(strip_field_is_banded(hilo));
+
+  // …but a neutral day under a coloured temp keeps hilo plain
+  s_weather_temp = 72;
+  s_temp_high = 78;
+  s_temp_low = 60;
+  TEST_ASSERT_FALSE(strip_field_is_banded(hilo));
+}
+
 void test_full_weather_captions_should_align_with_the_strip(void) {
-  // Captions live in the (centred) title gap, chips in the (centred) strip;
-  // both are FULL_WEATHER_STRIP_CELLS wide, so tokens land on their chips.
-  // The field table, the constant and the label must all agree.
-  int strip_cells = 0;
+  // The caption string is drawn left-anchored at the strip origin, so token
+  // positions must equal chip positions exactly: re-derive each token's
+  // expected starting cell from the field table, floor-centred, and confirm.
+  const char* caption = get_source_label(DATA_SOURCE_WEATHER_FULL);
+  int chip_cell = 0;
+  int pos = 0;
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
-    strip_cells += s_full_weather_fields[i].cells;
+    int cells = s_full_weather_fields[i].cells;
+    while (caption[pos] == ' ') pos++;  // blanks from previous chip + gap
+    int tok_len = 0;
+    while (caption[pos + tok_len] && caption[pos + tok_len] != ' ') tok_len++;
+    TEST_ASSERT_TRUE(tok_len > 0);       // every chip has a caption
+    TEST_ASSERT_TRUE(tok_len <= cells);  // and it fits its chip
+    TEST_ASSERT_EQUAL_INT(chip_cell + (cells - tok_len) / 2, pos);
+    pos += tok_len;
+    chip_cell += cells + 1;  // chip width plus the one-cell gap
   }
-  strip_cells += FULL_WEATHER_NUM_FIELDS - 1;  // one-cell gaps between chips
-  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS, strip_cells);
-  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS,
-                        (int)strlen(get_source_label(DATA_SOURCE_WEATHER_FULL)));
-  // The title gap clamps at w-10 (draw_ascii_window); the caption need only
-  // fit the clamped gap, centred — border stubs are not required.
-  TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W <= (LAYOUT_W - 10) + 6);
+  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS + 1, chip_cell);  // phantom gap included
+  TEST_ASSERT_TRUE(pos <= FULL_WEATHER_STRIP_CELLS);
+
+  // The strip itself must fit between the box borders
+  TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W <= LAYOUT_W - 2 * WINDOW_BORDER_PX);
 }
 
 void test_get_source_data_should_format_pcp(void) {
@@ -1892,6 +1933,7 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_humidity);
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
+  RUN_TEST(test_full_weather_chips_should_fill_only_on_a_status_color);
   RUN_TEST(test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);

@@ -8,7 +8,15 @@ load-bearing: it centres HI/LO over its 7-cell chip). Temperature chips are
 unit-aware: imperial keeps the letter (`-22F`, are the polar pair `-22/-35F`
 the one accepted 4px spill), metric always signs and drops the letter to fund
 the sign cell (`+22`, `+28/+4`) — chip texts come from `format_strip_temp()`/
-`format_strip_high_low()` in data.c.
+`format_strip_high_low()` in data.c. Emulator review pass 2: chips fill only
+when their color is an actual status color (a neutral reading no longer
+paints a full-width-looking band), and the bar drops its top border — the
+2-3px stubs left by the 22-cell caption gap read as a broken frame, so the
+caption row alone is the header, Norton-menu-bar style. Pass 3: the caption
+draws left-anchored at the strip origin — centring measured the load-bearing
+trailing space as ink and skewed the row off the chips — and tokens are
+floor-centred per chip (`COND TEMP HUM   HI/LO`, 21 cells), which a test
+re-derives from the field table so the two can't drift.
 
 ## Summary
 
