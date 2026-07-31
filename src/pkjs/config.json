@@ -126,22 +126,6 @@
             "value": "20"
           },
           {
-            "label": "Steps",
-            "value": "1"
-          },
-          {
-            "label": "Sleep",
-            "value": "2"
-          },
-          {
-            "label": "Weather",
-            "value": "5"
-          },
-          {
-            "label": "Heart Rate",
-            "value": "6"
-          },
-          {
             "label": "Battery",
             "value": "0"
           },
@@ -150,8 +134,36 @@
             "value": "9"
           },
           {
+            "label": "Short Date (no year)",
+            "value": "22"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
+          },
+          {
+            "label": "Steps",
+            "value": "1"
+          },
+          {
+            "label": "Sleep",
+            "value": "2"
+          },
+          {
+            "label": "Heart Rate",
+            "value": "6"
+          },
+          {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Weather",
+            "value": "5"
+          },
+          {
+            "label": "Humidity",
+            "value": "26"
           },
           {
             "label": "Air Quality (AQI)",
@@ -164,14 +176,6 @@
           {
             "label": "AQI / UV Index (next 12h max)",
             "value": "18"
-          },
-          {
-            "label": ".beat (Swatch Internet Time)",
-            "value": "21"
-          },
-          {
-            "label": "Short Date (no year)",
-            "value": "22"
           }
         ]
       },
@@ -186,22 +190,6 @@
             "value": "20"
           },
           {
-            "label": "Steps",
-            "value": "1"
-          },
-          {
-            "label": "Sleep",
-            "value": "2"
-          },
-          {
-            "label": "Weather",
-            "value": "5"
-          },
-          {
-            "label": "Heart Rate",
-            "value": "6"
-          },
-          {
             "label": "Battery",
             "value": "0"
           },
@@ -210,8 +198,36 @@
             "value": "9"
           },
           {
+            "label": "Short Date (no year)",
+            "value": "22"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
+          },
+          {
+            "label": "Steps",
+            "value": "1"
+          },
+          {
+            "label": "Sleep",
+            "value": "2"
+          },
+          {
+            "label": "Heart Rate",
+            "value": "6"
+          },
+          {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Weather",
+            "value": "5"
+          },
+          {
+            "label": "Humidity",
+            "value": "26"
           },
           {
             "label": "Air Quality (AQI)",
@@ -224,14 +240,6 @@
           {
             "label": "AQI / UV Index (next 12h max)",
             "value": "18"
-          },
-          {
-            "label": ".beat (Swatch Internet Time)",
-            "value": "21"
-          },
-          {
-            "label": "Short Date (no year)",
-            "value": "22"
           }
         ]
       },
@@ -266,6 +274,18 @@
             "value": "20"
           },
           {
+            "label": "Battery",
+            "value": "0"
+          },
+          {
+            "label": "Bluetooth Status",
+            "value": "9"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
+          },
+          {
             "label": "Steps",
             "value": "1"
           },
@@ -278,16 +298,12 @@
             "value": "6"
           },
           {
-            "label": "Battery",
-            "value": "0"
-          },
-          {
-            "label": "Bluetooth Status",
-            "value": "9"
-          },
-          {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Humidity",
+            "value": "26"
           },
           {
             "label": "Air Quality (AQI)",
@@ -296,10 +312,6 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
-          },
-          {
-            "label": ".beat (Swatch Internet Time)",
-            "value": "21"
           }
         ]
       },
@@ -314,6 +326,18 @@
             "value": "20"
           },
           {
+            "label": "Battery",
+            "value": "0"
+          },
+          {
+            "label": "Bluetooth Status",
+            "value": "9"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
+          },
+          {
             "label": "Steps",
             "value": "1"
           },
@@ -326,16 +350,12 @@
             "value": "6"
           },
           {
-            "label": "Battery",
-            "value": "0"
-          },
-          {
-            "label": "Bluetooth Status",
-            "value": "9"
-          },
-          {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Humidity",
+            "value": "26"
           },
           {
             "label": "Air Quality (AQI)",
@@ -344,10 +364,6 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
-          },
-          {
-            "label": ".beat (Swatch Internet Time)",
-            "value": "21"
           }
         ]
       },
@@ -362,6 +378,18 @@
             "value": "20"
           },
           {
+            "label": "Battery",
+            "value": "0"
+          },
+          {
+            "label": "Bluetooth Status",
+            "value": "9"
+          },
+          {
+            "label": ".beat (Swatch Internet Time)",
+            "value": "21"
+          },
+          {
             "label": "Steps",
             "value": "1"
           },
@@ -374,16 +402,12 @@
             "value": "6"
           },
           {
-            "label": "Battery",
-            "value": "0"
-          },
-          {
-            "label": "Bluetooth Status",
-            "value": "9"
-          },
-          {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Humidity",
+            "value": "26"
           },
           {
             "label": "Air Quality (AQI)",
@@ -392,10 +416,6 @@
           {
             "label": "UV Index (next 12h max)",
             "value": "17"
-          },
-          {
-            "label": ".beat (Swatch Internet Time)",
-            "value": "21"
           }
         ]
       }

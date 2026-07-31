@@ -90,10 +90,12 @@ function getWeather(attempt) {
         var units = settings['SETTINGS_UNITS'] || '0';
         var tempUnit = (units === '1' || units === 1) ? 'celsius' : 'fahrenheit';
 
+        // The modern `current` block carries temp/code/humidity in one shot;
+        // `current_weather=true` is legacy and silently suppresses `current=`.
         var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
             '&longitude=' + lon +
-            '&current_weather=true&timezone=auto&temperature_unit=' + tempUnit +
-            '&hourly=uv_index&forecast_hours=' + UV_WINDOW_HOURS;
+            '&current=temperature_2m,weather_code,relative_humidity_2m&timezone=auto' +
+            '&temperature_unit=' + tempUnit + '&hourly=uv_index&forecast_hours=' + UV_WINDOW_HOURS;
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
             '&longitude=' + lon + '&current=us_aqi';
 
@@ -118,9 +120,10 @@ function getWeather(attempt) {
                 'WEATHER_TEMP': forecast.temp,
                 'WEATHER_COND': forecast.cond,
                 'WEATHER_AQI': aqi,
-                'WEATHER_UV': forecast.uv
+                'WEATHER_UV': forecast.uv,
+                'WEATHER_HUMIDITY': forecast.humidity
               },
-              'Weather, AQI & UV');
+              'Weather, AQI, UV & humidity');
         }
 
         var xhr = new XMLHttpRequest();
@@ -128,8 +131,14 @@ function getWeather(attempt) {
           if (xhr.status === 200) {
             try {
               var json = JSON.parse(this.responseText);
-              var temp = Math.round(json.current_weather.temperature);
-              var code = json.current_weather.weathercode;
+              var temp = Math.round(json.current.temperature_2m);
+              var code = json.current.weather_code;
+              // -1 is the watch-side "no data" sentinel; a missing field means
+              // the API shape changed, not that the air is perfectly dry.
+              var humidity = -1;
+              if (typeof json.current.relative_humidity_2m === 'number') {
+                humidity = Math.round(json.current.relative_humidity_2m);
+              }
               // -1 is the watch-side "no data" sentinel; forecast_hours
               // already windows the hourly data, the timestamp guard keeps us
               // honest if the API ever returns a wider range.
@@ -165,7 +174,7 @@ function getWeather(attempt) {
               } else {
                 cond = 'CLD';
               }
-              forecast = {temp: temp, cond: cond, uv: uv};
+              forecast = {temp: temp, cond: cond, uv: uv, humidity: humidity};
             } catch (e) {
               failedReason = 'parse error: ' + e;
             }

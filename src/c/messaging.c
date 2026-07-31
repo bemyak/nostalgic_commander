@@ -27,6 +27,7 @@ void save_weather_cache(void) {
   persist_write_string_if_changed(PERSIST_KEY_WEATHER_COND, s_weather_cond);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_AQI, s_weather_aqi);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_UV, s_weather_uv);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_HUMIDITY, s_weather_humidity);
   // Always: the timestamp is the freshness marker; skipping it would age the
   // cache and cost a network fetch on next launch.
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
@@ -50,6 +51,9 @@ bool load_weather_cache(void) {
   }
   if (persist_exists(PERSIST_KEY_WEATHER_UV)) {
     s_weather_uv = persist_read_int(PERSIST_KEY_WEATHER_UV);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_HUMIDITY)) {
+    s_weather_humidity = persist_read_int(PERSIST_KEY_WEATHER_HUMIDITY);
   }
   return true;
 }
@@ -105,6 +109,11 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   Tuple* uv_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_UV);
   if (uv_tuple) {
     s_weather_uv = uv_tuple->value->int32;
+  }
+
+  Tuple* humidity_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_HUMIDITY);
+  if (humidity_tuple) {
+    s_weather_humidity = humidity_tuple->value->int32;
   }
 
   // Persist the weather cache only for a real weather payload, so a

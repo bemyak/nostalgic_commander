@@ -115,6 +115,14 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_uv >= 6) return s_active_theme->status_red;
       if (s_weather_uv >= 3) return s_active_theme->status_yellow;
       return s_active_theme->status_green;
+    case DATA_SOURCE_HUMIDITY:
+      // Comfort bands: below 30 is dry (blue, rhyming with cold temps), 30-60
+      // is comfortable, and past 60 the air turns sticky, then oppressive.
+      if (s_weather_humidity == -1) return s_active_theme->text_primary;
+      if (s_weather_humidity < 30) return s_active_theme->accent_cold;
+      if (s_weather_humidity <= 60) return s_active_theme->status_green;
+      if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
+      return s_active_theme->status_red;
     case DATA_SOURCE_AQI_UV: {
       if (s_weather_aqi == -1 && s_weather_uv == -1) return s_active_theme->text_primary;
       bool is_red = (s_weather_aqi > 100 || s_weather_uv >= 6);

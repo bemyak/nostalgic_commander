@@ -41,7 +41,8 @@
       "SLOT_5",
       "SLOT_6",
       "WEATHER_AQI",
-      "WEATHER_UV"
+      "WEATHER_UV",
+      "WEATHER_HUMIDITY"
     ],
     "resources": {
       "media": [

@@ -15,7 +15,7 @@ This document explains how the pieces fit together.
   │ src/pkjs/index.js                      │   │ src/c/                      │
   │  - Clay settings page (config.json)    │   │  messaging.c  ← AppMessage  │
   │  - Geolocation → Open-Meteo APIs       │──▶│  data.c       (cache+format)│
-  │    (weather, UV, AQI)                  │   │  theme.c      (colors)      │
+  │    (weather, humidity, UV, AQI)        │   │  theme.c      (colors)      │
   └────────────────────────────────────────┘   │  drawing.c    (rendering)   │
                                                │  main.c       (lifecycle)   │
                                                └─────────────────────────────┘
@@ -27,8 +27,9 @@ This document explains how the pieces fit together.
    minute tick (`update_time()` in `main.c`).
 2. The JS side (`index.js`) receives any AppMessage, gets the phone's location,
    and calls two Open-Meteo endpoints: the forecast API (current temperature,
-   weather code, and hourly UV — reduced to the peak over the next 12 hours)
-   and the air-quality API (US AQI). It maps the
+   weather code, and relative humidity from the `current` block, plus hourly
+   UV reduced to the peak over the next 12 hours) and the air-quality API
+   (US AQI). It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
    `SNOW`, `TSTM`) and sends everything back in one dictionary.
 3. `inbox_received_callback()` (`messaging.c`) writes the values into the

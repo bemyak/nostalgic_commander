@@ -10,8 +10,9 @@ int s_sleep_seconds = -1;   // -1 indicates no data
 int s_heart_rate = 0;       // Default to 0 (displays "--" if no HRM is present)
 int s_weather_temp = -999;  // -999 indicates no data
 char s_weather_cond[16] = "--";
-int s_weather_aqi = -1;  // -1 indicates no data
-int s_weather_uv = -1;   // -1 indicates no data
+int s_weather_aqi = -1;       // -1 indicates no data
+int s_weather_uv = -1;        // -1 indicates no data
+int s_weather_humidity = -1;  // -1 indicates no data
 int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
@@ -71,6 +72,8 @@ const char* get_source_label(ComplicationDataSource source) {
       return "UV";
     case DATA_SOURCE_AQI_UV:
       return "AQI/UV";
+    case DATA_SOURCE_HUMIDITY:
+      return "HUM";
     case DATA_SOURCE_BEATS:
       return "BEAT";
     case DATA_SOURCE_EMPTY:
@@ -200,6 +203,16 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       snprintf(val_buf, val_len, "%s / %s", aqi_str, uv_str);
       break;
     }
+    case DATA_SOURCE_HUMIDITY:
+      if (s_weather_humidity == -1) {
+        snprintf(val_buf, val_len, "--");
+      } else {
+        snprintf(val_buf, val_len, "%d%%", s_weather_humidity);
+        // The reading already is a percentage; hand it through like battery
+        // does. The sentinel path keeps the function's default of 0.
+        if (percent) *percent = s_weather_humidity;
+      }
+      break;
     case DATA_SOURCE_BEATS:
       snprintf(val_buf, val_len, "@%03d", s_beats);
       break;

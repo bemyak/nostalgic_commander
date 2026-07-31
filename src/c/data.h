@@ -20,6 +20,7 @@ typedef enum {
   DATA_SOURCE_FULL_DATE = 23,
   DATA_SOURCE_STEPS_BAR = 24,
   DATA_SOURCE_BATTERY_BAR = 25,
+  DATA_SOURCE_HUMIDITY = 26,
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -38,6 +39,7 @@ extern int s_weather_temp;
 extern char s_weather_cond[16];
 extern int s_weather_aqi;
 extern int s_weather_uv;
+extern int s_weather_humidity;
 extern int s_active_minutes;
 extern int s_active_minutes_goal;
 extern bool s_connected;
