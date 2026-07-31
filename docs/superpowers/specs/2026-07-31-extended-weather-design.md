@@ -15,7 +15,7 @@ no new endpoints, no second radio wake. Offered in the top slots only.
 |----------------------|-------|-------|----------|
 | `DATA_SOURCE_WEATHER_PCP = 28` | `PCP` | `45%`, `%` like battery/humidity; `*percent` passthrough | `-1` → `--`, percent 0 |
 | `DATA_SOURCE_SUN_TIMES = 29` | `RISE/SET` | `05:00/21:52` (11 cells = 88px, fits the 89px top-slot interior) | `--:--` per side |
-| `DATA_SOURCE_TEMP_HIGH_LOW = 30` | `HI/LO` | `82/61F` / `28/4C` (unit follows SETTINGS_UNITS) | `-999` → `-- / --` |
+| `DATA_SOURCE_TEMP_HIGH_LOW = 30` | `HI/LO` | `82/61F` / `+28/+4C` (metric always signs) | `-999` → `-- / --` |
 
 All three render through the plain slot text layer — no canvas drawers.
 Labels fit the top-slot title budget (≤9 chars at 93px).

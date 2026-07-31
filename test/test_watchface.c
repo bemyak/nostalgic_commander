@@ -406,21 +406,32 @@ void test_get_source_data_should_format_weather(void) {
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
-  // Imperial
+  // Imperial: no sign on positives (signed F is noise; negatives are rare)
   s_settings_units = 0;
   s_weather_temp = 72;
   strcpy(s_weather_cond, "SUN");
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("SUN / 72F", buf);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F", buf);
 
-  // Metric
+  // Metric: always signed
   s_settings_units = 1;
   s_weather_temp = 22;
   strcpy(s_weather_cond, "CLD");
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("CLD / 22C", buf);
+  TEST_ASSERT_EQUAL_STRING("CLD +22C", buf);
+
+  // Widest realistic forms still fit the 11-cell top-slot budget
+  s_weather_temp = -22;
+  strcpy(s_weather_cond, "TSTM");
+  get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("TSTM -22C", buf);
+  s_settings_units = 0;
+  s_weather_temp = 103;
+  strcpy(s_weather_cond, "RAIN");
+  get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("RAIN 103F", buf);
 }
 
 void test_get_source_data_should_format_sleep(void) {
@@ -459,11 +470,21 @@ void test_get_source_data_should_format_weather_temp_and_cond(void) {
   get_source_data(DATA_SOURCE_WEATHER_TEMP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("68F", buf);
 
+  // Temp negative imperial: minus prints, no plus
+  s_weather_temp = -9;
+  get_source_data(DATA_SOURCE_WEATHER_TEMP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-9F", buf);
+
   // Temp Metric
   s_settings_units = 1;
   s_weather_temp = 20;
   get_source_data(DATA_SOURCE_WEATHER_TEMP, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("20C", buf);
+  TEST_ASSERT_EQUAL_STRING("+20C", buf);
+
+  // …including freezing itself
+  s_weather_temp = 0;
+  get_source_data(DATA_SOURCE_WEATHER_TEMP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+0C", buf);
 
   // Cond
   strcpy(s_weather_cond, "RAIN");
@@ -828,8 +849,57 @@ void test_get_source_data_should_format_weather_full(void) {
   s_temp_high = -9;
   s_temp_low = -22;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("TSTM -22C 100% -9/-22C", buf);
+  // Metric strip temps drop the unit letter to fund the sign cell
+  TEST_ASSERT_EQUAL_STRING("TSTM -22 100% -9/-22", buf);
   TEST_ASSERT_TRUE(strlen(buf) <= FULL_WEATHER_STRIP_CELLS);
+}
+
+void test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric(void) {
+  char buf[12];
+
+  // Imperial: unit fits, so signs appear only on negatives
+  s_settings_units = 0;
+  s_weather_temp = 72;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("72F", buf);
+  s_weather_temp = -22;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("-22F", buf);
+  s_temp_high = 82;
+  s_temp_low = 61;
+  format_strip_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("82/61F", buf);
+  // …the imperial polar pair is the one acknowledged 1-cell spill
+  s_temp_high = -22;
+  s_temp_low = -35;
+  format_strip_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_INT(8, (int)strlen(buf));
+
+  // Metric: always signed, never lettered; "no data" matches the atomics
+  s_settings_units = 1;
+  s_weather_temp = 22;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("+22", buf);
+  s_weather_temp = -9;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("-9", buf);
+  s_weather_temp = -999;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  s_temp_high = 28;
+  s_temp_low = 4;
+  format_strip_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("+28/+4", buf);
+  s_temp_high = -999;
+  s_temp_low = -999;
+  format_strip_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+
+  // No metric form ever exceeds the 7-cell chip
+  s_temp_high = -22;
+  s_temp_low = -35;
+  format_strip_high_low(buf, sizeof(buf));
+  TEST_ASSERT_TRUE(strlen(buf) <= 7);
 }
 
 void test_full_weather_captions_should_align_with_the_strip(void) {
@@ -894,7 +964,7 @@ void test_get_source_data_should_format_high_low(void) {
   s_temp_high = 28;
   s_temp_low = 4;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("28/4C", buf);
+  TEST_ASSERT_EQUAL_STRING("+28/+4C", buf);
 
   // Top-slot values cap at 11 cells even at winter extremes
   s_temp_high = 3;
@@ -1822,6 +1892,7 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_humidity);
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
+  RUN_TEST(test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);

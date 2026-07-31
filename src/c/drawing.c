@@ -318,10 +318,16 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
     const FullWeatherField* field = &s_full_weather_fields[i];
     int w = field->cells * VGA16_CHAR_W;
-    // Sized past chip width: deep-winter hi/lo ("-22/-35C") intentionally
-    // spills 4px into the flanking gap rather than silently clipping a digit.
+    // Sized past chip width: the imperial polar pair ("-22/-35F")
+    // intentionally spills 4px into the flanking gap rather than clipping.
     char buf[12];
-    get_source_data(field->source, buf, sizeof(buf), NULL);
+    if (field->source == DATA_SOURCE_WEATHER_TEMP) {
+      format_strip_temp(buf, sizeof(buf));
+    } else if (field->source == DATA_SOURCE_TEMP_HIGH_LOW) {
+      format_strip_high_low(buf, sizeof(buf));
+    } else {
+      get_source_data(field->source, buf, sizeof(buf), NULL);
+    }
     draw_status_field(ctx, box_rect, x, w, buf, *field->reading != field->sentinel,
                       get_source_color(field->source));
     x += w + VGA16_CHAR_W;

@@ -95,6 +95,39 @@ const char* get_source_label(ComplicationDataSource source) {
   }
 }
 
+// The face's temperature spelling, unit-aware by policy: imperial prints the
+// unit letter and signs negatives only, metric always signs (Celsius crosses
+// zero as a matter of course). with_unit=false is the centre strip's metric
+// trade: the sign cell plus the letter would not fit the fixed chips.
+static void format_temp(char* buf, size_t len, int temp, bool with_unit) {
+  if (temp == -999) {
+    snprintf(buf, len, "--");
+  } else if (s_settings_units == 1) {
+    snprintf(buf, len, with_unit ? "%+dC" : "%+d", temp);
+  } else {
+    snprintf(buf, len, with_unit ? "%dF" : "%d", temp);
+  }
+}
+
+void format_strip_temp(char* buf, int buf_size) {
+  format_temp(buf, buf_size, s_weather_temp, s_settings_units != 1);
+}
+
+static void format_high_low(char* buf, size_t len, bool strip_cell) {
+  // Either side missing sinks the pair: a half-number reads as data.
+  if (s_temp_high == -999 || s_temp_low == -999) {
+    snprintf(buf, len, "-- / --");
+  } else if (s_settings_units == 1) {
+    snprintf(buf, len, strip_cell ? "%+d/%+d" : "%+d/%+dC", s_temp_high, s_temp_low);
+  } else {
+    snprintf(buf, len, "%d/%dF", s_temp_high, s_temp_low);
+  }
+}
+
+void format_strip_high_low(char* buf, int buf_size) {
+  format_high_low(buf, buf_size, true);
+}
+
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent) {
   if (percent) *percent = 0;
   val_buf[0] = '\0';
@@ -136,25 +169,17 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       break;
     }
     case DATA_SOURCE_WEATHER_TEMP:
-      if (s_weather_temp == -999) {
-        snprintf(val_buf, val_len, "--");
-      } else {
-        snprintf(val_buf, val_len, "%d%s", s_weather_temp, (s_settings_units == 1) ? "C" : "F");
-      }
+      format_temp(val_buf, val_len, s_weather_temp, true);
       break;
     case DATA_SOURCE_WEATHER_COND:
       snprintf(val_buf, val_len, "%s", s_weather_cond);
       break;
     case DATA_SOURCE_WEATHER: {
+      // A single space, not " / ": the slash would push 4-char conditions
+      // plus signed temps past the 11-cell top-slot budget.
       char t_buf[16];
-      char c_buf[16];
-      if (s_weather_temp == -999) {
-        snprintf(t_buf, sizeof(t_buf), "--");
-      } else {
-        snprintf(t_buf, sizeof(t_buf), "%d%s", s_weather_temp, (s_settings_units == 1) ? "C" : "F");
-      }
-      snprintf(c_buf, sizeof(c_buf), "%s", s_weather_cond);
-      snprintf(val_buf, val_len, "%s / %s", c_buf, t_buf);
+      format_temp(t_buf, sizeof(t_buf), s_weather_temp, true);
+      snprintf(val_buf, val_len, "%s %s", s_weather_cond, t_buf);
       break;
     }
     case DATA_SOURCE_HEART_RATE:
@@ -234,22 +259,16 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       }
       break;
     case DATA_SOURCE_TEMP_HIGH_LOW:
-      // Either side missing sinks the pair: a half-number reads as data.
-      if (s_temp_high == -999 || s_temp_low == -999) {
-        snprintf(val_buf, val_len, "-- / --");
-      } else {
-        snprintf(val_buf, val_len, "%d/%d%s", s_temp_high, s_temp_low,
-                 (s_settings_units == 1) ? "C" : "F");
-      }
+      format_high_low(val_buf, val_len, false);
       break;
     case DATA_SOURCE_WEATHER_FULL: {
       // Canvas-drawn; this text is the render-gate snapshot only. Joining the
       // four chip texts means any weather change reaches the memcmp.
       char cond[8], temp[8], hum[8], hilo[12];
       get_source_data(DATA_SOURCE_WEATHER_COND, cond, sizeof(cond), NULL);
-      get_source_data(DATA_SOURCE_WEATHER_TEMP, temp, sizeof(temp), NULL);
+      format_strip_temp(temp, sizeof(temp));
       get_source_data(DATA_SOURCE_HUMIDITY, hum, sizeof(hum), NULL);
-      get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, hilo, sizeof(hilo), NULL);
+      format_strip_high_low(hilo, sizeof(hilo));
       snprintf(val_buf, val_len, "%s %s %s %s", cond, temp, hum, hilo);
       break;
     }

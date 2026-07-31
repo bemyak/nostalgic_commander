@@ -4,8 +4,11 @@
 Revised same day, per emulator review: chips are now COND/TEMP/HUM/HI-LO —
 the AQI and UV chips were replaced by the day's high/low; 22-cell strip
 (4/4/4/7 + 3 gaps), caption `COND TEMP  HUM  HI/LO ` (trailing space is
-load-bearing: it centres HI/LO over its 7-cell chip). Deep-winter values
-(`-22/-35C`) spill 4px into the flanking border gap — accepted, rare.
+load-bearing: it centres HI/LO over its 7-cell chip). Temperature chips are
+unit-aware: imperial keeps the letter (`-22F`, are the polar pair `-22/-35F`
+the one accepted 4px spill), metric always signs and drops the letter to fund
+the sign cell (`+22`, `+28/+4`) — chip texts come from `format_strip_temp()`/
+`format_strip_high_low()` in data.c.
 
 ## Summary
 
@@ -63,9 +66,9 @@ source does), extended from 2 fields to 4 via a static field table of
 | Field | Text from | Fill color from | `banded` when |
 |-------|-----------|-----------------|----------------|
 | Condition | `DATA_SOURCE_WEATHER_COND` | `text_primary` (default case) | `s_weather_temp != -999` |
-| Temperature | `DATA_SOURCE_WEATHER_TEMP` | existing temp bands | `s_weather_temp != -999` |
+| Temperature | `format_strip_temp()` | existing temp bands | `s_weather_temp != -999` |
 | Humidity | `DATA_SOURCE_HUMIDITY` | humidity bands | `!= -1` |
-| High/low | `DATA_SOURCE_TEMP_HIGH_LOW` | shared temp bands (by the high) | `s_temp_high != -999` |
+| High/low | `format_strip_high_low()` | shared temp bands (by the high) | `s_temp_high != -999` |
 
 Severity colors therefore stay single-authority: `get_source_color()` of the
 atomic source. A sentinel field draws plain `--` on the ground, no chip —
