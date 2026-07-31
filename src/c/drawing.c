@@ -290,6 +290,43 @@ static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
   draw_status_field(ctx, box_rect, gap_x, band.size.w - 2 * half, "/", false, GColorClear);
 }
 
+// One chip per reading; one-cell gaps between chips. The fill comes from the
+// atomic source's get_source_color, so severity thresholds stay
+// single-authority — a chip with no data draws plain text, no band. The
+// `reading` sentinel says when data is absent; condition shares temperature's
+// because they arrive in the same AppMessage pair.
+typedef struct {
+  ComplicationDataSource source;
+  int cells;
+  const int* reading;
+  int sentinel;
+} FullWeatherField;
+
+static const FullWeatherField s_full_weather_fields[] = {
+    {DATA_SOURCE_WEATHER_COND, 4, &s_weather_temp, -999},
+    {DATA_SOURCE_WEATHER_TEMP, 4, &s_weather_temp, -999},
+    {DATA_SOURCE_HUMIDITY, 4, &s_weather_humidity, -1},
+    {DATA_SOURCE_AQI, 3, &s_weather_aqi, -1},
+    {DATA_SOURCE_UV, 2, &s_weather_uv, -1},
+};
+
+#define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
+
+static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
+  // Centred strip; the caption label above is the same width, also centred,
+  // so its tokens land cell-for-cell on the chips drawn here.
+  int x = box_rect.origin.x + (box_rect.size.w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
+    const FullWeatherField* field = &s_full_weather_fields[i];
+    int w = field->cells * VGA16_CHAR_W;
+    char buf[8];
+    get_source_data(field->source, buf, sizeof(buf), NULL);
+    draw_status_field(ctx, box_rect, x, w, buf, *field->reading != field->sentinel,
+                      get_source_color(field->source));
+    x += w + VGA16_CHAR_W;
+  }
+}
+
 static void draw_beats_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
@@ -320,6 +357,8 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   switch (source) {
     case DATA_SOURCE_AQI_UV:
       return draw_aqi_uv_complication;
+    case DATA_SOURCE_WEATHER_FULL:
+      return draw_weather_full_complication;
     case DATA_SOURCE_BEATS:
       return draw_beats_complication;
     case DATA_SOURCE_BATTERY:

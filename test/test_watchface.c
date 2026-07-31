@@ -786,6 +786,59 @@ void test_get_source_data_should_format_humidity(void) {
   TEST_ASSERT_EQUAL_INT(0, percent);
 }
 
+void test_get_source_data_should_format_weather_full(void) {
+  char buf[32];
+  int percent = -1;
+
+  // No data at all — five sentinels, and no fake progress
+  s_weather_temp = -999;
+  strcpy(s_weather_cond, "--");
+  s_weather_humidity = -1;
+  s_weather_aqi = -1;
+  s_weather_uv = -1;
+  get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("-- -- -- -- --", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  // Typical imperial day with the AQI fetch failed: it keeps its own sentinel
+  s_settings_units = 0;
+  s_weather_temp = 72;
+  strcpy(s_weather_cond, "SUN");
+  s_weather_humidity = 45;
+  s_weather_aqi = -1;
+  s_weather_uv = 3;
+  get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F 45% -- 3", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);  // composite source, never a progress bar
+
+  // Widest realistic mix (metric): exactly the strip's cell budget
+  s_settings_units = 1;
+  s_weather_temp = -22;
+  strcpy(s_weather_cond, "TSTM");
+  s_weather_humidity = 100;
+  s_weather_aqi = 150;
+  s_weather_uv = 11;
+  get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("TSTM -22C 100% 150 11", buf);
+  TEST_ASSERT_TRUE(strlen(buf) <= FULL_WEATHER_STRIP_CELLS);
+}
+
+void test_full_weather_captions_should_align_with_the_strip(void) {
+  // Captions live in the (centred) title gap, chips in the (centred) strip;
+  // both are FULL_WEATHER_STRIP_CELLS wide, so tokens land on their chips.
+  // The field table, the constant and the label must all agree.
+  int strip_cells = 0;
+  for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
+    strip_cells += s_full_weather_fields[i].cells;
+  }
+  strip_cells += FULL_WEATHER_NUM_FIELDS - 1;  // one-cell gaps between chips
+  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS, strip_cells);
+  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS,
+                        (int)strlen(get_source_label(DATA_SOURCE_WEATHER_FULL)));
+  // …and inside the title gap a 21-cell title still leaves border stubs.
+  TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W + 4 <= LAYOUT_W - 10);
+}
+
 void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
   // BMT is UTC+1, so the beat day rolls over at 23:00 UTC.
   TEST_ASSERT_EQUAL_INT(0, compute_beats(82800));         // 23:00:00 UTC = @000
@@ -1638,6 +1691,8 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
   RUN_TEST(test_get_source_data_should_format_humidity);
+  RUN_TEST(test_get_source_data_should_format_weather_full);
+  RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);

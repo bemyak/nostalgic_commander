@@ -82,7 +82,10 @@ There are two placement types:
    overlap by 2 columns so their 2px borders merge into a single shared
    divider. The centre row is index 5 so `SLOT_1`–`SLOT_5` keep their persisted
    positions; it offers the date plus `DATA_SOURCE_STEPS_BAR` and
-   `DATA_SOURCE_BATTERY_BAR`, which need the width for their progress bars.
+   `DATA_SOURCE_BATTERY_BAR`, which need the width for their progress bars,
+   and `DATA_SOURCE_WEATHER_FULL`, which tiles five fixed-width status chips
+   (condition, temperature, humidity, AQI, UV) across the row, captioned
+   per chip in the frame title.
    Each slot has a fixed `box_rect`, a `TextLayer`, and a user-chosen source.
    The slot's frame and label are drawn on the canvas
    (`canvas_update_proc`); the value text lives in the slot's text layer,
