@@ -195,6 +195,12 @@ function getWeather(attempt) {
               if (daily.temperature_2m_min && typeof daily.temperature_2m_min[0] === 'number') {
                 low = Math.round(daily.temperature_2m_min[0]);
               }
+              // The watch formatter sinks the pair when either side is
+              // missing — keep its sentinel predictable by pairing here too.
+              if (high === -999 || low === -999) {
+                high = -999;
+                low = -999;
+              }
 
               var cond = 'SUN';
               if (code === 0) {

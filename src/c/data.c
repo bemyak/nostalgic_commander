@@ -83,9 +83,9 @@ const char* get_source_label(ComplicationDataSource source) {
       return "HI/LO";
     case DATA_SOURCE_WEATHER_FULL:
       // Per-field captions rather than a name: each token sits centred over
-      // its chip in the centre-row strip. 21 cells, locked to the strip
-      // width (drawing.h) by test_full_weather_captions_should_align…
-      return "COND TEMP  HUM AQI UV";
+      // its chip in the centre-row strip. 22 cells — the trailing space is
+      // load-bearing — locked to the strip width (drawing.h) by test.
+      return "COND TEMP  HUM  HI/LO ";
     case DATA_SOURCE_BEATS:
       return "BEAT";
     case DATA_SOURCE_EMPTY:
@@ -244,14 +244,13 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       break;
     case DATA_SOURCE_WEATHER_FULL: {
       // Canvas-drawn; this text is the render-gate snapshot only. Joining the
-      // five chip texts means any weather change reaches the memcmp.
-      char cond[8], temp[8], hum[8], aqi[8], uv[8];
+      // four chip texts means any weather change reaches the memcmp.
+      char cond[8], temp[8], hum[8], hilo[12];
       get_source_data(DATA_SOURCE_WEATHER_COND, cond, sizeof(cond), NULL);
       get_source_data(DATA_SOURCE_WEATHER_TEMP, temp, sizeof(temp), NULL);
       get_source_data(DATA_SOURCE_HUMIDITY, hum, sizeof(hum), NULL);
-      get_source_data(DATA_SOURCE_AQI, aqi, sizeof(aqi), NULL);
-      get_source_data(DATA_SOURCE_UV, uv, sizeof(uv), NULL);
-      snprintf(val_buf, val_len, "%s %s %s %s %s", cond, temp, hum, aqi, uv);
+      get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, hilo, sizeof(hilo), NULL);
+      snprintf(val_buf, val_len, "%s %s %s %s", cond, temp, hum, hilo);
       break;
     }
     case DATA_SOURCE_BEATS:

@@ -85,8 +85,8 @@ There are two placement types:
    divider. The centre row is index 5 so `SLOT_1`–`SLOT_5` keep their persisted
    positions; it offers the date plus `DATA_SOURCE_STEPS_BAR` and
    `DATA_SOURCE_BATTERY_BAR`, which need the width for their progress bars,
-   and `DATA_SOURCE_WEATHER_FULL`, which tiles five fixed-width status chips
-   (condition, temperature, humidity, AQI, UV) across the row, captioned
+   and `DATA_SOURCE_WEATHER_FULL`, which tiles four fixed-width status chips
+   (condition, temperature, humidity, high/low) across the row, captioned
    per chip in the frame title.
    Each slot has a fixed `box_rect`, a `TextLayer`, and a user-chosen source.
    The slot's frame and label are drawn on the canvas

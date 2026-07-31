@@ -306,8 +306,7 @@ static const FullWeatherField s_full_weather_fields[] = {
     {DATA_SOURCE_WEATHER_COND, 4, &s_weather_temp, -999},
     {DATA_SOURCE_WEATHER_TEMP, 4, &s_weather_temp, -999},
     {DATA_SOURCE_HUMIDITY, 4, &s_weather_humidity, -1},
-    {DATA_SOURCE_AQI, 3, &s_weather_aqi, -1},
-    {DATA_SOURCE_UV, 2, &s_weather_uv, -1},
+    {DATA_SOURCE_TEMP_HIGH_LOW, 7, &s_temp_high, -999},
 };
 
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
@@ -319,7 +318,9 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
     const FullWeatherField* field = &s_full_weather_fields[i];
     int w = field->cells * VGA16_CHAR_W;
-    char buf[8];
+    // Sized past chip width: deep-winter hi/lo ("-22/-35C") intentionally
+    // spills 4px into the flanking gap rather than silently clipping a digit.
+    char buf[12];
     get_source_data(field->source, buf, sizeof(buf), NULL);
     draw_status_field(ctx, box_rect, x, w, buf, *field->reading != field->sentinel,
                       get_source_color(field->source));

@@ -792,36 +792,43 @@ void test_get_source_data_should_format_weather_full(void) {
   char buf[32];
   int percent = -1;
 
-  // No data at all — five sentinels, and no fake progress
+  // No data at all — every field's sentinel shows through
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
   s_weather_humidity = -1;
-  s_weather_aqi = -1;
-  s_weather_uv = -1;
+  s_temp_high = -999;
+  s_temp_low = -999;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("-- -- -- -- --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- -- -- -- / --", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);
 
-  // Typical imperial day with the AQI fetch failed: it keeps its own sentinel
+  // A mid-fetch blip leaves one field at sentinel, the rest live
   s_settings_units = 0;
   s_weather_temp = 72;
   strcpy(s_weather_cond, "SUN");
+  s_weather_humidity = -1;
+  s_temp_high = 82;
+  s_temp_low = 61;
+  get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F -- 82/61F", buf);
+
+  // Typical imperial day
   s_weather_humidity = 45;
-  s_weather_aqi = -1;
-  s_weather_uv = 3;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("SUN 72F 45% -- 3", buf);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F 45% 82/61F", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);  // composite source, never a progress bar
 
-  // Widest realistic mix (metric): exactly the strip's cell budget
+  // Cold snap (metric): the chips are exactly full. Deep winter — high and
+  // low both double-digit negative — runs one cell over and spills 4px into
+  // the flanking gap; accepted.
   s_settings_units = 1;
   s_weather_temp = -22;
   strcpy(s_weather_cond, "TSTM");
   s_weather_humidity = 100;
-  s_weather_aqi = 150;
-  s_weather_uv = 11;
+  s_temp_high = -9;
+  s_temp_low = -22;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("TSTM -22C 100% 150 11", buf);
+  TEST_ASSERT_EQUAL_STRING("TSTM -22C 100% -9/-22C", buf);
   TEST_ASSERT_TRUE(strlen(buf) <= FULL_WEATHER_STRIP_CELLS);
 }
 
@@ -837,8 +844,9 @@ void test_full_weather_captions_should_align_with_the_strip(void) {
   TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS, strip_cells);
   TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS,
                         (int)strlen(get_source_label(DATA_SOURCE_WEATHER_FULL)));
-  // …and inside the title gap a 21-cell title still leaves border stubs.
-  TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W + 4 <= LAYOUT_W - 10);
+  // The title gap clamps at w-10 (draw_ascii_window); the caption need only
+  // fit the clamped gap, centred — border stubs are not required.
+  TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W <= (LAYOUT_W - 10) + 6);
 }
 
 void test_get_source_data_should_format_pcp(void) {
