@@ -936,27 +936,19 @@ void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
 }
 
 void test_full_weather_captions_should_align_with_the_strip(void) {
-  // The caption string is drawn left-anchored at the strip origin, so token
-  // positions must equal chip positions exactly: re-derive each token's
-  // expected starting cell from the field table, floor-centred, and confirm.
-  const char* caption = get_source_label(DATA_SOURCE_WEATHER_FULL);
-  int chip_cell = 0;
-  int pos = 0;
+  // Captions come from the field table itself and are pixel-centred over
+  // chips the same way values are, so the table is self-consistent by
+  // construction — what can still break is sizing: every caption must fit
+  // its chip, and the strip must fit between the borders.
+  int cells = 0;
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
-    int cells = s_full_weather_fields[i].cells;
-    while (caption[pos] == ' ') pos++;  // blanks from previous chip + gap
-    int tok_len = 0;
-    while (caption[pos + tok_len] && caption[pos + tok_len] != ' ') tok_len++;
-    TEST_ASSERT_TRUE(tok_len > 0);       // every chip has a caption
-    TEST_ASSERT_TRUE(tok_len <= cells);  // and it fits its chip
-    TEST_ASSERT_EQUAL_INT(chip_cell + (cells - tok_len) / 2, pos);
-    pos += tok_len;
-    chip_cell += cells + 1;  // chip width plus the one-cell gap
+    TEST_ASSERT_TRUE(strlen(s_full_weather_fields[i].caption) > 0);
+    TEST_ASSERT_TRUE((int)strlen(s_full_weather_fields[i].caption) <=
+                     s_full_weather_fields[i].cells);
+    cells += s_full_weather_fields[i].cells;
   }
-  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS + 1, chip_cell);  // phantom gap included
-  TEST_ASSERT_TRUE(pos <= FULL_WEATHER_STRIP_CELLS);
-
-  // The strip itself must fit between the box borders
+  cells += FULL_WEATHER_NUM_FIELDS - 1;  // one-cell gaps between chips
+  TEST_ASSERT_EQUAL_INT(FULL_WEATHER_STRIP_CELLS, cells);
   TEST_ASSERT_TRUE(FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W <= LAYOUT_W - 2 * WINDOW_BORDER_PX);
 }
 

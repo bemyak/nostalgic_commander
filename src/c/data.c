@@ -82,11 +82,8 @@ const char* get_source_label(ComplicationDataSource source) {
     case DATA_SOURCE_TEMP_HIGH_LOW:
       return "HI/LO";
     case DATA_SOURCE_WEATHER_FULL:
-      // Per-field captions rather than a name. The strip draw anchors this at
-      // the strip origin, so each token's position IS its chip's: tokens are
-      // floor-centred within their chip cells — the test re-derives the
-      // expected offsets from s_full_weather_fields, so edit them together.
-      return "COND CUR HUM   HI/LO";
+      // Caption tokens live in drawing.c's field table, centred per chip.
+      return "";
     case DATA_SOURCE_BEATS:
       return "BEAT";
     case DATA_SOURCE_EMPTY:

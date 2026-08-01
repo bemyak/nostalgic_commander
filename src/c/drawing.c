@@ -298,17 +298,18 @@ static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
 typedef struct {
   ComplicationDataSource source;
   int cells;
+  const char* caption;
   const int* reading;
   int sentinel;
 } FullWeatherField;
 
 static const FullWeatherField s_full_weather_fields[] = {
-    {DATA_SOURCE_WEATHER_COND, 4, &s_weather_temp, -999},
+    {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, -999},
     // 3 cells: fits "72F"/"+22"; imperial extremes ("103F", "-22F") spill
     // 4px into the gaps, the established trade for fixed-width chips.
-    {DATA_SOURCE_WEATHER_TEMP, 3, &s_weather_temp, -999},
-    {DATA_SOURCE_HUMIDITY, 4, &s_weather_humidity, -1},
-    {DATA_SOURCE_TEMP_HIGH_LOW, 7, &s_temp_high, -999},
+    {DATA_SOURCE_WEATHER_TEMP, 3, "CUR", &s_weather_temp, -999},
+    {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, -1},
+    {DATA_SOURCE_TEMP_HIGH_LOW, 7, "HI/LO", &s_temp_high, -999},
 };
 
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
@@ -348,30 +349,67 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
 // cells the caption would leave 2-3px stubs of top line, which read as a
 // broken frame rather than a title gap. The Norton menu bar carries no top
 // line either.
-static void draw_captioned_bar(GContext* ctx, GRect rect, const char* title) {
+static void draw_captioned_bar(GContext* ctx, GRect rect) {
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
   int h = rect.size.h;
+  int top = y + TITLE_BORDER_DROP;
+  int strip_x = x + (w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
 
   graphics_context_set_fill_color(ctx, s_active_theme->frame);
 
-  // Verticals and bottom only; the missing top line is intentional.
-  int top = y + TITLE_BORDER_DROP;
+  // Full frame: the top border's stubs flank the caption block, which takes
+  // the rest of the top line — a window whose title is the whole header row.
   int side_h = h - TITLE_BORDER_DROP;
   graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, side_h), 0, GCornerNone);
   graphics_fill_rect(ctx, GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, side_h), 0,
                      GCornerNone);
   graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+  // Half a cell of air between each stub and the nearest caption *ink* — not
+  // the chip edge: HI/LO's caption is narrower than its chip, so measuring
+  // from the block edge parked the right stub noticeably far.
+  const int pad = VGA16_CHAR_W / 2;
+  const FullWeatherField* last = &s_full_weather_fields[FULL_WEATHER_NUM_FIELDS - 1];
+  int last_caption_end = strip_x + (FULL_WEATHER_STRIP_CELLS - last->cells) * VGA16_CHAR_W +
+                         (last->cells + (int)strlen(last->caption)) * VGA16_CHAR_W / 2;
+  graphics_fill_rect(ctx, GRect(x, top, strip_x - x - pad, WINDOW_BORDER_PX), 0, GCornerNone);
+  graphics_fill_rect(
+      ctx, GRect(last_caption_end + pad, top, x + w - last_caption_end - pad, WINDOW_BORDER_PX), 0,
+      GCornerNone);
 
-  // Left-anchored at the strip's own origin: centring let the trailing
-  // caption space read as ink width and skewed the row 4px off the chips.
-  int strip_x = x + (w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  // One caption per chip, pixel-centred over it — the same centring math the
+  // values get, so captions can't drift half a cell off their readings.
   graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
-  graphics_draw_text(
-      ctx, title, vga_font_16(),
-      GRect(strip_x, y - VGA16_CELL_H / 2, FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W, VGA16_CELL_H),
-      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  int chip_x = strip_x;
+  for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
+    const FullWeatherField* field = &s_full_weather_fields[i];
+    int w_px = field->cells * VGA16_CHAR_W;
+    int len = strlen(field->caption);
+    graphics_draw_text(ctx, field->caption, vga_font_16(),
+                       GRect(chip_x + (w_px - len * VGA16_CHAR_W) / 2, y - VGA16_CELL_H / 2,
+                             len * VGA16_CHAR_W, VGA16_CELL_H),
+                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    chip_x += w_px;
+
+    // Frame continuation between neighbouring captions, 2px of air from each
+    // ink run. Dash widths are uneven (4/8/16px) because the caption air is
+    // uneven — that's the intended look, warts included.
+    if (i + 1 < FULL_WEATHER_NUM_FIELDS) {
+      const FullWeatherField* next = &s_full_weather_fields[i + 1];
+      // chip_x already advanced past this chip, so ink ends where its
+      // pixel-centred caption does.
+      int ink_end = chip_x - (w_px - len * VGA16_CHAR_W) / 2;
+      int next_chip_x = chip_x + VGA16_CHAR_W;
+      int next_ink_start =
+          next_chip_x + (next->cells - (int)strlen(next->caption)) * VGA16_CHAR_W / 2;
+      int dash_w = next_ink_start - ink_end - 4;
+      if (dash_w > 0) {
+        graphics_fill_rect(ctx, GRect(ink_end + 2, top, dash_w, WINDOW_BORDER_PX), 0, GCornerNone);
+      }
+      chip_x = next_chip_x;
+    }
+  }
 }
 
 static void draw_beats_complication(GContext* ctx, GRect box_rect) {
@@ -454,7 +492,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
     if (s_quick_view_active && quick_view_covers_slot(i)) continue;
     if (slot->source != DATA_SOURCE_EMPTY) {
       if (slot->source == DATA_SOURCE_WEATHER_FULL) {
-        draw_captioned_bar(ctx, slot->box_rect, get_source_label(slot->source));
+        draw_captioned_bar(ctx, slot->box_rect);
       } else {
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }
