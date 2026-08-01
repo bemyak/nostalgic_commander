@@ -309,7 +309,7 @@ static const FullWeatherField s_full_weather_fields[] = {
     // 4px into the gaps, the established trade for fixed-width chips.
     {DATA_SOURCE_WEATHER_TEMP, 3, "TMP", &s_weather_temp, -999},
     {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, -1},
-    {DATA_SOURCE_TEMP_HIGH_LOW, 7, "HI/LO", &s_temp_high, -999},
+    {DATA_SOURCE_WEATHER_PCP, 4, "PCP", &s_weather_pcp, -1},
 };
 
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
@@ -329,13 +329,11 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
     const FullWeatherField* field = &s_full_weather_fields[i];
     int w = field->cells * VGA16_CHAR_W;
-    // Sized past chip width: the imperial polar pair ("-22/-35F")
-    // intentionally spills 4px into the flanking gap rather than clipping.
+    // Sized past chip width: imperial temp extremes ("103F", "-22F")
+    // intentionally spill 4px into the flanking gaps rather than clipping.
     char buf[12];
     if (field->source == DATA_SOURCE_WEATHER_TEMP) {
       format_strip_temp(buf, sizeof(buf));
-    } else if (field->source == DATA_SOURCE_TEMP_HIGH_LOW) {
-      format_strip_high_low(buf, sizeof(buf));
     } else {
       get_source_data(field->source, buf, sizeof(buf), NULL);
     }

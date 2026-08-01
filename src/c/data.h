@@ -96,12 +96,11 @@ void format_date_string(int format, int short_format, int dow_position, struct t
 void format_short_date_string(int short_format, int dow_position, struct tm* tick_time,
                               char* buffer, int buf_size);
 
-// Centre-strip temperature chips spend their fixed cells differently per unit:
-// metric always signs and drops the unit letter to fund the sign cell;
+// The centre strip's temperature chip spends its fixed cells differently per
+// unit: metric always signs and drops the unit letter to fund the sign cell;
 // imperial keeps the letter (below-zero F is rare, so its sign is no extra
-// column in practice). Sentinels render like their atomic sources.
+// column in practice). Sentinel renders like the atomic source.
 void format_strip_temp(char* buf, int buf_size);
-void format_strip_high_low(char* buf, int buf_size);
 
 // Weekdays are always the 3-letter abbreviation strftime's %a produces.
 #define DOW_LEN 3

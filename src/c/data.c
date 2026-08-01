@@ -111,19 +111,15 @@ void format_strip_temp(char* buf, int buf_size) {
   format_temp(buf, buf_size, s_weather_temp, s_settings_units != 1);
 }
 
-static void format_high_low(char* buf, size_t len, bool strip_cell) {
+static void format_high_low(char* buf, size_t len) {
   // Either side missing sinks the pair: a half-number reads as data.
   if (s_temp_high == -999 || s_temp_low == -999) {
     snprintf(buf, len, "-- / --");
   } else if (s_settings_units == 1) {
-    snprintf(buf, len, strip_cell ? "%+d/%+d" : "%+d/%+dC", s_temp_high, s_temp_low);
+    snprintf(buf, len, "%+d/%+dC", s_temp_high, s_temp_low);
   } else {
     snprintf(buf, len, "%d/%dF", s_temp_high, s_temp_low);
   }
-}
-
-void format_strip_high_low(char* buf, int buf_size) {
-  format_high_low(buf, buf_size, true);
 }
 
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent) {
@@ -257,17 +253,17 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       }
       break;
     case DATA_SOURCE_TEMP_HIGH_LOW:
-      format_high_low(val_buf, val_len, false);
+      format_high_low(val_buf, val_len);
       break;
     case DATA_SOURCE_WEATHER_FULL: {
       // Canvas-drawn; this text is the render-gate snapshot only. Joining the
       // four chip texts means any weather change reaches the memcmp.
-      char cond[8], temp[8], hum[8], hilo[12];
+      char cond[8], temp[8], hum[8], pcp[8];
       get_source_data(DATA_SOURCE_WEATHER_COND, cond, sizeof(cond), NULL);
       format_strip_temp(temp, sizeof(temp));
       get_source_data(DATA_SOURCE_HUMIDITY, hum, sizeof(hum), NULL);
-      format_strip_high_low(hilo, sizeof(hilo));
-      snprintf(val_buf, val_len, "%s %s %s %s", cond, temp, hum, hilo);
+      get_source_data(DATA_SOURCE_WEATHER_PCP, pcp, sizeof(pcp), NULL);
+      snprintf(val_buf, val_len, "%s %s %s %s", cond, temp, hum, pcp);
       break;
     }
     case DATA_SOURCE_BEATS:

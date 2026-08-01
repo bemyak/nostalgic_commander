@@ -131,12 +131,11 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
     case DATA_SOURCE_WEATHER_PCP:
-      // Likelihood, not severity: at or under 30 the day reads dry, past 30 it
-      // is worth a thought, past 60 plan around it.
-      if (s_weather_pcp == -1) return s_active_theme->text_primary;
+      // A dry timeline is unremarkable — at or under 30 there is nothing to
+      // plan around. Past 30: worth a thought; past 60: plan around it.
+      if (s_weather_pcp == -1 || s_weather_pcp <= 30) return s_active_theme->text_primary;
       if (s_weather_pcp > 60) return s_active_theme->status_red;
-      if (s_weather_pcp > 30) return s_active_theme->status_yellow;
-      return s_active_theme->status_green;
+      return s_active_theme->status_yellow;
     case DATA_SOURCE_TEMP_HIGH_LOW:
       // The high is the day's headline, so it alone carries the color — a
       // freezing low under a mild high stays neutral.

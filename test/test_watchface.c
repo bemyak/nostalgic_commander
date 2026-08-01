@@ -817,10 +817,9 @@ void test_get_source_data_should_format_weather_full(void) {
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
   s_weather_humidity = -1;
-  s_temp_high = -999;
-  s_temp_low = -999;
+  s_weather_pcp = -1;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("-- -- -- -- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- -- -- --", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);
 
   // A mid-fetch blip leaves one field at sentinel, the rest live
@@ -828,33 +827,29 @@ void test_get_source_data_should_format_weather_full(void) {
   s_weather_temp = 72;
   strcpy(s_weather_cond, "SUN");
   s_weather_humidity = -1;
-  s_temp_high = 82;
-  s_temp_low = 61;
+  s_weather_pcp = 60;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("SUN 72F -- 82/61F", buf);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F -- 60%", buf);
 
   // Typical imperial day
   s_weather_humidity = 45;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
-  TEST_ASSERT_EQUAL_STRING("SUN 72F 45% 82/61F", buf);
+  TEST_ASSERT_EQUAL_STRING("SUN 72F 45% 60%", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);  // composite source, never a progress bar
 
-  // Cold snap (metric): the chips are exactly full. Deep winter — high and
-  // low both double-digit negative — runs one cell over and spills 4px into
-  // the flanking gap; accepted.
+  // Worst-case mix (metric): comfortably inside the strip budget
   s_settings_units = 1;
   s_weather_temp = -22;
   strcpy(s_weather_cond, "TSTM");
   s_weather_humidity = 100;
-  s_temp_high = -9;
-  s_temp_low = -22;
+  s_weather_pcp = 100;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
   // Metric strip temps drop the unit letter to fund the sign cell
-  TEST_ASSERT_EQUAL_STRING("TSTM -22 100% -9/-22", buf);
+  TEST_ASSERT_EQUAL_STRING("TSTM -22 100% 100%", buf);
   TEST_ASSERT_TRUE(strlen(buf) <= FULL_WEATHER_STRIP_CELLS);
 }
 
-void test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric(void) {
+void test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric(void) {
   char buf[12];
 
   // Imperial: unit fits, so signs appear only on negatives
@@ -865,17 +860,8 @@ void test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric(void)
   s_weather_temp = -22;
   format_strip_temp(buf, sizeof(buf));
   TEST_ASSERT_EQUAL_STRING("-22F", buf);
-  s_temp_high = 82;
-  s_temp_low = 61;
-  format_strip_high_low(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("82/61F", buf);
-  // …the imperial polar pair is the one acknowledged 1-cell spill
-  s_temp_high = -22;
-  s_temp_low = -35;
-  format_strip_high_low(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_INT(8, (int)strlen(buf));
 
-  // Metric: always signed, never lettered; "no data" matches the atomics
+  // Metric: always signed, never lettered; "no data" matches the atomic
   s_settings_units = 1;
   s_weather_temp = 22;
   format_strip_temp(buf, sizeof(buf));
@@ -886,38 +872,29 @@ void test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric(void)
   s_weather_temp = -999;
   format_strip_temp(buf, sizeof(buf));
   TEST_ASSERT_EQUAL_STRING("--", buf);
-  s_temp_high = 28;
-  s_temp_low = 4;
-  format_strip_high_low(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("+28/+4", buf);
-  s_temp_high = -999;
-  s_temp_low = -999;
-  format_strip_high_low(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
 
-  // No metric form ever exceeds the 7-cell chip
-  s_temp_high = -22;
-  s_temp_low = -35;
-  format_strip_high_low(buf, sizeof(buf));
-  TEST_ASSERT_TRUE(strlen(buf) <= 7);
+  // Nothing ever exceeds the 3-cell chip
+  s_settings_units = 1;
+  s_weather_temp = -22;
+  format_strip_temp(buf, sizeof(buf));
+  TEST_ASSERT_TRUE(strlen(buf) <= 3);
 }
 
 void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
   const FullWeatherField* cond = &s_full_weather_fields[0];
   const FullWeatherField* temp = &s_full_weather_fields[1];
   const FullWeatherField* hum = &s_full_weather_fields[2];
-  const FullWeatherField* hilo = &s_full_weather_fields[3];
+  const FullWeatherField* pcp = &s_full_weather_fields[3];
 
   // Neutral weather (panel theme, imperial): everything plain text
   s_weather_temp = 72;
   strcpy(s_weather_cond, "SUN");
   s_weather_humidity = -1;
-  s_temp_high = -999;
-  s_temp_low = -999;
+  s_weather_pcp = -1;
   TEST_ASSERT_FALSE(strip_field_is_banded(cond));
   TEST_ASSERT_FALSE(strip_field_is_banded(temp));
   TEST_ASSERT_FALSE(strip_field_is_banded(hum));
-  TEST_ASSERT_FALSE(strip_field_is_banded(hilo));
+  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
 
   // Extremes and comfort statuses earn their fills
   s_weather_temp = 90;
@@ -926,15 +903,10 @@ void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
   TEST_ASSERT_FALSE(strip_field_is_banded(hum));
   s_weather_humidity = 65;  // sticky is a status
   TEST_ASSERT_TRUE(strip_field_is_banded(hum));
-  s_temp_high = 90;
-  s_temp_low = 70;
-  TEST_ASSERT_TRUE(strip_field_is_banded(hilo));
-
-  // …but a neutral day under a coloured temp keeps hilo plain
-  s_weather_temp = 72;
-  s_temp_high = 78;
-  s_temp_low = 60;
-  TEST_ASSERT_FALSE(strip_field_is_banded(hilo));
+  s_weather_pcp = 20;  // dry — neutral
+  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
+  s_weather_pcp = 70;  // pack the umbrella
+  TEST_ASSERT_TRUE(strip_field_is_banded(pcp));
 }
 
 void test_full_weather_captions_should_align_with_the_strip(void) {
@@ -1123,12 +1095,13 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_humidity = 71;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_HUMIDITY));
 
-  // Precipitation probability bands (<=30 green, 31-60 yellow, >60 red)
+  // Precipitation probability: at or under 30 the day is unremarkable and
+  // reads neutral; only a real chance of rain earns yellow, then red
   s_weather_pcp = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
   s_weather_pcp = 30;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
   s_weather_pcp = 31;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
@@ -1929,7 +1902,7 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
   RUN_TEST(test_full_weather_chips_should_fill_only_on_a_status_color);
-  RUN_TEST(test_strip_temp_formatters_should_trade_the_unit_for_a_sign_in_metric);
+  RUN_TEST(test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);

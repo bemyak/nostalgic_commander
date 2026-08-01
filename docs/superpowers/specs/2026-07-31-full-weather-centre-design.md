@@ -1,22 +1,22 @@
 # Full-Weather Centre Complication — Design
 
-2026-07-31 · Status: implemented; revised across three same-day emulator
-reviews. This document describes the final design; git history carries the
-iterations (AQI/UV chips replaced by hi/lo; banding and caption fixes).
+2026-07-31 · Status: implemented; revised across same-day emulator reviews.
+This document describes the final design; git history carries the iterations
+(AQI/UV → hi/lo → PCP in the fourth chip; banding/caption/frame fixes).
 
 ## Summary
 
 `DATA_SOURCE_WEATHER_FULL` (27), offered only in the centre slot (SLOT_6),
-renders four readings — condition, temperature, humidity, high/low — as a row
-of fixed-width status chips, each captioned in the frame's header position.
-Norton Commander menu-bar style: the caption row replaces the top border
-outright (verticals and bottom border only).
+renders four readings — condition, current temperature, humidity,
+precipitation probability — as a row of fixed-width status chips, each
+captioned in the frame's top border: a complete window whose title row is the
+four chip captions, pixel-centred over their chips.
 
 ## Source behavior
 
 - Enum appended before `DATA_SOURCE_EMPTY`; no renumbering.
 - No new phone data: rides values already fetched and cached (temp/cond/
-  humidity/high/low). No new message keys, no JS semantics changes, no new
+  humidity/precipitation probability). No new message keys, no JS semantics changes, no new
   persist keys. `any_slot_needs_weather()` includes the source.
 - `get_source_data()` returns the four chip texts space-joined — never
   displayed; it feeds the `UiSnapshot` render gate so any weather change
@@ -24,24 +24,25 @@ outright (verticals and bottom border only).
 
 ## Layout (all widths in 8px cells; centre slot is 23 columns of 184px)
 
-Chips: `COND` 4 · `TMP` 3 · `HUM` 4 · `HI/LO` 7, one-cell gaps, 21 cells
-total = 168px, centred (8px margins). Each caption token lives in the field
+Chips: `COND` 4 · `TMP` 3 · `HUM` 4 · `PCP` 4, one-cell gaps, 18 cells
+total = 144px, centred (20px margins). Each caption token lives in the field
 table and is drawn pixel-centred over its chip with the same centring math
-the value gets — caption and value can't drift half a cell apart.
-`get_source_label()` returns `""`; frame and captions are `draw_captioned_bar()`'s job:
+the value gets — caption and value can't drift half a cell apart. The top
+border draws corner stubs plus short continuations in the inter-caption gaps
+(dash widths track the uneven caption air). `get_source_label()` returns
+`""`; frame and captions are `draw_captioned_bar()`'s job:
 
 ```
-─COND─TMP─HUM──HI/LO─       ← top border stubs flank the caption block
-▓▓▓▓ ▓▓▓ ▓▓▓▓ ▓▓▓▓▓▓▓        ← fills only when severity-colored
+ ─COND─TMP─HUM──PCP─        ← dashes join the captions into the top line
+▓▓▓▓ ▓▓▓ ▓▓▓▓ ▓▓▓▓          ← fills only when severity-colored
 ```
 
-Width policies: imperial keeps unit letters (`72F`, `82/61F`); metric always
-signs and drops the letter to fund the sign cell (`+22`, `+28/+4`). Accepted
-spills into the 1-cell gaps: imperial extremes (`103F`, `-22F`, and the polar
-pair `-22/-35F`) run 4px over a chip edge; metric never exceeds its chips.
-Chip texts come from `format_strip_temp()` / `format_strip_high_low()` in
-data.c, **not** the atomic `get_source_data()` formatters, so the strip can
-spell temps differently from the standalone complications.
+Width policies: imperial keeps unit letters (`72F`); metric always signs and
+drops the letter to fund the sign cell (`+22`). Accepted spill: imperial temp
+extremes (`103F`, `-22F`) run 4px over the `TMP` chip's edge into the gaps;
+metric never exceeds its chip. The temp chip's text comes from
+`format_strip_temp()` in data.c, **not** the atomic formatter, so the strip
+can spell it differently from the standalone TEMP complication.
 
 ## Rendering
 

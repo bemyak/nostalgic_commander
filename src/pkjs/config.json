@@ -322,6 +322,10 @@
             "value": "10"
           },
           {
+            "label": "Precipitation (next 12h max)",
+            "value": "28"
+          },
+          {
             "label": "Humidity",
             "value": "26"
           },
@@ -374,6 +378,10 @@
             "value": "10"
           },
           {
+            "label": "Precipitation (next 12h max)",
+            "value": "28"
+          },
+          {
             "label": "Humidity",
             "value": "26"
           },
@@ -424,6 +432,10 @@
           {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Precipitation (next 12h max)",
+            "value": "28"
           },
           {
             "label": "Humidity",

@@ -22,7 +22,8 @@ Labels fit the top-slot title budget (≤9 chars at 93px).
 
 **PCP semantics**: max precipitation probability over the next 12h — the same
 windowing philosophy as UV ("will I need an umbrella", not "is it raining").
-Bands: `-1` primary · `≤30` green · `31–60` yellow · `≥61` red.
+Bands: `-1` primary · `≤30` neutral (revised after emulator review: a dry
+timeline is unremarkable) · `31–60` yellow · `≥61` red.
 
 **SUN_TIMES**: today's sunrise/sunset in local 24h time, from the API
 (`timezone=auto` already). Fixed order rise/set, no severity color (always
