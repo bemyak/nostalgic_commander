@@ -304,7 +304,9 @@ typedef struct {
 
 static const FullWeatherField s_full_weather_fields[] = {
     {DATA_SOURCE_WEATHER_COND, 4, &s_weather_temp, -999},
-    {DATA_SOURCE_WEATHER_TEMP, 4, &s_weather_temp, -999},
+    // 3 cells: fits "72F"/"+22"; imperial extremes ("103F", "-22F") spill
+    // 4px into the gaps, the established trade for fixed-width chips.
+    {DATA_SOURCE_WEATHER_TEMP, 3, &s_weather_temp, -999},
     {DATA_SOURCE_HUMIDITY, 4, &s_weather_humidity, -1},
     {DATA_SOURCE_TEMP_HIGH_LOW, 7, &s_temp_high, -999},
 };

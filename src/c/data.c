@@ -86,7 +86,7 @@ const char* get_source_label(ComplicationDataSource source) {
       // the strip origin, so each token's position IS its chip's: tokens are
       // floor-centred within their chip cells — the test re-derives the
       // expected offsets from s_full_weather_fields, so edit them together.
-      return "COND TEMP HUM   HI/LO";
+      return "COND CUR HUM   HI/LO";
     case DATA_SOURCE_BEATS:
       return "BEAT";
     case DATA_SOURCE_EMPTY:

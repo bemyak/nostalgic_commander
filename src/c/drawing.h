@@ -25,10 +25,10 @@
 // there is more room, because the value row sits low to clear the title.
 #define STATUS_BAND_PAD 4
 
-// The full-weather centre strip: four chips of 4/4/4/7 cells plus one-cell
+// The full-weather centre strip: four chips of 4/3/4/7 cells plus one-cell
 // gaps. Also the exact width of its caption label — a test asserts the two
-// equal so captions can never drift off their chips.
-#define FULL_WEATHER_STRIP_CELLS 22
+// agree so captions can never drift off their chips.
+#define FULL_WEATHER_STRIP_CELLS 21
 
 extern Window* s_main_window;
 extern Layer* s_canvas_layer;
