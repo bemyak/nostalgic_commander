@@ -34,7 +34,8 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   year-less short form), and the weekday before, after, or hidden.
 - **Six complication slots** (two wide on top, three below, one wide in the
   middle) you can fill from: weather (condition + temperature), humidity,
-  precipitation probability (peak over the next 12 hours), the day's
+  precipitation probability (peak over the next 12 hours; shows the live
+  rate in mm while it actually rains, metric only), the day's
   high/low temperatures, steps, sleep, heart rate, active minutes, Bluetooth
   status, air quality (US AQI), UV index (the peak over the next 12 hours —
   what's coming, not what already happened), a combined AQI/UV view, a short

@@ -131,6 +131,14 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
     case DATA_SOURCE_WEATHER_PCP:
+      if (weather_shows_precip_amount()) {
+        // WMO intensity bands (mm over the past hour): light rain is calm;
+        // heavy is worth a thought, violent is a warning.
+        int mm = s_precip_now / 10;
+        if (mm >= 8) return s_active_theme->status_red;
+        if (mm >= 4) return s_active_theme->status_yellow;
+        return s_active_theme->text_primary;
+      }
       // A dry timeline is unremarkable — at or under 30 there is nothing to
       // plan around. Past 30: worth a thought; past 60: plan around it.
       if (s_weather_pcp == -1 || s_weather_pcp <= 30) return s_active_theme->text_primary;

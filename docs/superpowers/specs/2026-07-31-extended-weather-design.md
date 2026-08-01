@@ -71,6 +71,11 @@ UV Index (17) · AQI / UV Index (18). Bottom slots and SLOT_6 untouched.
 ## Tests (registered in main())
 
 - PCP: `--`/`45%`/`0%`/percent passthrough; color pins at `-1, 30, 31, 60, 61`.
+  Later addition: in metric mode while the current condition precipitates
+  (RAIN/SNOW/TSTM) the slot shows the live rate from `current.precipitation`
+  (tenths of mm on the wire, `WEATHER_PRECIP_NOW`) — `<1mm`, `25mm`, `99mm`
+  clamp — with WMO intensity bands (neutral <4mm/h, yellow 4–7, red ≥8);
+  imperial always stays probability.
 - SUN_TIMES: `--:--/--:--`, real join, total width ≤ 11 cells.
 - TEMP_HIGH_LOW: `-- / --` when either side is the sentinel; `82/61F`,
   `28/4C`, width ≤ 11; color follows the high (cold high → `accent_cold`,

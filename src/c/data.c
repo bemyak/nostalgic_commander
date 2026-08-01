@@ -14,6 +14,7 @@ int s_weather_aqi = -1;       // -1 indicates no data
 int s_weather_uv = -1;        // -1 indicates no data
 int s_weather_humidity = -1;  // -1 indicates no data
 int s_weather_pcp = -1;       // -1 indicates no data
+int s_precip_now = -1;        // tenths of mm over the past hour; -1 indicates no data
 int s_temp_high = -999;       // -999 indicates no data
 int s_temp_low = -999;        // -999 indicates no data
 int s_active_minutes = 0;
@@ -105,6 +106,12 @@ static void format_temp(char* buf, size_t len, int temp, bool with_unit) {
   } else {
     snprintf(buf, len, with_unit ? "%dF" : "%d", temp);
   }
+}
+
+bool weather_shows_precip_amount(void) {
+  if (s_settings_units != 1 || s_precip_now < 0) return false;
+  return strcmp(s_weather_cond, "RAIN") == 0 || strcmp(s_weather_cond, "SNOW") == 0 ||
+         strcmp(s_weather_cond, "TSTM") == 0;
 }
 
 void format_strip_temp(char* buf, int buf_size) {
@@ -245,7 +252,16 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       }
       break;
     case DATA_SOURCE_WEATHER_PCP:
-      if (s_weather_pcp == -1) {
+      if (weather_shows_precip_amount()) {
+        // Whole millimetres; trace drizzle reads "<1mm", a cloudburst clamps.
+        // Four cells is always enough.
+        if (s_precip_now < 10) {
+          snprintf(val_buf, val_len, "<1mm");
+        } else {
+          int mm = s_precip_now / 10;
+          snprintf(val_buf, val_len, "%dmm", mm > 99 ? 99 : mm);
+        }
+      } else if (s_weather_pcp == -1) {
         snprintf(val_buf, val_len, "--");
       } else {
         snprintf(val_buf, val_len, "%d%%", s_weather_pcp);

@@ -10,7 +10,7 @@ var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 // next :00/:30 edge.
 var WEATHER_DICT_KEYS = [
   'WEATHER_TEMP', 'WEATHER_COND', 'WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
-  'WEATHER_HIGH', 'WEATHER_LOW'
+  'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_PRECIP_NOW'
 ];
 
 function isCompleteWeatherPayload(payload) {
@@ -113,7 +113,8 @@ function getWeather(attempt) {
         // `current_weather=true` is legacy and silently suppresses `current=`.
         var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
             '&longitude=' + lon +
-            '&current=temperature_2m,weather_code,relative_humidity_2m&timezone=auto' +
+            '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation' +
+            '&timezone=auto' +
             '&temperature_unit=' + tempUnit +
             '&hourly=uv_index,precipitation_probability&forecast_hours=' + UV_WINDOW_HOURS +
             '&daily=temperature_2m_max,temperature_2m_min&forecast_days=1';
@@ -144,6 +145,7 @@ function getWeather(attempt) {
                 'WEATHER_UV': forecast.uv,
                 'WEATHER_HUMIDITY': forecast.humidity,
                 'WEATHER_PCP': forecast.pcp,
+                'WEATHER_PRECIP_NOW': forecast.precipNow,
                 'WEATHER_HIGH': forecast.high,
                 'WEATHER_LOW': forecast.low
               },
@@ -162,6 +164,12 @@ function getWeather(attempt) {
               var humidity = -1;
               if (typeof json.current.relative_humidity_2m === 'number') {
                 humidity = Math.round(json.current.relative_humidity_2m);
+              }
+              // Tenths of mm over the past hour. Always mm — the watch
+              // displays the live rate only in metric mode, so no unit param.
+              var precipNow = -1;
+              if (typeof json.current.precipitation === 'number') {
+                precipNow = Math.round(json.current.precipitation * 10);
               }
               // -1 is the watch-side "no data" sentinel; forecast_hours
               // already windows the hourly data, the timestamp guard keeps us
@@ -226,6 +234,7 @@ function getWeather(attempt) {
                 uv: uv,
                 humidity: humidity,
                 pcp: pcp,
+                precipNow: precipNow,
                 high: high,
                 low: low
               };

@@ -84,21 +84,21 @@ static void draw_run(GContext* ctx, GRect row, int cell, const char* text, int l
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
-// Draws a value with one run picked out in `accent` and the rest in the primary
-// text color. Monospace, so splitting it is pure cell arithmetic and each run
-// lands back on its own glyph column. `at < 0` accents nothing.
+// Draws a value with one run picked out in `accent` and the rest in `base`.
+// Monospace, so splitting it is pure cell arithmetic and each run lands back
+// on its own glyph column. `at < 0` accents nothing.
 static void draw_accented_value(GContext* ctx, GRect row, const char* text, int at, int len,
-                                GColor accent) {
+                                GColor base, GColor accent) {
   int total = strlen(text);
   if (at < 0 || at >= total || len <= 0) {
-    draw_run(ctx, row, 0, text, total, s_active_theme->text_primary);
+    draw_run(ctx, row, 0, text, total, base);
     return;
   }
   if (at + len > total) len = total - at;
 
-  draw_run(ctx, row, 0, text, at, s_active_theme->text_primary);
+  draw_run(ctx, row, 0, text, at, base);
   draw_run(ctx, row, at, text + at, len, accent);
-  draw_run(ctx, row, at + len, text + at + len, total - at - len, s_active_theme->text_primary);
+  draw_run(ctx, row, at + len, text + at + len, total - at - len, base);
 }
 
 // Temperature readouts end in the unit letter; pick it out like the beats "@".
@@ -108,7 +108,8 @@ static void draw_unit_value(GContext* ctx, GRect box_rect, ComplicationDataSourc
 
   int len = strlen(buf);
   int at = (len > 0 && (buf[len - 1] == 'C' || buf[len - 1] == 'F')) ? len - 1 : -1;
-  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, at, 1, s_active_theme->mark);
+  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, at, 1,
+                      s_active_theme->text_primary, s_active_theme->mark);
 }
 
 static void draw_weather_complication(GContext* ctx, GRect box_rect) {
@@ -126,7 +127,7 @@ static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
 
   int at = date_dow_offset(s_settings_dow_position, text);
   draw_accented_value(ctx, vga16_value_rect(box_rect, text), text, at, DOW_LEN,
-                      s_active_theme->mark);
+                      s_active_theme->text_primary, s_active_theme->mark);
 }
 
 static void draw_full_date_complication(GContext* ctx, GRect box_rect) {
@@ -240,6 +241,21 @@ static void draw_status_field(GContext* ctx, GRect box_rect, int x, int w, const
            banded ? s_active_theme->status_ink : s_active_theme->text_primary);
 }
 
+// Amount mode accents the unit letters like C/F and the weekday get; the
+// probability form keeps its single-colour readout.
+static void draw_pcp_complication(GContext* ctx, GRect box_rect) {
+  char buf[8];
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  GRect row = vga16_value_rect(box_rect, buf);
+  if (weather_shows_precip_amount()) {
+    int len = strlen(buf);
+    draw_accented_value(ctx, row, buf, len - 2, 2, s_active_theme->text_primary,
+                        s_active_theme->mark);
+  } else {
+    draw_run(ctx, row, 0, buf, strlen(buf), get_source_color(DATA_SOURCE_WEATHER_PCP));
+  }
+}
+
 // A lone reading fills the whole band. Centring in the band is the same as
 // centring in the box, since the band is itself centred.
 static void draw_banded_value(GContext* ctx, GRect box_rect, const char* text, bool banded,
@@ -337,8 +353,19 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
     } else {
       get_source_data(field->source, buf, sizeof(buf), NULL);
     }
-    draw_status_field(ctx, box_rect, x, w, buf, strip_field_is_banded(field),
-                      get_source_color(field->source));
+    if (field->source == DATA_SOURCE_WEATHER_PCP && weather_shows_precip_amount() &&
+        !strip_field_is_banded(field)) {
+      // Light rain is calm enough to keep the unit accent; an intensity band
+      // plays everything in ink (a yellow run on a yellow fill is no run).
+      int len = strlen(buf);
+      GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
+                        len * VGA16_CHAR_W, VALUE_ROW_H);
+      draw_accented_value(ctx, row, buf, len - 2, 2, s_active_theme->text_primary,
+                          s_active_theme->mark);
+    } else {
+      draw_status_field(ctx, box_rect, x, w, buf, strip_field_is_banded(field),
+                        get_source_color(field->source));
+    }
     x += w + VGA16_CHAR_W;
   }
 }
@@ -414,7 +441,8 @@ static void draw_beats_complication(GContext* ctx, GRect box_rect) {
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
 
   // "@" prefix in DOS yellow, beat count in primary text
-  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, 0, 1, s_active_theme->mark);
+  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, 0, 1, s_active_theme->text_primary,
+                      s_active_theme->mark);
 }
 
 static void draw_battery_complication(GContext* ctx, GRect box_rect) {
@@ -439,6 +467,8 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   switch (source) {
     case DATA_SOURCE_AQI_UV:
       return draw_aqi_uv_complication;
+    case DATA_SOURCE_WEATHER_PCP:
+      return draw_pcp_complication;
     case DATA_SOURCE_WEATHER_FULL:
       return draw_weather_full_complication;
     case DATA_SOURCE_BEATS:

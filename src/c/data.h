@@ -44,6 +44,11 @@ extern int s_weather_aqi;
 extern int s_weather_uv;
 extern int s_weather_humidity;
 extern int s_weather_pcp;
+extern int s_precip_now;
+
+// While precipitating and metric, the PCP readout shows the observed rate
+// instead of the forecast probability — the guess is settled.
+bool weather_shows_precip_amount(void);
 extern int s_temp_high;
 extern int s_temp_low;
 extern int s_active_minutes;

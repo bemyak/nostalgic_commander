@@ -930,6 +930,9 @@ void test_get_source_data_should_format_pcp(void) {
   char buf[16];
   int percent = -1;
 
+  // The unit accent needs canvas rendering; a text layer could not draw it
+  TEST_ASSERT_NOT_NULL(canvas_drawer(DATA_SOURCE_WEATHER_PCP));
+
   s_weather_pcp = -1;
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("--", buf);
@@ -944,6 +947,40 @@ void test_get_source_data_should_format_pcp(void) {
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("0%", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);  // zero probability is real data
+
+  // Metric and actively precipitating: the live rate replaces the guess
+  s_settings_units = 1;
+  s_weather_pcp = 45;
+  strcpy(s_weather_cond, "RAIN");
+  s_precip_now = 25;  // 2.5mm over the past hour
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("2mm", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);  // amount tells no progress-story
+
+  strcpy(s_weather_cond, "TSTM");
+  s_precip_now = 1230;  // cloudburst clamps
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("99mm", buf);
+
+  strcpy(s_weather_cond, "SNOW");
+  s_precip_now = 4;  // trace drizzle
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("<1mm", buf);
+
+  // Imperial never switches
+  s_settings_units = 0;
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("45%", buf);
+
+  // Settled sky or a missing live reading falls back to probability
+  s_settings_units = 1;
+  strcpy(s_weather_cond, "SUN");
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("45%", buf);
+  strcpy(s_weather_cond, "RAIN");
+  s_precip_now = -1;
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("45%", buf);
 }
 
 void test_get_source_data_should_format_high_low(void) {
@@ -1111,6 +1148,19 @@ void test_get_source_color_should_return_appropriate_colors(void) {
 
   s_weather_pcp = 61;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
+
+  // In amount mode the bands are WMO intensities (mm over the past hour)
+  s_settings_units = 1;
+  strcpy(s_weather_cond, "RAIN");
+  s_precip_now = 20;  // 2mm light — calm
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  s_precip_now = 50;  // 5mm heavy
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  s_precip_now = 90;  // 9mm violent
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  s_precip_now = -1;
+  strcpy(s_weather_cond, "--");
+  s_settings_units = 0;
 
   // High/low takes the SHARED temperature bands of the day's high; the low
   // never colors it, and missing data stays neutral
@@ -1281,6 +1331,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_uv = 5;
   s_weather_humidity = 55;
   s_weather_pcp = 35;
+  s_precip_now = 25;
   s_temp_high = 82;
   s_temp_low = 61;
   save_weather_cache();
@@ -1292,6 +1343,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_weather_uv = -1;
   s_weather_humidity = -1;
   s_weather_pcp = -1;
+  s_precip_now = -1;
   s_temp_high = -999;
   s_temp_low = -999;
 
@@ -1302,6 +1354,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
   TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(25, s_precip_now);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 }
@@ -1593,6 +1646,7 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 7);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 35);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PRECIP_NOW, 25);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
 
@@ -1604,6 +1658,7 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(7, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
   TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(25, s_precip_now);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
 

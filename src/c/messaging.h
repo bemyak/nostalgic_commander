@@ -18,6 +18,7 @@
 // 1010-1020 fall inside the settings block below; the weather cluster resumes
 // after it.
 #define PERSIST_KEY_WEATHER_LOW 1021
+#define PERSIST_KEY_WEATHER_PRECIP_NOW 1022
 
 #define PERSIST_KEY_SETTINGS_THEME 1010
 #define PERSIST_KEY_SETTINGS_UNITS 1011

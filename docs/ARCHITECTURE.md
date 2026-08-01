@@ -29,10 +29,12 @@ This document explains how the pieces fit together.
    `--` until the next edge (`inbox_received_callback()`).
 2. The JS side (`index.js`) receives any AppMessage, gets the phone's location,
    and calls two Open-Meteo endpoints: the forecast API (current temperature,
-   weather code and humidity from the `current` block; hourly UV and
-   precipitation probability, each reduced to the peak over the next 12 hours;
-   and today's high/low temperatures from the `daily` block) and the
-   air-quality API (US AQI). It maps the
+   weather code, humidity and the live precipitation rate (mm over the past
+   hour) from the `current` block; hourly UV and precipitation probability,
+   each reduced to the peak over the next 12 hours; and today's high/low
+   temperatures from the `daily` block) and the air-quality API (US AQI).
+   The PCP complication swaps probability for that live rate while it
+   actually rains (metric only). It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
    `SNOW`, `TSTM`) and sends everything back in one dictionary. On startup
    the phone also replays its freshest cached payload — and if that payload
