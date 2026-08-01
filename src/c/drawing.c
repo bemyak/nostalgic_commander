@@ -307,7 +307,7 @@ static const FullWeatherField s_full_weather_fields[] = {
     {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, -999},
     // 3 cells: fits "72F"/"+22"; imperial extremes ("103F", "-22F") spill
     // 4px into the gaps, the established trade for fixed-width chips.
-    {DATA_SOURCE_WEATHER_TEMP, 3, "CUR", &s_weather_temp, -999},
+    {DATA_SOURCE_WEATHER_TEMP, 3, "TMP", &s_weather_temp, -999},
     {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, -1},
     {DATA_SOURCE_TEMP_HIGH_LOW, 7, "HI/LO", &s_temp_high, -999},
 };
@@ -345,10 +345,9 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   }
 }
 
-// The full-weather bar's caption row replaces its top border outright: at 22
-// cells the caption would leave 2-3px stubs of top line, which read as a
-// broken frame rather than a title gap. The Norton menu bar carries no top
-// line either.
+// The full-weather bar: a complete frame whose top line is mostly the
+// per-chip captions — corner stubs, then short continuations in the
+// inter-caption gaps, so the row reads as a window whose title is the header.
 static void draw_captioned_bar(GContext* ctx, GRect rect) {
   int x = rect.origin.x;
   int y = rect.origin.y;

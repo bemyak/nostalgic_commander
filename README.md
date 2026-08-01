@@ -33,13 +33,17 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   of date formats (`1970-12-31`, `31-12-1970`, `DEC 31st, 1970`, or the
   year-less short form), and the weekday before, after, or hidden.
 - **Six complication slots** (two wide on top, three below, one wide in the
-  middle) you can fill from: weather (condition + temperature), steps, sleep,
-  heart rate, active minutes, Bluetooth status, air quality (US AQI), UV index
-  (the peak over the next 12 hours — what's coming, not what already
-  happened), a combined AQI/UV view, a short date (`THU 12-31`, top slots
-  only), or .beat (Swatch Internet Time) — or leave empty.
-- **The middle slot** holds the date, or a DOS progress bar for steps or
-  battery — `█` blocks against a `░` track, with the percentage after it.
+  middle) you can fill from: weather (condition + temperature), humidity,
+  precipitation probability (peak over the next 12 hours), the day's
+  high/low temperatures, steps, sleep, heart rate, active minutes, Bluetooth
+  status, air quality (US AQI), UV index (the peak over the next 12 hours —
+  what's coming, not what already happened), a combined AQI/UV view, a short
+  date (`THU 12-31`, top slots only), or .beat (Swatch Internet Time) — or
+  leave empty.
+- **The middle slot** holds the date, a full-weather strip (condition,
+  current temp, humidity and high/low as captioned status chips), or a DOS
+  progress bar for steps or battery — `█` blocks against a `░` track, with
+  the percentage after it.
 - **Four DOS/EGA themes, Auto by default.** Auto cycles the other three on
   8-hour shifts, brightest to darkest as the day goes on: Dialog (Turbo
   Vision dialog box, blue frames, black text on light grey) 06:00–14:00,

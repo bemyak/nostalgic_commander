@@ -28,7 +28,7 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   part of this batch, pulled after the emulator check: the 11-cell value
   crowded the 93px top slot's borders.) Spec:
   [docs/superpowers/specs/2026-07-31-extended-weather-design.md](docs/superpowers/specs/2026-07-31-extended-weather-design.md).
-- [x] Full-weather centre complication: five captioned status chips. Spec:
+- [x] Full-weather centre complication: four captioned status chips. Spec:
   [docs/superpowers/specs/2026-07-31-full-weather-centre-design.md](docs/superpowers/specs/2026-07-31-full-weather-centre-design.md).
 - [x] Humidity complication (comfort-band colors); config lists reordered
   into domain groups. Spec:

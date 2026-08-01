@@ -26,8 +26,10 @@
 #define STATUS_BAND_PAD 4
 
 // The full-weather centre strip: four chips of 4/3/4/7 cells plus one-cell
-// gaps. Also the exact width of its caption label — a test asserts the two
-// agree so captions can never drift off their chips.
+// gaps, centred in the row. A test asserts the field table's cells plus gaps
+// equal this, so a width edit can't silently desync the strip; captions and
+// chip values share the same centring formula (drawing.c) so they stay
+// registered to each other.
 #define FULL_WEATHER_STRIP_CELLS 21
 
 extern Window* s_main_window;

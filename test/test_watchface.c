@@ -922,7 +922,9 @@ void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
   // Extremes and comfort statuses earn their fills
   s_weather_temp = 90;
   TEST_ASSERT_TRUE(strip_field_is_banded(temp));
-  s_weather_humidity = 45;  // comfort green is still a status
+  s_weather_humidity = 45;  // comfort is neutral — no fill
+  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  s_weather_humidity = 65;  // sticky is a status
   TEST_ASSERT_TRUE(strip_field_is_banded(hum));
   s_temp_high = 90;
   s_temp_low = 70;
@@ -1098,7 +1100,8 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_uv = 8;  // red
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI_UV));
 
-  // Humidity comfort bands (<30 dry blue, 30-60 green, 61-70 yellow, >70 red)
+  // Humidity: 30-60 is unremarkable air and reads neutral; only off-norm
+  // earns a color (<30 dry blue, 61-70 yellow, >70 red)
   s_weather_humidity = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
@@ -1106,10 +1109,10 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_HUMIDITY));
 
   s_weather_humidity = 30;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_HUMIDITY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
   s_weather_humidity = 60;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_HUMIDITY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
   s_weather_humidity = 61;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_HUMIDITY));

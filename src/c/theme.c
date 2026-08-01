@@ -122,11 +122,12 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_uv >= 3) return s_active_theme->status_yellow;
       return s_active_theme->status_green;
     case DATA_SOURCE_HUMIDITY:
-      // Comfort bands: below 30 is dry (blue, rhyming with cold temps), 30-60
-      // is comfortable, and past 60 the air turns sticky, then oppressive.
+      // Only off-norm air speaks up: below 30 is dry (blue, rhyming with
+      // cold temps), past 60 the air turns sticky, then oppressive. The
+      // 30-60 comfort window stays neutral — a color there is noise.
       if (s_weather_humidity == -1) return s_active_theme->text_primary;
       if (s_weather_humidity < 30) return s_active_theme->accent_cold;
-      if (s_weather_humidity <= 60) return s_active_theme->status_green;
+      if (s_weather_humidity <= 60) return s_active_theme->text_primary;
       if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
     case DATA_SOURCE_WEATHER_PCP:

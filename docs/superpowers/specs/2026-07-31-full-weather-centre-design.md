@@ -24,14 +24,14 @@ outright (verticals and bottom border only).
 
 ## Layout (all widths in 8px cells; centre slot is 23 columns of 184px)
 
-Chips: `COND` 4 · `CUR` 3 · `HUM` 4 · `HI/LO` 7, one-cell gaps, 21 cells
+Chips: `COND` 4 · `TMP` 3 · `HUM` 4 · `HI/LO` 7, one-cell gaps, 21 cells
 total = 168px, centred (8px margins). Each caption token lives in the field
 table and is drawn pixel-centred over its chip with the same centring math
 the value gets — caption and value can't drift half a cell apart.
 `get_source_label()` returns `""`; frame and captions are `draw_captioned_bar()`'s job:
 
 ```
-─COND─CUR─HUM──HI/LO─       ← top border stubs flank the caption block
+─COND─TMP─HUM──HI/LO─       ← top border stubs flank the caption block
 ▓▓▓▓ ▓▓▓ ▓▓▓▓ ▓▓▓▓▓▓▓        ← fills only when severity-colored
 ```
 

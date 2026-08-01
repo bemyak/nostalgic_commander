@@ -23,8 +23,10 @@ This document explains how the pieces fit together.
 
 1. The watch requests weather by sending an AppMessage containing
    `WEATHER_TEMP` (`request_weather()` in `messaging.c`) — on launch when the
-   persisted cache is stale (`init()` in `main.c`) and at every :00/:30
-   minute tick (`update_time()` in `main.c`).
+   persisted cache is stale (`init()` in `main.c`), at every :00/:30
+   minute tick (`update_time()` in `main.c`), and whenever a slot assignment
+   changes while weather is shown, so newly assigned readings don't wait at
+   `--` until the next edge (`inbox_received_callback()`).
 2. The JS side (`index.js`) receives any AppMessage, gets the phone's location,
    and calls two Open-Meteo endpoints: the forecast API (current temperature,
    weather code and humidity from the `current` block; hourly UV and
@@ -32,7 +34,10 @@ This document explains how the pieces fit together.
    and today's high/low temperatures from the `daily` block) and the
    air-quality API (US AQI). It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
-   `SNOW`, `TSTM`) and sends everything back in one dictionary.
+   `SNOW`, `TSTM`) and sends everything back in one dictionary. On startup
+   the phone also replays its freshest cached payload — and if that payload
+   predates the current key set (an older build wrote it), it immediately
+   refetches to complete it.
 3. `inbox_received_callback()` (`messaging.c`) writes the values into the
    global cache in `data.c`, persists any settings keys, and triggers a redraw.
 4. Settings changes made on the Clay config page travel the same AppMessage
@@ -178,6 +183,7 @@ platforms would require deriving these from `layer_get_bounds()`.
 | `SETTINGS_SHORT_DATE_FORMAT` | 0 Month-Day (`12-31`), 1 Day-Month (`31-12`) | `DATA_SOURCE_SHORT_DATE` slot rendering; also the short choice (3) of `SETTINGS_DATE_FORMAT` |
 | `SETTINGS_DOW_POSITION` | 0 before (`THU 1970-12-31`), 1 after (`1970-12-31 THU`), 2 hidden (`1970-12-31`) | `date_dow_offset()`; applied to every rendered date, not just the DATE window |
 | `SLOT_1`–`SLOT_5` | `ComplicationDataSource` value | Slot sources (1=top-left, 2=top-right, 3=bottom-left, 4=bottom-center, 5=bottom-right) |
+| `SLOT_6` | `ComplicationDataSource` value | Centre-row source (wide-only sources: date, progress bars, full-weather strip) |
 
 Clay sends values as strings; `tuple_get_int()` (`data.c`) normalizes string
 and integer tuples. On receipt, `inbox_received_callback()` (`messaging.c`)
@@ -201,8 +207,9 @@ cd test && make test
 - The framework is [Unity](https://github.com/ThrowTheSwitch/Unity), vendored
   as a git submodule at `test/unity`.
 - Coverage focuses on the pure logic: formatters in `data.c`, theme selection,
-  and color thresholds. UI code (layers, graphics calls) is linked against
-  no-op mocks, not asserted on.
+  and color thresholds. The mock captures layer/graphics calls, so tests do
+  assert drawing *behaviour* where it's layout-critical (Quick View gating,
+  bar fills); pixel positions and glyph rendering stay emulator-verified.
 
 When adding a test, write the `test_*` function and register it with
 `RUN_TEST(...)` in `main()` at the bottom of `test_watchface.c`.

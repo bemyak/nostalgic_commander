@@ -38,12 +38,12 @@ groups: Empty, system, date, health, weather.
 |---------|-------|
 | `-1` (no data) | `text_primary` |
 | `<30` (dry) | `accent_cold` — blue, rhyming with cold temps |
-| `30–60` (comfort) | `status_green` |
+| `30–60` (comfort) | `text_primary` — revised after emulator review: comfort green read as noise; off-norm bands unchanged |
 | `61–70` (sticky) | `status_yellow` |
 | `>70` (oppressive / mold-risk) | `status_red` |
 
-Boundaries are inclusive as shown: 29 blue, 30 and 60 green, 61 and 70 yellow,
-71 red. Bands follow the common 30–60% indoor-comfort consensus. Humidity is
+Boundaries are inclusive as shown: 29 blue, 30–60 neutral, 61–70 yellow,
+71+ red. Bands follow the common 30–60% indoor-comfort consensus. Humidity is
 unitless, so `SETTINGS_UNITS` does not affect formatting or colors.
 
 ## Phone (`src/pkjs/index.js`)
