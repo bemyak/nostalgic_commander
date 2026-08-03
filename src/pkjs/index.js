@@ -10,7 +10,9 @@ var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 // next :00/:30 edge.
 var WEATHER_DICT_KEYS = [
   'WEATHER_TEMP', 'WEATHER_COND', 'WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
-  'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_PRECIP_NOW'
+  'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_PRECIP_NOW', 'WEATHER_LOW_TOMORROW',
+  'WEATHER_TEMP_HIGH_TOMORROW', 'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY',
+  'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW'
 ];
 
 function isCompleteWeatherPayload(payload) {
@@ -116,8 +118,8 @@ function getWeather(attempt) {
             '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation' +
             '&timezone=auto' +
             '&temperature_unit=' + tempUnit +
-            '&hourly=uv_index,precipitation_probability&forecast_hours=' + UV_WINDOW_HOURS +
-            '&daily=temperature_2m_max,temperature_2m_min&forecast_days=1';
+            '&hourly=uv_index,precipitation_probability,temperature_2m&forecast_days=2' +
+            '&daily=temperature_2m_max,temperature_2m_min';
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
             '&longitude=' + lon + '&current=us_aqi';
 
@@ -147,7 +149,13 @@ function getWeather(attempt) {
                 'WEATHER_PCP': forecast.pcp,
                 'WEATHER_PRECIP_NOW': forecast.precipNow,
                 'WEATHER_HIGH': forecast.high,
-                'WEATHER_LOW': forecast.low
+                'WEATHER_LOW': forecast.low,
+                'WEATHER_LOW_TOMORROW': forecast.lowTmrw,
+                'WEATHER_TEMP_HIGH_TOMORROW': forecast.highTmrw,
+                'WEATHER_HI_HOUR_TODAY': forecast.hiHourToday,
+                'WEATHER_LO_HOUR_TODAY': forecast.loHourToday,
+                'WEATHER_HI_HOUR_TOMORROW': forecast.hiHourTmrw,
+                'WEATHER_LO_HOUR_TOMORROW': forecast.loHourTmrw
               },
               'Weather bundle');
         }
@@ -171,10 +179,9 @@ function getWeather(attempt) {
               if (typeof json.current.precipitation === 'number') {
                 precipNow = Math.round(json.current.precipitation * 10);
               }
-              // -1 is the watch-side "no data" sentinel; forecast_hours
-              // already windows the hourly data, the timestamp guard keeps us
-              // honest if the API ever returns a wider range. Both readings
-              // below are next-12h maxima, computed in one pass.
+              // -1 is the watch-side "no data" sentinel; the timestamp guard
+              // windows what the API returns (the series now spans two days).
+              // Both readings below are next-12h maxima, computed in one pass.
               var uv = -1;
               var pcp = -1;
               if (json.hourly && json.hourly.time) {
@@ -203,11 +210,64 @@ function getWeather(attempt) {
               if (daily.temperature_2m_min && typeof daily.temperature_2m_min[0] === 'number') {
                 low = Math.round(daily.temperature_2m_min[0]);
               }
-              // The watch formatter sinks the pair when either side is
-              // missing — keep its sentinel predictable by pairing here too.
-              if (high === -999 || low === -999) {
+              // Tomorrow's pair — each HI/LO cell rolls to these an hour
+              // after its own extreme passes.
+              var lowTmrw = -999;
+              if (daily.temperature_2m_min && typeof daily.temperature_2m_min[1] === 'number') {
+                lowTmrw = Math.round(daily.temperature_2m_min[1]);
+              }
+              var highTmrw = -999;
+              if (daily.temperature_2m_max && typeof daily.temperature_2m_max[1] === 'number') {
+                highTmrw = Math.round(daily.temperature_2m_max[1]);
+              }
+              // The watch formatter sinks the readout when any extreme is
+              // missing — keep its sentinel predictable by sinking all here too.
+              if (high === -999 || low === -999 || lowTmrw === -999 || highTmrw === -999) {
                 high = -999;
                 low = -999;
+                lowTmrw = -999;
+                highTmrw = -999;
+              }
+
+              // Event hours of the four extremes: each day's argmin/argmax over
+              // the hourly curve, grouped by local date (timezone=auto keeps
+              // the strings phone-local). Unknown days stay -1 and the watch
+              // falls back to a plain LO/HI order.
+              var hiHourToday = -1, loHourToday = -1, hiHourTmrw = -1, loHourTmrw = -1;
+              if (json.hourly && json.hourly.time && json.hourly.temperature_2m) {
+                var hourTemps = json.hourly.temperature_2m;
+                var dayOrder = [];
+                var dayExtremes = {};
+                for (var i = 0; i < json.hourly.time.length; i++) {
+                  var hourTemp = hourTemps[i];
+                  if (typeof hourTemp !== 'number') continue;
+                  var ts = String(json.hourly.time[i]);  // "YYYY-MM-DDTHH:MM"
+                  var dayKey = ts.substring(0, 10);
+                  if (!dayExtremes[dayKey]) {
+                    if (dayOrder.length === 2) continue;
+                    dayExtremes[dayKey] = {min: Infinity, minH: -1, max: -Infinity, maxH: -1};
+                    dayOrder.push(dayKey);
+                  }
+                  var hour = parseInt(ts.substring(11, 13), 10);
+                  if (isNaN(hour)) continue;
+                  var dx = dayExtremes[dayKey];
+                  if (hourTemp < dx.min) {
+                    dx.min = hourTemp;
+                    dx.minH = hour;
+                  }
+                  if (hourTemp > dx.max) {
+                    dx.max = hourTemp;
+                    dx.maxH = hour;
+                  }
+                }
+                if (dayOrder.length > 0) {
+                  loHourToday = dayExtremes[dayOrder[0]].minH;
+                  hiHourToday = dayExtremes[dayOrder[0]].maxH;
+                }
+                if (dayOrder.length > 1) {
+                  loHourTmrw = dayExtremes[dayOrder[1]].minH;
+                  hiHourTmrw = dayExtremes[dayOrder[1]].maxH;
+                }
               }
 
               var cond = 'SUN';
@@ -236,7 +296,13 @@ function getWeather(attempt) {
                 pcp: pcp,
                 precipNow: precipNow,
                 high: high,
-                low: low
+                low: low,
+                lowTmrw: lowTmrw,
+                highTmrw: highTmrw,
+                hiHourToday: hiHourToday,
+                loHourToday: loHourToday,
+                hiHourTmrw: hiHourTmrw,
+                loHourTmrw: loHourTmrw
               };
             } catch (e) {
               failedReason = 'parse error: ' + e;

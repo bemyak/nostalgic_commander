@@ -9,7 +9,7 @@
       {
         "type": "select",
         "messageKey": "SETTINGS_THEME",
-        "defaultValue": "0",
+        "defaultValue": "2",
         "label": "Theme",
         "options": [
           {
@@ -162,7 +162,7 @@
             "value": "5"
           },
           {
-            "label": "High / Low Temperature",
+            "label": "High / Low Temperature (rolls as extremes pass)",
             "value": "30"
           },
           {
@@ -234,7 +234,7 @@
             "value": "5"
           },
           {
-            "label": "High / Low Temperature",
+            "label": "High / Low Temperature (rolls as extremes pass)",
             "value": "30"
           },
           {

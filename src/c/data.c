@@ -17,6 +17,13 @@ int s_weather_pcp = -1;       // -1 indicates no data
 int s_precip_now = -1;        // tenths of mm over the past hour; -1 indicates no data
 int s_temp_high = -999;       // -999 indicates no data
 int s_temp_low = -999;        // -999 indicates no data
+int s_temp_high_tmrw = -999;  // -999 indicates no data
+int s_temp_low_tmrw = -999;   // -999 indicates no data
+int s_hi_hour_today = -1;     // event hours 0-23; -1 unknown
+int s_lo_hour_today = -1;
+int s_hi_hour_tmrw = -1;
+int s_lo_hour_tmrw = -1;
+int s_wall_hour = 0;  // refreshed in update_time(); drives the rollover
 int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
@@ -25,9 +32,9 @@ int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
-int s_settings_theme = 0;              // 0 = Auto, 1 = Dialog, 2 = Panel, 3 = Shadow
-int s_settings_units = 0;              // 0 = Imperial, 1 = Metric
-int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
+int s_settings_theme = 2;        // 0 = Auto, 1 = Dialog, 2 = Panel, 3 = Shadow; default is Panel
+int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
+int s_settings_date_format = 0;  // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 
@@ -81,7 +88,9 @@ const char* get_source_label(ComplicationDataSource source) {
     case DATA_SOURCE_WEATHER_PCP:
       return "PCP";
     case DATA_SOURCE_TEMP_HIGH_LOW:
-      return "HI/LO";
+      // The cells swap sides as extremes roll; the caption must name the
+      // current round, or "+20/+16" reads as "min 20, max 16".
+      return high_low_hi_leads() ? "HI/LO" : "LO/HI";
     case DATA_SOURCE_WEATHER_FULL:
       // Caption tokens live in drawing.c's field table, centred per chip.
       return "";
@@ -118,14 +127,47 @@ void format_strip_temp(char* buf, int buf_size) {
   format_temp(buf, buf_size, s_weather_temp, s_settings_units != 1);
 }
 
+// An extreme "has passed" once its own event hour is a grace hour past.
+// Unknown hours (-1) count as not passed.
+static bool extreme_passed(int event_hour) {
+  return event_hour >= 0 && s_wall_hour >= event_hour + HIGH_LOW_GRACE_HOURS;
+}
+
+// Which cell leads, hours only: the sooner event goes left. A tie, or
+// unknown hours (nothing to sort by), keeps LO first — the usual shape of a
+// day. Shared by the formatter and its label so they can never disagree.
+bool high_low_hi_leads(void) {
+  if (s_lo_hour_today < 0 || s_hi_hour_today < 0 || s_lo_hour_tmrw < 0 || s_hi_hour_tmrw < 0) {
+    return false;
+  }
+  int lo_key = extreme_passed(s_lo_hour_today) ? 24 + s_lo_hour_tmrw : s_lo_hour_today;
+  int hi_key = extreme_passed(s_hi_hour_today) ? 24 + s_hi_hour_tmrw : s_hi_hour_today;
+  return hi_key < lo_key;
+}
+
+int high_low_displayed_high(void) {
+  return extreme_passed(s_hi_hour_today) ? s_temp_high_tmrw : s_temp_high;
+}
+
 static void format_high_low(char* buf, size_t len) {
-  // Either side missing sinks the pair: a half-number reads as data.
-  if (s_temp_high == -999 || s_temp_low == -999) {
+  // Either pair incomplete sinks the readout: a half-number reads as data.
+  if (s_temp_high == -999 || s_temp_low == -999 || s_temp_high_tmrw == -999 ||
+      s_temp_low_tmrw == -999) {
     snprintf(buf, len, "-- / --");
-  } else if (s_settings_units == 1) {
-    snprintf(buf, len, "%+d/%+dC", s_temp_high, s_temp_low);
+    return;
+  }
+  // Each cell shows the next occurrence of its kind: today's value until an
+  // hour past its own extreme, then tomorrow's.
+  int lo_val = extreme_passed(s_lo_hour_today) ? s_temp_low_tmrw : s_temp_low;
+  int hi_val = extreme_passed(s_hi_hour_today) ? s_temp_high_tmrw : s_temp_high;
+  // Chronological left to right — the sooner event leads.
+  bool lo_left = !high_low_hi_leads();
+  int left = lo_left ? lo_val : hi_val;
+  int right = lo_left ? hi_val : lo_val;
+  if (s_settings_units == 1) {
+    snprintf(buf, len, "%+d/%+dC", left, right);
   } else {
-    snprintf(buf, len, "%d/%dF", s_temp_high, s_temp_low);
+    snprintf(buf, len, "%d/%dF", left, right);
   }
 }
 

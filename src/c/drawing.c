@@ -213,7 +213,7 @@ static void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   int percent = 0;
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
-  draw_progress_bar(ctx, box_rect, percent, true, s_active_theme->text_primary);
+  draw_progress_bar(ctx, box_rect, percent, true, get_source_color(DATA_SOURCE_BATTERY_BAR));
 }
 
 static void draw_short_date_complication(GContext* ctx, GRect box_rect) {
@@ -449,9 +449,8 @@ static void draw_battery_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), NULL);
 
-  // A healthy charge just shows the ground rather than sitting under a permanent
-  // green block. Below that it wears exactly the color the bar would use, so the
-  // two can never disagree about the same reading.
+  // A healthy charge just shows the ground. Below that it wears exactly the
+  // color the bar paints, so the two can never disagree about the same reading.
   draw_banded_value(ctx, box_rect, buf, s_battery_level <= BATTERY_LOW_PCT,
                     get_source_color(DATA_SOURCE_BATTERY));
 }

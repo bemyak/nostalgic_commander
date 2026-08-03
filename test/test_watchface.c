@@ -20,6 +20,13 @@ void setUp(void) {
   s_heart_rate = 0;
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
+  s_temp_low_tmrw = -999;
+  s_temp_high_tmrw = -999;
+  s_lo_hour_today = -1;
+  s_hi_hour_today = -1;
+  s_lo_hour_tmrw = -1;
+  s_hi_hour_tmrw = -1;
+  s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_connected = true;
   s_quick_view_active = false;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
@@ -270,25 +277,32 @@ void test_steps_bar_should_fill_with_the_plain_text_color(void) {
   s_step_count = -1;
 }
 
-void test_battery_bar_should_fill_with_the_plain_text_color(void) {
-  // The bar fill matches the steps bar: plain text color at any level. The
-  // green/yellow/red thresholds belong to the plain battery slot only.
+void test_battery_bar_should_fill_with_the_status_color(void) {
+  // The fill follows the battery ladder: plain text while healthy, then
+  // yellow, then red — the chip's band and this fill paint from one reading.
   s_complication_slots[5].source = DATA_SOURCE_BATTERY_BAR;
-  s_battery_level = 60;  // mid-level: get_source_color would give green
-  mock_fill_rect_reset();
 
-  canvas_update_proc(NULL, NULL);
+  int levels[] = {100, 39, 19};
+  GColor fills[] = {s_active_theme->text_primary, s_active_theme->status_yellow,
+                    s_active_theme->status_red};
 
-  bool saw_bar_fill = false;
-  for (int i = 0; i < mock_fill_rect_count; i++) {
-    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_green);
-    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_yellow);
-    TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_red);
-    if (mock_fill_rects[i].size.w > 0 && mock_fill_rect_colors[i] == s_active_theme->text_primary) {
-      saw_bar_fill = true;
+  for (int c = 0; c < 3; c++) {
+    s_battery_level = levels[c];
+    mock_fill_rect_reset();
+    canvas_update_proc(NULL, NULL);
+
+    bool saw_fill = false;
+    for (int i = 0; i < mock_fill_rect_count; i++) {
+      TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != s_active_theme->status_green);
+      if (mock_fill_rects[i].size.w > 0 && mock_fill_rect_colors[i] == fills[c]) {
+        saw_fill = true;
+      }
+      for (int j = 0; j < 3; j++) {
+        if (j != c) TEST_ASSERT_TRUE(mock_fill_rect_colors[i] != fills[j]);
+      }
     }
+    TEST_ASSERT_TRUE(saw_fill);
   }
-  TEST_ASSERT_TRUE(saw_bar_fill);
 
   s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
   s_battery_level = 100;
@@ -344,7 +358,9 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("AQI/UV", get_source_label(DATA_SOURCE_AQI_UV));
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
   TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
-  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  // The extremes slot's caption flips with its layout; setUp's unknown event
+  // hours fall back to the LO-first shape.
+  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
@@ -550,9 +566,9 @@ void test_progress_bar_sources_should_reuse_their_plain_counterparts(void) {
 }
 
 void test_battery_band_and_color_should_agree_at_every_level(void) {
-  // The progress bar colors its fill from get_source_color while the bottom
-  // complication decides whether to draw a band. Those used to be two separate
-  // threshold sets that disagreed between 21% and 24% — one yellow, one red.
+  // The chip draws its band and the bar paints its fill from the same
+  // BATTERY_LOW_PCT / BATTERY_CRIT_PCT pair — one reading can never wear two
+  // colors.
   s_active_theme = &s_theme_panel;
 
   for (int level = 0; level <= 100; level++) {
@@ -560,9 +576,9 @@ void test_battery_band_and_color_should_agree_at_every_level(void) {
     GColor color = get_source_color(DATA_SOURCE_BATTERY);
     bool banded = level <= BATTERY_LOW_PCT;
 
-    // A band appears exactly when the charge is not healthy, and never in the
-    // healthy color — that equivalence is the whole invariant.
-    TEST_ASSERT_EQUAL_INT(banded, color != s_theme_panel.status_green);
+    // A band appears exactly when a healthy charge stops being quiet — that
+    // equivalence is the whole invariant.
+    TEST_ASSERT_EQUAL_INT(banded, color != s_theme_panel.text_primary);
 
     if (level <= BATTERY_CRIT_PCT) {
       TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, color);
@@ -571,10 +587,14 @@ void test_battery_band_and_color_should_agree_at_every_level(void) {
     }
   }
 
-  // The boundary that was wrong: 21% is yellow, not red.
-  s_battery_level = 21;
+  // The boundaries themselves: 40 still quiet, 39 yellow, 20 yellow, 19 red.
+  s_battery_level = 40;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
+  s_battery_level = 39;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
   s_battery_level = 20;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  s_battery_level = 19;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
 }
 
@@ -899,11 +919,15 @@ void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
   // Extremes and comfort statuses earn their fills
   s_weather_temp = 90;
   TEST_ASSERT_TRUE(strip_field_is_banded(temp));
-  s_weather_humidity = 45;  // comfort is neutral — no fill
+  s_weather_humidity = 45;  // plain readout — never a fill
   TEST_ASSERT_FALSE(strip_field_is_banded(hum));
-  s_weather_humidity = 65;  // sticky is a status
-  TEST_ASSERT_TRUE(strip_field_is_banded(hum));
+  s_weather_humidity = 65;
+  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  s_weather_humidity = 95;  // however muggy, no band
+  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
   s_weather_pcp = 20;  // dry — neutral
+  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
+  s_weather_pcp = 50;  // 50 is now the neutral ceiling
   TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
   s_weather_pcp = 70;  // pack the umbrella
   TEST_ASSERT_TRUE(strip_field_is_banded(pcp));
@@ -986,35 +1010,181 @@ void test_get_source_data_should_format_pcp(void) {
 void test_get_source_data_should_format_high_low(void) {
   char buf[24];
 
-  // Either side missing must not leak a half-number
+  // Any missing extreme must not leak a half-number
   s_temp_high = -999;
   s_temp_low = 61;
+  s_temp_low_tmrw = 55;
+  s_temp_high_tmrw = 77;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("-- / --", buf);
 
-  // …and the other half too
   s_temp_high = 82;
   s_temp_low = -999;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("-- / --", buf);
 
-  s_settings_units = 0;
-  s_temp_high = 82;
+  // …and tomorrow's extremes sink it too: partial data reads as data
   s_temp_low = 61;
+  s_temp_low_tmrw = -999;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("82/61F", buf);
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+
+  s_temp_low_tmrw = 55;
+  s_temp_high_tmrw = -999;
+  s_wall_hour = 8;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  s_wall_hour = 21;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+
+  // Values with unknown event hours still display; LO leads (see the layout
+  // test below). hours are -1 here by the setUp reset.
+  s_temp_high_tmrw = 77;
+  s_settings_units = 0;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("61/82F", buf);
 
   s_settings_units = 1;
   s_temp_high = 28;
   s_temp_low = 4;
+  s_temp_low_tmrw = 1;
+  s_temp_high_tmrw = 26;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+28/+4C", buf);
+  TEST_ASSERT_EQUAL_STRING("+4/+28C", buf);
 
-  // Top-slot values cap at 11 cells even at winter extremes
+  // Top-slot values cap at 11 cells even at winter extremes, any hour
   s_temp_high = 3;
   s_temp_low = -25;
+  s_temp_low_tmrw = -25;
+  s_temp_high_tmrw = -20;
+  s_wall_hour = 8;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_TRUE(strlen(buf) <= 11);
+  s_wall_hour = 21;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_TRUE(strlen(buf) <= 11);
+}
+
+void test_high_low_cells_should_roll_an_hour_after_their_extreme_passes(void) {
+  char buf[24];
+  s_settings_units = 1;
+  // Typical day: this morning's low at 05:00, this afternoon's high at 15:00
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;
+  s_lo_hour_today = 5;
+  s_hi_hour_today = 15;
+  s_lo_hour_tmrw = 5;
+  s_hi_hour_tmrw = 15;
+
+  s_wall_hour = 4;  // nothing passed: today's pair, LO leads
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+
+  s_wall_hour = 5;  // grace hour: the low has only just passed — still shows
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+
+  s_wall_hour = 6;  // low rolled to tonight's; the 15:00 high is the next event
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+20/+7C", buf);
+
+  s_wall_hour = 15;  // the high's own grace hour: still today's, still leading
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+20/+7C", buf);
+
+  s_wall_hour = 16;  // high passed too: tomorrow's pair, its dawn LO sooner
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+
+  s_wall_hour = 23;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+}
+
+void test_high_low_cells_should_stay_chronological_on_inversion_days(void) {
+  char buf[24];
+  s_settings_units = 1;
+  // Front day: the day's low comes at 22:00, its high at 11:00
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;
+  s_lo_hour_today = 22;
+  s_hi_hour_today = 11;
+  s_lo_hour_tmrw = 5;
+  s_hi_hour_tmrw = 15;
+
+  s_wall_hour = 12;  // high passed: right cell is tomorrow's high; low leads
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+22C", buf);
+
+  s_wall_hour = 21;  // the low's own event hasn't passed yet
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+22C", buf);
+
+  s_wall_hour = 23;  // both passed: tomorrow's pair, LO sooner
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+}
+
+void test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown(void) {
+  char buf[24];
+  s_settings_units = 1;
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;  // hours all -1 via setUp: no roll, no sort
+  s_wall_hour = 21;
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+}
+
+void test_high_low_label_should_follow_the_layout(void) {
+  char buf[24];
+  s_settings_units = 1;
+  // Typical day: low at 02:00, high at 14:00 — the noon readout (+20/+16
+  // under a MIN/MAX caption) that read as "min 20, max 16"
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;
+  s_lo_hour_today = 2;
+  s_hi_hour_today = 14;
+  s_lo_hour_tmrw = 4;
+  s_hi_hour_tmrw = 16;
+
+  s_wall_hour = 12;  // low rolled to tonight's; the 14:00 high leads
+  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+20/+7C", buf);  // caption and numbers agree
+
+  s_wall_hour = 1;  // before dawn: today's pair, LO leads
+  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+
+  s_wall_hour = 16;  // high passed too: tomorrow's pair, its dawn LO leads
+  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+
+  // Layout-only decision: missing values don't silence the caption
+  s_temp_high = -999;
+  s_wall_hour = 12;
+  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+
+  // Unknown hours own the fallback, values or not
+  s_lo_hour_today = -1;
+  s_hi_hour_today = -1;
+  s_lo_hour_tmrw = -1;
+  s_hi_hour_tmrw = -1;
+  s_temp_low = -999;
+  s_temp_low_tmrw = -999;
+  s_temp_high_tmrw = -999;
+  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
 }
 
 void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
@@ -1109,44 +1279,44 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_uv = 8;  // red
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI_UV));
 
-  // Humidity: 30-60 is unremarkable air and reads neutral; only off-norm
-  // earns a color (<30 dry blue, 61-70 yellow, >70 red)
+  // Humidity is a plain readout like heart rate: outdoor RH has no
+  // actionable threshold, so no value earns a color
   s_weather_humidity = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
   s_weather_humidity = 29;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_HUMIDITY));
-
-  s_weather_humidity = 30;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
-  s_weather_humidity = 60;
+  s_weather_humidity = 45;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
-  s_weather_humidity = 61;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_HUMIDITY));
+  s_weather_humidity = 65;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
   s_weather_humidity = 70;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_HUMIDITY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
-  s_weather_humidity = 71;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_HUMIDITY));
+  s_weather_humidity = 95;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
 
-  // Precipitation probability: at or under 30 the day is unremarkable and
-  // reads neutral; only a real chance of rain earns yellow, then red
+  s_weather_humidity = 100;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUMIDITY));
+
+  // Precipitation probability: at or under 50 the day is unremarkable and
+  // reads neutral; only a likely chance of rain earns yellow, then red
   s_weather_pcp = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
-  s_weather_pcp = 30;
+  s_weather_pcp = 50;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
-  s_weather_pcp = 31;
+  s_weather_pcp = 51;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
-  s_weather_pcp = 60;
+  s_weather_pcp = 70;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
-  s_weather_pcp = 61;
+  s_weather_pcp = 71;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
   // In amount mode the bands are WMO intensities (mm over the past hour)
@@ -1181,21 +1351,44 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_temp_low = -10;  // a freezing low must not tint a mild day
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
 
-  // Battery color thresholds (>50 green, >20 yellow, <=20 red)
+  // The color tracks the high on display: once today's high is an hour past,
+  // tomorrow's takes over the headline
+  s_temp_high = 30;
+  s_temp_low = 18;
+  s_temp_high_tmrw = 20;
+  s_temp_low_tmrw = 12;
+  s_hi_hour_today = 15;
+  s_lo_hour_today = 5;
+  s_hi_hour_tmrw = 15;
+  s_lo_hour_tmrw = 5;
+  s_wall_hour = 8;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+  s_wall_hour = 21;  // today's 30C high passed; tomorrow's mild 20C headlines
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+  s_hi_hour_today = -1;  // unknown timing: today's high stays the headline
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
+
+  // Battery: quiet while healthy — the chip bands and the bar paints only
+  // once the charge wants a charger (>=40 plain, 20-39 yellow, <=19 red)
   s_battery_level = 100;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 51;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY));
+  s_battery_level = 40;  // boundary: still quiet
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 50;  // boundary: yellow
+  s_battery_level = 39;  // boundary: yellow
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 21;
+  s_battery_level = 20;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 20;  // boundary: red
+  s_battery_level = 19;  // boundary: red
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
   s_battery_level = 0;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
@@ -1334,6 +1527,12 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_precip_now = 25;
   s_temp_high = 82;
   s_temp_low = 61;
+  s_temp_low_tmrw = 55;
+  s_temp_high_tmrw = 77;
+  s_lo_hour_today = 5;
+  s_hi_hour_today = 15;
+  s_lo_hour_tmrw = 4;
+  s_hi_hour_tmrw = 14;
   save_weather_cache();
 
   // Simulate a relaunch: globals reset to sentinels
@@ -1346,6 +1545,12 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_precip_now = -1;
   s_temp_high = -999;
   s_temp_low = -999;
+  s_temp_low_tmrw = -999;
+  s_temp_high_tmrw = -999;
+  s_lo_hour_today = -1;
+  s_hi_hour_today = -1;
+  s_lo_hour_tmrw = -1;
+  s_hi_hour_tmrw = -1;
 
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
@@ -1357,6 +1562,39 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   TEST_ASSERT_EQUAL_INT(25, s_precip_now);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
+  TEST_ASSERT_EQUAL_INT(55, s_temp_low_tmrw);
+  TEST_ASSERT_EQUAL_INT(77, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(5, s_lo_hour_today);
+  TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+}
+
+void test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches(void) {
+  // A cache written by an older build has neither LOW_TOMORROW nor any of the
+  // rollover keys; loading it must not invent values — the formatter sinks
+  // the pair instead.
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
+  persist_write_int(PERSIST_KEY_WEATHER_TEMP, 72);
+  persist_write_int(PERSIST_KEY_WEATHER_HIGH, 82);
+  persist_write_int(PERSIST_KEY_WEATHER_LOW, 61);
+  s_temp_low_tmrw = -999;
+  s_temp_high_tmrw = -999;
+  s_lo_hour_today = -1;
+  s_hi_hour_today = -1;
+  s_lo_hour_tmrw = -1;
+  s_hi_hour_tmrw = -1;
+
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(82, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(61, s_temp_low);
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_low_tmrw);
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(-1, s_lo_hour_today);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(-1, s_lo_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_tmrw);
 }
 
 void test_weather_cache_should_reject_missing_or_stale_data(void) {
@@ -1671,6 +1909,81 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
 }
 
+void test_inbox_should_parse_and_persist_tomorrow_low(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW_TOMORROW, 55);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(55, s_temp_low_tmrw);
+  TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_LOW_TOMORROW));
+  TEST_ASSERT_EQUAL_INT(55, persist_read_int(PERSIST_KEY_WEATHER_LOW_TOMORROW));
+}
+
+void test_inbox_should_parse_and_persist_extreme_rollover_keys(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, 77);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 15);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, 5);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, 14);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, 4);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(77, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(5, s_lo_hour_today);
+  TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
+  TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_HIGH_TOMORROW));
+  TEST_ASSERT_EQUAL_INT(77, persist_read_int(PERSIST_KEY_WEATHER_HIGH_TOMORROW));
+  TEST_ASSERT_EQUAL_INT(15, persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TODAY));
+  TEST_ASSERT_EQUAL_INT(5, persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TODAY));
+  TEST_ASSERT_EQUAL_INT(14, persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW));
+  TEST_ASSERT_EQUAL_INT(4, persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW));
+}
+
+void test_inbox_without_extreme_timing_should_leave_the_sentinels(void) {
+  // An old phone-side build sends no rollover keys; they must not be invented.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  s_temp_high_tmrw = -999;
+  s_hi_hour_today = -1;
+  s_lo_hour_today = -1;
+  s_hi_hour_tmrw = -1;
+  s_lo_hour_tmrw = -1;
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(-1, s_lo_hour_today);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(-1, s_lo_hour_tmrw);
+}
+
+void test_inbox_without_tomorrow_low_should_leave_the_sentinel(void) {
+  // An old phone-side build sends no LOW_TOMORROW; the pair must sink, not
+  // show yesterday's leftover.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  s_temp_low_tmrw = -999;
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_low_tmrw);
+}
+
 void test_inbox_settings_only_message_should_not_stamp_weather_cache(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -1766,6 +2079,15 @@ void test_update_time_should_never_request_weather(void) {
   int before = mock_outbox_sends;
   update_time();
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
+void test_update_time_should_refresh_the_hi_lo_phase_hour(void) {
+  // The HI/LO rollover reads this global; update_time is its only writer.
+  time_t now = time(NULL);
+  int expected = localtime(&now)->tm_hour;
+  s_wall_hour = (expected + 7) % 24;
+  update_time();
+  TEST_ASSERT_EQUAL_INT(expected, s_wall_hour);
 }
 
 void test_update_time_should_reformat_the_date_when_settings_change(void) {
@@ -1934,7 +2256,7 @@ int main(void) {
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
-  RUN_TEST(test_battery_bar_should_fill_with_the_plain_text_color);
+  RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
@@ -1960,6 +2282,10 @@ int main(void) {
   RUN_TEST(test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);
+  RUN_TEST(test_high_low_cells_should_roll_an_hour_after_their_extreme_passes);
+  RUN_TEST(test_high_low_cells_should_stay_chronological_on_inversion_days);
+  RUN_TEST(test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown);
+  RUN_TEST(test_high_low_label_should_follow_the_layout);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
@@ -1972,6 +2298,7 @@ int main(void) {
   RUN_TEST(test_weekday_position_should_be_independent_of_the_body);
   RUN_TEST(test_short_date_should_stay_short_whatever_the_date_format);
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
+  RUN_TEST(test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);
   RUN_TEST(test_settings_should_round_trip_through_persistence);
@@ -1986,11 +2313,16 @@ int main(void) {
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_handle_bluetooth_should_vibrate_only_on_disconnect_transition);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
+  RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
+  RUN_TEST(test_inbox_should_parse_and_persist_extreme_rollover_keys);
+  RUN_TEST(test_inbox_without_tomorrow_low_should_leave_the_sentinel);
+  RUN_TEST(test_inbox_without_extreme_timing_should_leave_the_sentinels);
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);
   RUN_TEST(test_inbox_should_parse_slot_assignments);
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_update_time_should_never_request_weather);
+  RUN_TEST(test_update_time_should_refresh_the_hi_lo_phase_hour);
   RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);

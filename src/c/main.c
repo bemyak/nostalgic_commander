@@ -113,6 +113,8 @@ void update_time() {
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
 
+  s_wall_hour = tick_time->tm_hour;
+
   apply_theme(tick_time);
 
   // The theme can change while the face is open (Auto crossing 06:00/14:00/22:00,

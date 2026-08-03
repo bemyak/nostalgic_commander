@@ -45,7 +45,7 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   current temp, humidity and high/low as captioned status chips), or a DOS
   progress bar for steps or battery — `█` blocks against a `░` track, with
   the percentage after it.
-- **Four DOS/EGA themes, Auto by default.** Auto cycles the other three on
+- **Four DOS/EGA themes, Commander Panel by default.** Auto cycles the other three on
   8-hour shifts, brightest to darkest as the day goes on: Dialog (Turbo
   Vision dialog box, blue frames, black text on light grey) 06:00–14:00,
   Commander Panel (Norton Commander panel, cyan frames, white entries over

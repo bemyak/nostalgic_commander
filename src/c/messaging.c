@@ -32,6 +32,12 @@ void save_weather_cache(void) {
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_PRECIP_NOW, s_precip_now);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_HIGH, s_temp_high);
   persist_write_int_if_changed(PERSIST_KEY_WEATHER_LOW, s_temp_low);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_LOW_TOMORROW, s_temp_low_tmrw);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_HIGH_TOMORROW, s_temp_high_tmrw);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_HI_HOUR_TODAY, s_hi_hour_today);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_LO_HOUR_TODAY, s_lo_hour_today);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, s_hi_hour_tmrw);
+  persist_write_int_if_changed(PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, s_lo_hour_tmrw);
   // Always: the timestamp is the freshness marker; skipping it would age the
   // cache and cost a network fetch on next launch.
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
@@ -70,6 +76,24 @@ bool load_weather_cache(void) {
   }
   if (persist_exists(PERSIST_KEY_WEATHER_LOW)) {
     s_temp_low = persist_read_int(PERSIST_KEY_WEATHER_LOW);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_LOW_TOMORROW)) {
+    s_temp_low_tmrw = persist_read_int(PERSIST_KEY_WEATHER_LOW_TOMORROW);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_HIGH_TOMORROW)) {
+    s_temp_high_tmrw = persist_read_int(PERSIST_KEY_WEATHER_HIGH_TOMORROW);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_HI_HOUR_TODAY)) {
+    s_hi_hour_today = persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TODAY);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_LO_HOUR_TODAY)) {
+    s_lo_hour_today = persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TODAY);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW)) {
+    s_hi_hour_tmrw = persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW);
+  }
+  if (persist_exists(PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW)) {
+    s_lo_hour_tmrw = persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW);
   }
   return true;
 }
@@ -150,6 +174,36 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   Tuple* low_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_LOW);
   if (low_tuple) {
     s_temp_low = low_tuple->value->int32;
+  }
+
+  Tuple* low_tmrw_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_LOW_TOMORROW);
+  if (low_tmrw_tuple) {
+    s_temp_low_tmrw = low_tmrw_tuple->value->int32;
+  }
+
+  Tuple* high_tmrw_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW);
+  if (high_tmrw_tuple) {
+    s_temp_high_tmrw = high_tmrw_tuple->value->int32;
+  }
+
+  Tuple* hi_hour_today_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_HI_HOUR_TODAY);
+  if (hi_hour_today_tuple) {
+    s_hi_hour_today = hi_hour_today_tuple->value->int32;
+  }
+
+  Tuple* lo_hour_today_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_LO_HOUR_TODAY);
+  if (lo_hour_today_tuple) {
+    s_lo_hour_today = lo_hour_today_tuple->value->int32;
+  }
+
+  Tuple* hi_hour_tmrw_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW);
+  if (hi_hour_tmrw_tuple) {
+    s_hi_hour_tmrw = hi_hour_tmrw_tuple->value->int32;
+  }
+
+  Tuple* lo_hour_tmrw_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW);
+  if (lo_hour_tmrw_tuple) {
+    s_lo_hour_tmrw = lo_hour_tmrw_tuple->value->int32;
   }
 
   // Persist the weather cache only for a real weather payload, so a

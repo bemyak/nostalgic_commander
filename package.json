@@ -46,7 +46,13 @@
       "WEATHER_PCP",
       "WEATHER_HIGH",
       "WEATHER_LOW",
-      "WEATHER_PRECIP_NOW"
+      "WEATHER_PRECIP_NOW",
+      "WEATHER_LOW_TOMORROW",
+      "WEATHER_TEMP_HIGH_TOMORROW",
+      "WEATHER_HI_HOUR_TODAY",
+      "WEATHER_LO_HOUR_TODAY",
+      "WEATHER_HI_HOUR_TOMORROW",
+      "WEATHER_LO_HOUR_TOMORROW"
     ],
     "resources": {
       "media": [

@@ -30,8 +30,12 @@ typedef enum {
 // Charge bands, as percentages. Above LOW the battery is healthy; at or below
 // CRIT it is critical. Both the color logic and the decision to draw a status
 // band read these, so a bar and a band can never disagree about one reading.
-#define BATTERY_LOW_PCT 50
-#define BATTERY_CRIT_PCT 20
+#define BATTERY_LOW_PCT 39
+#define BATTERY_CRIT_PCT 19
+
+// An extreme "has passed" this many hours after its own event hour; unknown
+// hours (-1) count as not passed.
+#define HIGH_LOW_GRACE_HOURS 1
 
 extern int s_battery_level;
 extern int s_step_count;
@@ -51,6 +55,19 @@ extern int s_precip_now;
 bool weather_shows_precip_amount(void);
 extern int s_temp_high;
 extern int s_temp_low;
+extern int s_temp_high_tmrw;  // tomorrow's daily max; -999 indicates no data
+extern int s_temp_low_tmrw;   // tomorrow's daily min; -999 indicates no data
+// Watch-local hours of each day's extremes, 0-23; -1 unknown.
+extern int s_hi_hour_today;
+extern int s_lo_hour_today;
+extern int s_hi_hour_tmrw;
+extern int s_lo_hour_tmrw;
+// Watch-local wall hour 0-23, refreshed in update_time(); drives the rollover.
+extern int s_wall_hour;
+// The HI value the slot would draw right now; the theme colors by the value on
+// display, not by which global fed it.
+int high_low_displayed_high(void);
+bool high_low_hi_leads(void);
 extern int s_active_minutes;
 extern int s_active_minutes_goal;
 extern bool s_connected;

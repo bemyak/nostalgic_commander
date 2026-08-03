@@ -30,8 +30,8 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   [docs/superpowers/specs/2026-07-31-extended-weather-design.md](docs/superpowers/specs/2026-07-31-extended-weather-design.md).
 - [x] Full-weather centre complication: four captioned status chips. Spec:
   [docs/superpowers/specs/2026-07-31-full-weather-centre-design.md](docs/superpowers/specs/2026-07-31-full-weather-centre-design.md).
-- [x] Humidity complication (comfort-band colors); config lists reordered
-  into domain groups. Spec:
+- [x] Humidity complication (plain readout — no color bands); config lists
+  reordered into domain groups. Spec:
   [docs/superpowers/specs/2026-07-31-humidity-complication-design.md](docs/superpowers/specs/2026-07-31-humidity-complication-design.md).
 - [x] Air Quality Index (AQI) / UV Index complications (separate color-coding
   for individual and combined views; UV shows the next-12h max)

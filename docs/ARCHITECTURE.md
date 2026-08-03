@@ -31,8 +31,13 @@ This document explains how the pieces fit together.
    and calls two Open-Meteo endpoints: the forecast API (current temperature,
    weather code, humidity and the live precipitation rate (mm over the past
    hour) from the `current` block; hourly UV and precipitation probability,
-   each reduced to the peak over the next 12 hours; and today's high/low
-   temperatures from the `daily` block) and the air-quality API (US AQI).
+   each reduced to the peak over the next 12 hours; the high/low extremes
+   from the `daily` block plus each day's argmin/argmax hour from the hourly
+   curve: the extremes slot rolls each cell to tomorrow's value an hour after
+   its own extreme passes, ordered so the next event sits left; the caption
+   flips with the layout (`HI/LO` vs `LO/HI`) so the readout stays
+   self-labelling)
+   and the air-quality API (US AQI).
    The PCP complication swaps probability for that live rate while it
    actually rains (metric only). It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
@@ -81,7 +86,7 @@ A complication is identified by a `ComplicationDataSource` enum value
   progress bar fills only to its end while the reading beside it keeps
   counting, up to the three digits the value field holds.
 - `get_source_color()` (`theme.c`) — the value's color on color displays
-  (e.g. battery green/yellow/red, AQI bands).
+  (e.g. battery yellow/red, AQI bands).
 
 There are two placement types:
 
@@ -140,9 +145,10 @@ These are exact EGA 16-color values — Pebble's 64-color display uses the
 same `0x00/0x55/0xAA/0xFF` channel steps DOS did, so no approximation is
 needed.
 
-Auto (`SETTINGS_THEME` 0, the default) cycles these three on an 8-hour
+Auto (`SETTINGS_THEME` 0) cycles these three on an 8-hour
 schedule, brightest to darkest as the day goes on: `s_theme_dialog`
 06:00–14:00, `s_theme_panel` 14:00–22:00, `s_theme_shadow` 22:00–06:00.
+The default is Commander Panel (2); Auto is opt-in.
 `determine_theme(int theme_setting, int current_hour)` maps setting +
 hour to a `WatchTheme` pointer: Auto (0) checks `current_hour` against
 that schedule; 1–3 pick `s_theme_dialog`/`s_theme_panel`/`s_theme_shadow`

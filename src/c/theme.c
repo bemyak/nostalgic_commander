@@ -96,17 +96,22 @@ GColor get_source_color(ComplicationDataSource source) {
 
   switch (source) {
     case DATA_SOURCE_BATTERY:
-      if (s_battery_level > BATTERY_LOW_PCT) return s_active_theme->status_green;
+    case DATA_SOURCE_BATTERY_BAR:
+      // Quiet while healthy: the battery only speaks once it wants a charger.
+      // Chip and bar share this ladder, so one reading never wears two colors.
+      if (s_battery_level > BATTERY_LOW_PCT) return s_active_theme->text_primary;
       if (s_battery_level > BATTERY_CRIT_PCT) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
     // Plain readouts, drawn in the primary text color. Heart rate belongs here,
     // not with the status colors: it has no thresholds to encode, so tinting it
     // only made it look like a warning. Bluetooth says it with a checkbox
-    // glyph, so it needs no color either.
+    // glyph, so it needs no color either. Same for humidity: outdoor RH has no
+    // actionable threshold, its diurnal swing makes bands noise.
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
     case DATA_SOURCE_HEART_RATE:
     case DATA_SOURCE_BLUETOOTH:
+    case DATA_SOURCE_HUMIDITY:
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:
     case DATA_SOURCE_WEATHER:
@@ -121,15 +126,6 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_uv >= 6) return s_active_theme->status_red;
       if (s_weather_uv >= 3) return s_active_theme->status_yellow;
       return s_active_theme->status_green;
-    case DATA_SOURCE_HUMIDITY:
-      // Only off-norm air speaks up: below 30 is dry (blue, rhyming with
-      // cold temps), past 60 the air turns sticky, then oppressive. The
-      // 30-60 comfort window stays neutral — a color there is noise.
-      if (s_weather_humidity == -1) return s_active_theme->text_primary;
-      if (s_weather_humidity < 30) return s_active_theme->accent_cold;
-      if (s_weather_humidity <= 60) return s_active_theme->text_primary;
-      if (s_weather_humidity <= 70) return s_active_theme->status_yellow;
-      return s_active_theme->status_red;
     case DATA_SOURCE_WEATHER_PCP:
       if (weather_shows_precip_amount()) {
         // WMO intensity bands (mm over the past hour): light rain is calm;
@@ -139,16 +135,19 @@ GColor get_source_color(ComplicationDataSource source) {
         if (mm >= 4) return s_active_theme->status_yellow;
         return s_active_theme->text_primary;
       }
-      // A dry timeline is unremarkable — at or under 30 there is nothing to
-      // plan around. Past 30: worth a thought; past 60: plan around it.
-      if (s_weather_pcp == -1 || s_weather_pcp <= 30) return s_active_theme->text_primary;
-      if (s_weather_pcp > 60) return s_active_theme->status_red;
+      // A dry timeline is unremarkable — at or under 50 there is nothing to
+      // plan around. Past 50: worth a thought; past 70: plan around it.
+      if (s_weather_pcp == -1 || s_weather_pcp <= 50) return s_active_theme->text_primary;
+      if (s_weather_pcp > 70) return s_active_theme->status_red;
       return s_active_theme->status_yellow;
-    case DATA_SOURCE_TEMP_HIGH_LOW:
-      // The high is the day's headline, so it alone carries the color — a
-      // freezing low under a mild high stays neutral.
-      if (s_temp_high == -999) return s_active_theme->text_primary;
-      return temp_band_color(s_temp_high);
+    case DATA_SOURCE_TEMP_HIGH_LOW: {
+      // The high on display is the day's headline and alone carries the color
+      // — a freezing low under a mild high stays neutral. Once today's peak
+      // passes, tomorrow's high takes the headline.
+      int hi = high_low_displayed_high();
+      if (hi == -999) return s_active_theme->text_primary;
+      return temp_band_color(hi);
+    }
     case DATA_SOURCE_AQI_UV: {
       if (s_weather_aqi == -1 && s_weather_uv == -1) return s_active_theme->text_primary;
       bool is_red = (s_weather_aqi > 100 || s_weather_uv >= 6);
