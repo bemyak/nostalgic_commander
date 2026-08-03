@@ -307,6 +307,16 @@ extern GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
 extern GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];
 extern int mock_fill_rect_count;
 void mock_fill_rect_reset(void);
+
+// Canvas text runs, recorded per draw_run with their active text color so
+// tests can see accents (e.g. a `mark` unit run) the way mock_fill_rects
+// lets them see bands.
+#define MOCK_MAX_TEXT_RUNS 256
+extern char mock_text_runs[MOCK_MAX_TEXT_RUNS][32];
+extern GColor mock_text_run_colors[MOCK_MAX_TEXT_RUNS];
+extern GRect mock_text_run_boxes[MOCK_MAX_TEXT_RUNS];
+extern int mock_text_run_count;
+void mock_text_runs_reset(void);
 #define MOCK_MAX_SET_HIDDEN 32
 extern bool mock_set_hidden_states[MOCK_MAX_SET_HIDDEN];
 extern int mock_set_hidden_count;

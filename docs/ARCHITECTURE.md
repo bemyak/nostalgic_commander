@@ -58,7 +58,7 @@ This document explains how the pieces fit together.
 | `main.c` | App lifecycle: window setup, service subscriptions (tick, battery, bluetooth, health), settings load from persistent storage, text layer creation. |
 | `data.c` / `data.h` | Single source of truth for state: sensor/weather caches, settings, the `ComplicationDataSource` enum, slot definitions, and the formatting functions. |
 | `theme.c` / `theme.h` | `WatchTheme` color palettes, theme selection from `SETTINGS_THEME` and the hour (Auto mode), and per-source color logic (battery level, temperature bands, AQI/UV thresholds). |
-| `drawing.c` / `drawing.h` | All custom rendering: the ASCII window frames, the split-color AQI/UV complication, and `refresh_complications()` which pushes formatted text into the slot text layers. |
+| `drawing.c` / `drawing.h` | All custom rendering: the ASCII window frames, the split-color AQI/UV complication, and `request_ui_redraw()` which pushes formatted text into the slot text layers. |
 | `messaging.c` / `messaging.h` | AppMessage in/out: weather requests, inbox parsing, settings persistence. |
 | `main.h` | Exposes `update_time()` so messaging can trigger a full refresh. |
 
@@ -67,10 +67,10 @@ This document explains how the pieces fit together.
 - State lives in globals (`s_`-prefixed) declared in `data.h` and defined in
   `data.c`; other modules reference them via `extern`. There is no
   encapsulation layer — this is idiomatic for Pebble's C SDK.
-- "No data" sentinels: `-1` for steps/sleep/AQI/UV/humidity/PCP, `-999` for
-  temperatures (including high/low), `0` for heart
-  rate. Formatters render these as `--`.
-- Everything that changes state calls `refresh_complications()` and marks the
+- "No data" sentinels: `-1` for steps/sleep/AQI/UV/humidity/PCP and the
+  high/low event hours, `-999` for temperatures (including high/low), `0`
+  for heart rate. Formatters render these as `--`.
+- Everything that changes state calls `request_ui_redraw()` and marks the
   canvas layer dirty rather than redrawing directly.
 
 ## The complication system
@@ -86,7 +86,7 @@ A complication is identified by a `ComplicationDataSource` enum value
   progress bar fills only to its end while the reading beside it keeps
   counting, up to the three digits the value field holds.
 - `get_source_color()` (`theme.c`) — the value's color on color displays
-  (e.g. battery yellow/red, AQI bands).
+  (e.g. battery yellow/red, green on the charger, AQI/UV bands).
 
 There are two placement types:
 
@@ -98,18 +98,18 @@ There are two placement types:
    positions; it offers the date plus `DATA_SOURCE_STEPS_BAR` and
    `DATA_SOURCE_BATTERY_BAR`, which need the width for their progress bars,
    and `DATA_SOURCE_WEATHER_FULL`, which tiles four fixed-width status chips
-   (condition, temperature, humidity, high/low) across the row, captioned
+   (condition, temperature, humidity, precipitation) across the row, captioned
    per chip in the frame title.
    Each slot has a fixed `box_rect`, a `TextLayer`, and a user-chosen source.
    The slot's frame and label are drawn on the canvas
    (`canvas_update_proc`); the value text lives in the slot's text layer,
-   updated by `refresh_complications()`. Source `DATA_SOURCE_EMPTY` (20) hides
+   updated by `request_ui_redraw()`. Source `DATA_SOURCE_EMPTY` (20) hides
    a slot entirely.
    - Most sources are canvas-drawn instead of using that text layer — anything
      needing more than one color inside a value (the accent marks, the split
      AQI/UV, a status band) or a non-text rendering (the progress bars).
      `canvas_drawer()` in `drawing.c` is the single list of which sources those
-     are, returning a draw function or `NULL`; `refresh_complications()`
+     are, returning a draw function or `NULL`; `request_ui_redraw()`
      consults the same function to decide whether to hide the text layer, so
      the two can't disagree about a source.
    - `DATA_SOURCE_SHORT_DATE` (22) is offered in the top slots only: it needs
@@ -160,9 +160,9 @@ reads colors from `s_active_theme`, never hardcoded colors.
 `WatchTheme` carries ten colors. `frame` is the ASCII window border stroke,
 kept separate from `text_primary` so the panel themes can draw cyan frames
 around white text. `mark` is the accent highlight (unit letter, date
-weekday, `.beat` `@`) — Turbo Vision's `0x7E` hotkey color, yellow in all
-three themes, deliberately separate from `status_yellow` since the dialog
-theme's `status_yellow` is brown. `status_ink` is the text color drawn over
+weekday, `.beat` `@`) — Turbo Vision's `0x7E` hotkey color. It shares
+`status_yellow`'s hue in every palette, but stays a separate field so the
+two can part ways without touching call sites. `status_ink` is the text color drawn over
 a status-colored fill (the battery chip): black on the two dark themes,
 white on the light dialog theme.
 

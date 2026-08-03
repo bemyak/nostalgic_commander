@@ -4,6 +4,8 @@
 
 // Sensor & System Data Cache
 int s_battery_level = 100;
+// Charging speaks for itself in green; the level ladder is for draining.
+bool s_battery_charging = false;
 int s_step_count = -1;  // -1 indicates no data
 int s_step_goal = 10000;
 int s_sleep_seconds = -1;   // -1 indicates no data

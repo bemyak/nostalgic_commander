@@ -97,8 +97,11 @@ GColor get_source_color(ComplicationDataSource source) {
   switch (source) {
     case DATA_SOURCE_BATTERY:
     case DATA_SOURCE_BATTERY_BAR:
-      // Quiet while healthy: the battery only speaks once it wants a charger.
-      // Chip and bar share this ladder, so one reading never wears two colors.
+      // On the charger it says so in green, level notwithstanding; off it,
+      // quiet while healthy — the battery only speaks once it wants a
+      // charger. Chip and bar share this ladder, so one reading never wears
+      // two colors.
+      if (s_battery_charging) return s_active_theme->status_green;
       if (s_battery_level > BATTERY_LOW_PCT) return s_active_theme->text_primary;
       if (s_battery_level > BATTERY_CRIT_PCT) return s_active_theme->status_yellow;
       return s_active_theme->status_red;
@@ -116,16 +119,18 @@ GColor get_source_color(ComplicationDataSource source) {
     case DATA_SOURCE_WEATHER_TEMP:
     case DATA_SOURCE_WEATHER:
       return temp_band_color(s_weather_temp);
+    // Clean air and mild sun are unremarkable: only a flagged reading
+    // earns a color, and the band follows it. (AQI >50 / >100, UV >=3 / >=6.)
     case DATA_SOURCE_AQI:
       if (s_weather_aqi == -1) return s_active_theme->text_primary;
       if (s_weather_aqi > 100) return s_active_theme->status_red;
       if (s_weather_aqi > 50) return s_active_theme->status_yellow;
-      return s_active_theme->status_green;
+      return s_active_theme->text_primary;
     case DATA_SOURCE_UV:
       if (s_weather_uv == -1) return s_active_theme->text_primary;
       if (s_weather_uv >= 6) return s_active_theme->status_red;
       if (s_weather_uv >= 3) return s_active_theme->status_yellow;
-      return s_active_theme->status_green;
+      return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_PCP:
       if (weather_shows_precip_amount()) {
         // WMO intensity bands (mm over the past hour): light rain is calm;
@@ -154,7 +159,7 @@ GColor get_source_color(ComplicationDataSource source) {
       bool is_yellow = (s_weather_aqi > 50 || s_weather_uv >= 3);
       if (is_red) return s_active_theme->status_red;
       if (is_yellow) return s_active_theme->status_yellow;
-      return s_active_theme->status_green;
+      return s_active_theme->text_primary;
     }
     default:
       return s_active_theme->text_primary;

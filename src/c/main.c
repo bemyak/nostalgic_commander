@@ -208,6 +208,7 @@ static void outbox_failed_callback(DictionaryIterator* iterator, AppMessageResul
 
 static void battery_callback(BatteryChargeState state) {
   s_battery_level = state.charge_percent;
+  s_battery_charging = state.is_charging;
   request_ui_redraw();
 }
 

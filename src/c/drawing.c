@@ -241,21 +241,6 @@ static void draw_status_field(GContext* ctx, GRect box_rect, int x, int w, const
            banded ? s_active_theme->status_ink : s_active_theme->text_primary);
 }
 
-// Amount mode accents the unit letters like C/F and the weekday get; the
-// probability form keeps its single-colour readout.
-static void draw_pcp_complication(GContext* ctx, GRect box_rect) {
-  char buf[8];
-  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
-  GRect row = vga16_value_rect(box_rect, buf);
-  if (weather_shows_precip_amount()) {
-    int len = strlen(buf);
-    draw_accented_value(ctx, row, buf, len - 2, 2, s_active_theme->text_primary,
-                        s_active_theme->mark);
-  } else {
-    draw_run(ctx, row, 0, buf, strlen(buf), get_source_color(DATA_SOURCE_WEATHER_PCP));
-  }
-}
-
 // A lone reading fills the whole band. Centring in the band is the same as
 // centring in the box, since the band is itself centred.
 static void draw_banded_value(GContext* ctx, GRect box_rect, const char* text, bool banded,
@@ -264,18 +249,41 @@ static void draw_banded_value(GContext* ctx, GRect box_rect, const char* text, b
   draw_status_field(ctx, box_rect, b.origin.x, b.size.w, text, banded, band);
 }
 
-// The threshold logic stays in get_source_color(); only the sentinel check
-// lives here.
+// The band shows exactly when the reading earns an attention color — both
+// come from get_source_color(), so thresholds live in one place. A quiet or
+// missing reading (text_primary) draws plain text on the ground.
+static bool reading_commands_attention(ComplicationDataSource source) {
+  return !gcolor_equal(get_source_color(source), s_active_theme->text_primary);
+}
+
+// PCP obeys the same rule as the strip chip: attention states band. A calm
+// amount keeps its "mm" unit accent like C/F and the weekday get; on a fill
+// the accent would drown, so ink takes over, as in the strip.
+static void draw_pcp_complication(GContext* ctx, GRect box_rect) {
+  char buf[8];
+  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
+  bool banded = reading_commands_attention(DATA_SOURCE_WEATHER_PCP);
+  if (weather_shows_precip_amount() && !banded) {
+    int len = strlen(buf);
+    draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, len - 2, 2,
+                        s_active_theme->text_primary, s_active_theme->mark);
+  } else {
+    draw_banded_value(ctx, box_rect, buf, banded, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  }
+}
+
 static void draw_aqi_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_AQI, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, s_weather_aqi != -1, get_source_color(DATA_SOURCE_AQI));
+  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_AQI),
+                    get_source_color(DATA_SOURCE_AQI));
 }
 
 static void draw_uv_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_UV, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, s_weather_uv != -1, get_source_color(DATA_SOURCE_UV));
+  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_UV),
+                    get_source_color(DATA_SOURCE_UV));
 }
 
 // Both readings side by side, each banding its own half of the cell so a good
@@ -295,10 +303,10 @@ static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
   int half = (band.size.w - VGA16_CHAR_W) / 2;
   int right_x = band.origin.x + band.size.w - half;
 
-  draw_status_field(ctx, box_rect, band.origin.x, half, aqi_str, s_weather_aqi != -1,
-                    get_source_color(DATA_SOURCE_AQI));
-  draw_status_field(ctx, box_rect, right_x, half, uv_str, s_weather_uv != -1,
-                    get_source_color(DATA_SOURCE_UV));
+  draw_status_field(ctx, box_rect, band.origin.x, half, aqi_str,
+                    reading_commands_attention(DATA_SOURCE_AQI), get_source_color(DATA_SOURCE_AQI));
+  draw_status_field(ctx, box_rect, right_x, half, uv_str,
+                    reading_commands_attention(DATA_SOURCE_UV), get_source_color(DATA_SOURCE_UV));
 
   // The separator sits on the ground in the gap, keeping the two fields legible
   // as separate readings even when both carry the same color.
@@ -391,7 +399,7 @@ static void draw_captioned_bar(GContext* ctx, GRect rect) {
                      GCornerNone);
   graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
   // Half a cell of air between each stub and the nearest caption *ink* — not
-  // the chip edge: HI/LO's caption is narrower than its chip, so measuring
+  // the chip edge: PCP's caption is narrower than its chip, so measuring
   // from the block edge parked the right stub noticeably far.
   const int pad = VGA16_CHAR_W / 2;
   const FullWeatherField* last = &s_full_weather_fields[FULL_WEATHER_NUM_FIELDS - 1];
@@ -449,9 +457,10 @@ static void draw_battery_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), NULL);
 
-  // A healthy charge just shows the ground. Below that it wears exactly the
-  // color the bar paints, so the two can never disagree about the same reading.
-  draw_banded_value(ctx, box_rect, buf, s_battery_level <= BATTERY_LOW_PCT,
+  // A healthy charge just shows the ground. Below that — or whenever the
+  // charger is in — it wears exactly the color the bar paints, so the two can
+  // never disagree about the same reading.
+  draw_banded_value(ctx, box_rect, buf, s_battery_level <= BATTERY_LOW_PCT || s_battery_charging,
                     get_source_color(DATA_SOURCE_BATTERY));
 }
 
@@ -533,6 +542,9 @@ typedef struct {
   ComplicationDataSource source[NUM_SLOTS];
   char text[NUM_SLOTS][40];
   int percent[NUM_SLOTS];
+  // Charging flips the battery band without touching its text or fill ratio;
+  // per battery slot so the gate hears charge-state changes on their own.
+  bool battery_charging[NUM_SLOTS];
   // Obstruction is display state: the bottom row vanishing must pass the
   // memcmp gate even when no string or fill changed.
   bool quick_view_active;
@@ -577,6 +589,8 @@ static void build_snapshot(UiSnapshot* s) {
     // whatever the drawer actually reads.
     s->source[i] = slot->source;
     get_source_data(snapshot_source(slot->source), s->text[i], sizeof(s->text[i]), &s->percent[i]);
+    s->battery_charging[i] =
+        snapshot_source(slot->source) == DATA_SOURCE_BATTERY && s_battery_charging;
   }
 }
 

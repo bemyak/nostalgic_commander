@@ -15,11 +15,18 @@ void setUp(void) {
   s_settings_theme = 0;  // Auto
   s_settings_units = 0;  // Imperial
   s_battery_level = 100;
+  s_battery_charging = false;
   s_step_count = -1;
   s_sleep_seconds = -1;
   s_heart_rate = 0;
   s_weather_temp = -999;
   strcpy(s_weather_cond, "--");
+  // Leak-proofing: these weather globals used to keep whatever the previous
+  // test left in them.
+  s_temp_high = -999;
+  s_temp_low = -999;
+  s_weather_pcp = -1;
+  s_precip_now = -1;
   s_temp_low_tmrw = -999;
   s_temp_high_tmrw = -999;
   s_lo_hour_today = -1;
@@ -308,6 +315,179 @@ void test_battery_bar_should_fill_with_the_status_color(void) {
   s_battery_level = 100;
 }
 
+void test_aqi_chip_should_band_only_on_an_attention_reading(void) {
+  // Chip banding follows the strip's rule: a quiet reading draws plain text,
+  // a flagged one fills — the thresholds stay in get_source_color alone.
+  s_complication_slots[3].source = DATA_SOURCE_AQI;
+  GRect band = status_band_rect(s_complication_slots[3].box_rect);
+
+  s_weather_aqi = 30;  // clean air fills nothing
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    bool at_band = mock_fill_rects[i].origin.x == band.origin.x &&
+                   mock_fill_rects[i].origin.y == band.origin.y &&
+                   mock_fill_rects[i].size.w == band.size.w;
+    if (at_band) {
+      // No status-colored fill: clean air used to wear a green band here.
+      TEST_ASSERT_FALSE(gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_yellow) ||
+                        gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_red) ||
+                        gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_green));
+    }
+  }
+
+  s_weather_aqi = 60;  // moderate: yellow band
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  bool saw_band = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].origin.x == band.origin.x &&
+        mock_fill_rects[i].origin.y == band.origin.y && mock_fill_rects[i].size.w == band.size.w &&
+        gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_yellow)) {
+      saw_band = true;
+    }
+  }
+  TEST_ASSERT_TRUE(saw_band);
+
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
+void test_battery_complications_should_wear_green_while_charging(void) {
+  // Charging speaks green on both forms: chip band and bar fill, level
+  // notwithstanding — the quiet ladder is for when it is draining.
+  s_complication_slots[3].source = DATA_SOURCE_BATTERY;
+  GRect band = status_band_rect(s_complication_slots[3].box_rect);
+  s_battery_level = 100;
+  s_battery_charging = true;
+
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  bool saw_chip_band = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].origin.x == band.origin.x &&
+        mock_fill_rects[i].origin.y == band.origin.y && mock_fill_rects[i].size.w == band.size.w &&
+        gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_green)) {
+      saw_chip_band = true;
+    }
+  }
+  TEST_ASSERT_TRUE(saw_chip_band);
+
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+  s_complication_slots[5].source = DATA_SOURCE_BATTERY_BAR;
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  bool saw_bar_fill = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].size.w > 0 &&
+        gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_green)) {
+      saw_bar_fill = true;
+    }
+  }
+  TEST_ASSERT_TRUE(saw_bar_fill);
+
+  s_battery_charging = false;
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+}
+
+// A PCP fill at the slot's band rect in the given color = the chip banded in
+// that status colour.
+static bool pcp_slot_banded_with(GRect band, GColor color) {
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].origin.x == band.origin.x &&
+        mock_fill_rects[i].origin.y == band.origin.y && mock_fill_rects[i].size.w == band.size.w &&
+        gcolor_equal(mock_fill_rect_colors[i], color)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// A `mark`-coloured run spelling the tail unit (e.g. "mm") inside the slot's
+// value row = the unit accent is being drawn there.
+static bool pcp_slot_shows_unit_accent(GRect row) {
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.x >= row.origin.x &&
+        mock_text_run_boxes[i].origin.x + mock_text_run_boxes[i].size.w <=
+            row.origin.x + row.size.w &&
+        mock_text_run_boxes[i].origin.y == row.origin.y &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark) &&
+        strcmp(mock_text_runs[i], "mm") == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void test_pcp_chip_should_band_on_attention_probability(void) {
+  // Parity with the strip chip: a quiet probability reads plain, past 50 the
+  // reading bands, past 70 it bands red.
+  s_complication_slots[3].source = DATA_SOURCE_WEATHER_PCP;
+  GRect band = status_band_rect(s_complication_slots[3].box_rect);
+
+  s_weather_pcp = 45;  // <= 50: nothing to plan around
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
+
+  s_weather_pcp = 60;  // 51-70: worth a thought — yellow band
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
+
+  s_weather_pcp = 75;  // past 70: plan around it — red band
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_red));
+
+  s_weather_pcp = -1;  // no reading at all: quiet
+  mock_fill_rect_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
+
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
+void test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm(void) {
+  // Amount mode: light rain keeps the "mm" unit accent; at 4 mm the chip
+  // bands like the strip's and the accent would drown on the fill, so it goes.
+  s_complication_slots[3].source = DATA_SOURCE_WEATHER_PCP;
+  s_settings_units = 1;
+  strcpy(s_weather_cond, "RAIN");
+  GRect band = status_band_rect(s_complication_slots[3].box_rect);
+
+  s_precip_now = 30;  // 3 mm: light
+  mock_fill_rect_reset();
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
+  TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
+  TEST_ASSERT_TRUE(
+      pcp_slot_shows_unit_accent(vga16_value_rect(s_complication_slots[3].box_rect, "3mm")));
+
+  s_precip_now = 40;  // 4 mm: heavy — yellow band, no accent
+  mock_fill_rect_reset();
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
+  TEST_ASSERT_FALSE(
+      pcp_slot_shows_unit_accent(vga16_value_rect(s_complication_slots[3].box_rect, "4mm")));
+
+  s_precip_now = 80;  // 8 mm: violent — red band, no accent
+  mock_fill_rect_reset();
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_red));
+  TEST_ASSERT_FALSE(
+      pcp_slot_shows_unit_accent(vga16_value_rect(s_complication_slots[3].box_rect, "8mm")));
+
+  s_precip_now = -1;
+  s_settings_units = 0;
+  strcpy(s_weather_cond, "--");
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
   main_window_load(NULL);
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
@@ -315,6 +495,15 @@ void test_battery_callback_should_coalesce_unchanged_levels(void) {
   int marks = mock_mark_dirty_count;
   battery_callback((BatteryChargeState){.charge_percent = 100});
   TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
+
+  // Charging flips the band while the level text stands still, so the flag
+  // must reach the render gate too — else the chip redraws up to a minute late.
+  s_complication_slots[3].source = DATA_SOURCE_BATTERY;
+  battery_callback((BatteryChargeState){.charge_percent = 100, .is_charging = false});
+  marks = mock_mark_dirty_count;
+  battery_callback((BatteryChargeState){.charge_percent = 100, .is_charging = true});
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_to_upper_str_should_convert_lowercase_to_uppercase(void) {
@@ -596,6 +785,15 @@ void test_battery_band_and_color_should_agree_at_every_level(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
   s_battery_level = 19;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
+
+  // On the charger the ladder steps aside: chip band and bar fill read green
+  // at every level — 5% on the wire is green, full stop.
+  s_battery_charging = true;
+  for (int level = 0; level <= 100; level++) {
+    s_battery_level = level;
+    TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY));
+    TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_BATTERY_BAR));
+  }
 }
 
 void test_centre_slot_should_be_the_sixth_and_default_to_the_date(void) {
@@ -725,12 +923,13 @@ void test_themes_should_keep_text_readable_on_their_ground(void) {
 }
 
 void test_status_ink_should_clear_every_fill_it_is_drawn_on(void) {
-  // The battery chip fills with status_red/status_yellow and writes status_ink
-  // over it. If the ink matches its own fill the reading vanishes — which is
-  // exactly what happened when the chip used text_primary on a light ground.
+  // Status fills write status_ink over themselves; if the ink matches its own
+  // fill the reading vanishes — which is exactly what happened when the chip
+  // used text_primary on a light ground. Charging keeps green among the fills.
   for (unsigned i = 0; i < NUM_THEMES; i++) {
     TEST_ASSERT_NOT_EQUAL(all_themes[i]->status_ink, all_themes[i]->status_red);
     TEST_ASSERT_NOT_EQUAL(all_themes[i]->status_ink, all_themes[i]->status_yellow);
+    TEST_ASSERT_NOT_EQUAL(all_themes[i]->status_ink, all_themes[i]->status_green);
   }
 }
 
@@ -1240,36 +1439,52 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_temp = 2;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.accent_cold, get_source_color(DATA_SOURCE_WEATHER_TEMP));
 
-  // AQI color severity levels (0-50 green, 51-100 yellow, >100 red)
+  // AQI speaks up only outside the good range: clean air is unremarkable
+  // and reads neutral; past 50 earns yellow, past 100 red
   s_weather_aqi = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI));
 
   s_weather_aqi = 34;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_AQI));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI));
 
-  s_weather_aqi = 65;
+  s_weather_aqi = 50;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI));
+
+  s_weather_aqi = 51;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_AQI));
+
+  s_weather_aqi = 100;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_AQI));
+
+  s_weather_aqi = 101;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI));
 
   s_weather_aqi = 150;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI));
 
-  // UV color severity levels (0-2 green, 3-5 yellow, >=6 red)
+  // UV likewise: mild sun is quiet; from 3 a thought, from 6 a warning
   s_weather_uv = -1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_UV));
 
-  s_weather_uv = 1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_UV));
+  s_weather_uv = 2;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_UV));
 
-  s_weather_uv = 4;
+  s_weather_uv = 3;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_UV));
+
+  s_weather_uv = 5;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_UV));
+
+  s_weather_uv = 6;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_UV));
 
   s_weather_uv = 8;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_UV));
 
-  // AQI / UV Combined severity
+  // AQI / UV combined: only a flagged half colors the pair
   s_weather_aqi = 34;
   s_weather_uv = 1;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_green, get_source_color(DATA_SOURCE_AQI_UV));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI_UV));
 
   s_weather_aqi = 65;  // yellow
   s_weather_uv = 1;
@@ -2257,6 +2472,10 @@ int main(void) {
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
+  RUN_TEST(test_aqi_chip_should_band_only_on_an_attention_reading);
+  RUN_TEST(test_battery_complications_should_wear_green_while_charging);
+  RUN_TEST(test_pcp_chip_should_band_on_attention_probability);
+  RUN_TEST(test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);

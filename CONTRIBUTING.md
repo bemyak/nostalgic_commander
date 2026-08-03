@@ -49,7 +49,7 @@ if you get them wrong:
 - "No data" sentinels: `-1` (steps, sleep, AQI, UV), `-999` (temperature),
   `0` (heart rate). Formatters render these as `--`.
 - Never hardcode colors in drawing code; read them from `s_active_theme`.
-- State changes call `refresh_complications()` and mark the canvas dirty
+- State changes call `request_ui_redraw()` and mark the canvas dirty
   rather than drawing directly.
 - Layout constants are hardcoded for emery (200×228), the only current target
   platform.

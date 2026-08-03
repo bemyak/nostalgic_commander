@@ -115,15 +115,31 @@ void graphics_context_set_fill_color(GContext* ctx, GColor color) {
 }
 void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
-void graphics_context_set_text_color(GContext* ctx, GColor color) {}
+static GColor s_mock_text_color = GColorClear;
+void graphics_context_set_text_color(GContext* ctx, GColor color) {
+  s_mock_text_color = color;
+}
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {}
 int mock_wordwrap_calls = 0;
 int mock_bar_glyph_calls = 0;
+char mock_text_runs[MOCK_MAX_TEXT_RUNS][32];
+GColor mock_text_run_colors[MOCK_MAX_TEXT_RUNS];
+GRect mock_text_run_boxes[MOCK_MAX_TEXT_RUNS];
+int mock_text_run_count = 0;
+void mock_text_runs_reset(void) {
+  mock_text_run_count = 0;
+}
 void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
                         GTextOverflowMode overflow_mode, GTextAlignment alignment,
                         GContext* layout_cache) {
   if (overflow_mode == GTextOverflowModeWordWrap) mock_wordwrap_calls++;
   if (strstr(text, "\xE2\x96\x88")) mock_bar_glyph_calls++;  // U+2588 FULL BLOCK
+  if (mock_text_run_count < MOCK_MAX_TEXT_RUNS) {
+    snprintf(mock_text_runs[mock_text_run_count], sizeof(mock_text_runs[0]), "%s", text);
+    mock_text_run_colors[mock_text_run_count] = s_mock_text_color;
+    mock_text_run_boxes[mock_text_run_count] = box;
+    mock_text_run_count++;
+  }
 }
 GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
 GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];

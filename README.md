@@ -36,15 +36,16 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   middle) you can fill from: weather (condition + temperature), humidity,
   precipitation probability (peak over the next 12 hours; shows the live
   rate in mm while it actually rains, metric only), the day's
-  high/low temperatures, steps, sleep, heart rate, active minutes, Bluetooth
+  high/low temperatures (rolling to tomorrow's as each extreme passes),
+  steps, sleep, heart rate, active minutes, Bluetooth
   status, air quality (US AQI), UV index (the peak over the next 12 hours —
   what's coming, not what already happened), a combined AQI/UV view, a short
   date (`THU 12-31`, top slots only), or .beat (Swatch Internet Time) — or
   leave empty.
 - **The middle slot** holds the date, a full-weather strip (condition,
-  current temp, humidity and high/low as captioned status chips), or a DOS
-  progress bar for steps or battery — `█` blocks against a `░` track, with
-  the percentage after it.
+  current temp, humidity and precipitation as captioned status chips), or a
+  DOS progress bar for steps or battery — `█` blocks against a `░` track,
+  with the percentage after it.
 - **Four DOS/EGA themes, Commander Panel by default.** Auto cycles the other three on
   8-hour shifts, brightest to darkest as the day goes on: Dialog (Turbo
   Vision dialog box, blue frames, black text on light grey) 06:00–14:00,
@@ -53,8 +54,9 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   chrome on black, the way Turbo Vision faked it) 22:00–06:00. Pick a theme
   directly to lock it in. Exact EGA colors, since Pebble's display uses the
   same channel steps.
-- **Color-coded values**: battery, temperature, AQI, and UV shift
-  green/yellow/red (or blue for cold) as conditions change.
+- **Colors only when something needs attention**: temperature runs
+  red-hot / blue-cold, AQI and UV go yellow then red past their thresholds,
+  battery goes yellow then red as it drains — and green on the charger.
 - **Weather without an API key** — data comes from
   [Open-Meteo](https://open-meteo.com) via your phone's location, refreshed
   every 30 minutes.

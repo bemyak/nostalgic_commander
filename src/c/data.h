@@ -38,6 +38,7 @@ typedef enum {
 #define HIGH_LOW_GRACE_HOURS 1
 
 extern int s_battery_level;
+extern bool s_battery_charging;
 extern int s_step_count;
 extern int s_step_goal;
 extern int s_sleep_seconds;
