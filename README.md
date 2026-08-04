@@ -73,6 +73,7 @@ deliberately few:
 | Date format | ISO, DOS, full text, short |
 | Short date format | Month-Day, Day-Month |
 | Day of week | Before date, after date, hidden |
+| Enable vibration on phone disconnect | On (default), off — the buzz doubles as the dead-phone detector |
 | Slots 1–6 | Data source per slot, or Empty |
 
 That's the whole surface. Good defaults over knobs; if a behavior isn't

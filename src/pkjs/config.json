@@ -105,6 +105,22 @@
             "value": "2"
           }
         ]
+      },
+      {
+        "type": "select",
+        "messageKey": "SETTINGS_DISCONNECT_VIBE",
+        "defaultValue": "1",
+        "label": "Enable vibration on phone disconnect",
+        "options": [
+          {
+            "label": "Yes, I can disable battery optimization for Pebble app",
+            "value": "1"
+          },
+          {
+            "label": "No, but it'll break notifications and weather updates",
+            "value": "0"
+          }
+        ]
       }
     ]
   },

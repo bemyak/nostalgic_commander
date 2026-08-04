@@ -219,7 +219,8 @@ static void handle_bluetooth(bool connected) {
   // Buzz only on a genuine drop, not when launched already-disconnected —
   // otherwise every return to the watchface vibrates while the phone is away.
   if (was_connected && !connected) {
-    vibes_double_pulse();
+    // The buzz is the dead-phone detector; the settings select is the consent.
+    if (s_settings_disconnect_vibe) vibes_double_pulse();
   }
 }
 

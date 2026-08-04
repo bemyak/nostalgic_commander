@@ -190,6 +190,7 @@ platforms would require deriving these from `layer_get_bounds()`.
 | `SETTINGS_DATE_FORMAT` | 0 ISO (`1970-12-31`), 1 DOS (`31-12-1970`), 2 full text (`DEC 31st, 1970`), 3 short (per `SETTINGS_SHORT_DATE_FORMAT`) | `format_date_string()` |
 | `SETTINGS_SHORT_DATE_FORMAT` | 0 Month-Day (`12-31`), 1 Day-Month (`31-12`) | `DATA_SOURCE_SHORT_DATE` slot rendering; also the short choice (3) of `SETTINGS_DATE_FORMAT` |
 | `SETTINGS_DOW_POSITION` | 0 before (`THU 1970-12-31`), 1 after (`1970-12-31 THU`), 2 hidden (`1970-12-31`) | `date_dow_offset()`; applied to every rendered date, not just the DATE window |
+| `SETTINGS_DISCONNECT_VIBE` | 1 buzz on disconnect (default), 0 silenced | Gates `vibes_double_pulse()` in `handle_bluetooth()`; the buzz is the dead-phone detector, opting out is a consent select |
 | `SLOT_1`–`SLOT_5` | `ComplicationDataSource` value | Slot sources (1=top-left, 2=top-right, 3=bottom-left, 4=bottom-center, 5=bottom-right) |
 | `SLOT_6` | `ComplicationDataSource` value | Centre-row source (wide-only sources: date, progress bars, full-weather strip) |
 

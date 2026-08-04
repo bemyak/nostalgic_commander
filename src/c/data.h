@@ -90,6 +90,7 @@ extern int s_settings_units;
 extern int s_settings_date_format;
 extern int s_settings_short_date_format;
 extern int s_settings_dow_position;
+extern int s_settings_disconnect_vibe;
 
 // Every frame spans these columns: an 8px margin on each edge, matching the
 // vertical margins. 184 is 23 whole character cells, so the frame lines up with

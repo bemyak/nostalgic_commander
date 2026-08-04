@@ -14,6 +14,7 @@ void setUp(void) {
   // Reset any global states if needed before each test
   s_settings_theme = 0;  // Auto
   s_settings_units = 0;  // Imperial
+  s_settings_disconnect_vibe = 1;
   s_battery_level = 100;
   s_battery_charging = false;
   s_step_count = -1;
@@ -2090,6 +2091,20 @@ void test_handle_bluetooth_should_vibrate_only_on_disconnect_transition(void) {
   TEST_ASSERT_EQUAL_INT(2, mock_vibes_count);
 }
 
+void test_handle_bluetooth_should_stay_silent_on_drops_when_the_buzz_is_disabled(void) {
+  mock_vibes_count = 0;
+
+  s_settings_disconnect_vibe = 0;  // consent select: silenced
+  s_connected = true;
+  handle_bluetooth(false);  // genuine drop, but silenced
+  TEST_ASSERT_EQUAL_INT(0, mock_vibes_count);
+  TEST_ASSERT_FALSE(s_connected);
+
+  handle_bluetooth(true);
+  handle_bluetooth(false);  // drop again: still silent
+  TEST_ASSERT_EQUAL_INT(0, mock_vibes_count);
+}
+
 void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -2265,6 +2280,29 @@ void test_inbox_should_parse_the_newer_settings_and_centre_slot(void) {
   s_settings_short_date_format = 0;
   s_settings_dow_position = 0;
   s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+}
+
+void test_inbox_should_parse_and_persist_disconnect_vibe_setting(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE, 1);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_disconnect_vibe);
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_DISCONNECT_VIBE));
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE, 0);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_disconnect_vibe);
+  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_SETTINGS_DISCONNECT_VIBE));
+
+  // load_settings() must restore what the inbox persisted, or the choice
+  // silently reverts on the next launch.
+  s_settings_disconnect_vibe = 1;
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_disconnect_vibe);
+
+  s_settings_disconnect_vibe = 0;
 }
 
 void test_inbox_units_change_should_trigger_weather_refetch(void) {
@@ -2531,6 +2569,7 @@ int main(void) {
   RUN_TEST(test_health_handler_should_not_throttle_significant_updates);
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_handle_bluetooth_should_vibrate_only_on_disconnect_transition);
+  RUN_TEST(test_handle_bluetooth_should_stay_silent_on_drops_when_the_buzz_is_disabled);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
   RUN_TEST(test_inbox_should_parse_and_persist_extreme_rollover_keys);
@@ -2539,6 +2578,7 @@ int main(void) {
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);
   RUN_TEST(test_inbox_should_parse_slot_assignments);
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
+  RUN_TEST(test_inbox_should_parse_and_persist_disconnect_vibe_setting);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_update_time_should_never_request_weather);
   RUN_TEST(test_update_time_should_refresh_the_hi_lo_phase_hour);

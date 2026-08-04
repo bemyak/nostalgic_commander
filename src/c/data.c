@@ -39,6 +39,7 @@ int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
 int s_settings_date_format = 0;  // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
+int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default), 0 = silenced
 
 // Each row tiles LAYOUT_X..LAYOUT_X+LAYOUT_W-1, with neighbours overlapping by
 // 2 columns — the frame border width — so their borders coincide into a single

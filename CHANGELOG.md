@@ -10,6 +10,9 @@ Color policy pass: the face only speaks up when something needs attention.
 
 ### Changed
 
+- **"Enable vibration on phone disconnect"** setting — a consent select that can
+  silence the disconnect buzz (it doubles as the dead-phone detector; the default
+  keeps it on, and "No" spells out what you'll lose).
 - **High/low slot is now "next extremes"**: each cell rolls to the next day's
   value one hour after the day's own extreme passes, always ordered
   chronologically; the caption flips `HI/LO`/`LO/HI` to match the layout.

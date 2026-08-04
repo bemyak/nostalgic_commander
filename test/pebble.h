@@ -226,6 +226,7 @@ typedef struct {
 #define MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW 128
 #define MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW 129
 #define MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT 118
+#define MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE 130
 
 // --- Function Prototypes ---
 void app_event_loop(void);

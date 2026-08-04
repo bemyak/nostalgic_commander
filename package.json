@@ -52,7 +52,8 @@
       "WEATHER_HI_HOUR_TODAY",
       "WEATHER_LO_HOUR_TODAY",
       "WEATHER_HI_HOUR_TOMORROW",
-      "WEATHER_LO_HOUR_TOMORROW"
+      "WEATHER_LO_HOUR_TOMORROW",
+      "SETTINGS_DISCONNECT_VIBE"
     ],
     "resources": {
       "media": [

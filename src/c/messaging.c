@@ -109,6 +109,8 @@ void load_settings(void) {
     s_settings_short_date_format = persist_read_int(PERSIST_KEY_SETTINGS_SHORT_DATE);
   if (persist_exists(PERSIST_KEY_SETTINGS_DOW))
     s_settings_dow_position = persist_read_int(PERSIST_KEY_SETTINGS_DOW);
+  if (persist_exists(PERSIST_KEY_SETTINGS_DISCONNECT_VIBE))
+    s_settings_disconnect_vibe = persist_read_int(PERSIST_KEY_SETTINGS_DISCONNECT_VIBE);
   if (persist_exists(PERSIST_KEY_SLOT_1))
     s_complication_slots[0].source = persist_read_int(PERSIST_KEY_SLOT_1);
   if (persist_exists(PERSIST_KEY_SLOT_2))
@@ -246,6 +248,12 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   if (dow_tuple) {
     s_settings_dow_position = tuple_get_int(dow_tuple);
     persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DOW, s_settings_dow_position);
+  }
+
+  Tuple* disconnect_vibe_tuple = dict_find(iterator, MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE);
+  if (disconnect_vibe_tuple) {
+    s_settings_disconnect_vibe = tuple_get_int(disconnect_vibe_tuple);
+    persist_write_int_if_changed(PERSIST_KEY_SETTINGS_DISCONNECT_VIBE, s_settings_disconnect_vibe);
   }
 
   // Assigning or rearranging slots has to fetch now, or a newly shown weather
