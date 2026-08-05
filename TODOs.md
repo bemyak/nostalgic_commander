@@ -23,6 +23,16 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
 
 ## Done
 
+- [x] Quiet Time indicator: new combined phone-status window
+  `DATA_SOURCE_BT_QT = 32` (caption `BT/QT`, `[x][z]`, one checkbox inked per
+  state) — top slots only; at ≥93 px the title splits into `BT`/`QT` caption
+  stubs with the frame running through between them and the boxes gain an air
+  cell (`[x] [z]`). Bottom slots offer the unchanged BT checkbox (9) and the
+  new standalone `QT` (`DATA_SOURCE_QUIET_TIME = 31`, `[z]`) — the combined
+  read too cramped at 63 px (emulator pass). `s_quiet_time_active` polled
+  from `quiet_time_is_active()` at init and atop the minute tick. Ride-along
+  Clay label polish: `.beat time`, `Next High / Low temperatures`. Spec:
+  [docs/superpowers/specs/2026-08-06-quiet-time-design.md](docs/superpowers/specs/2026-08-06-quiet-time-design.md).
 - [x] Extended weather: precipitation probability (next-12h max) and daily
   high/low — top slots, still one Open-Meteo request. (sunrise/sunset was
   part of this batch, pulled after the emulator check: the 11-cell value

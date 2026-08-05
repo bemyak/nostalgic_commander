@@ -29,6 +29,7 @@ int s_wall_hour = 0;  // refreshed in update_time(); drives the rollover
 int s_active_minutes = 0;
 int s_active_minutes_goal = 30;
 bool s_connected = true;
+bool s_quiet_time_active = false;
 bool s_quick_view_active = false;
 int s_date_day = 10;
 int s_beats = 0;
@@ -78,6 +79,11 @@ const char* get_source_label(ComplicationDataSource source) {
       return "DATE";
     case DATA_SOURCE_BLUETOOTH:
       return "BT";
+    case DATA_SOURCE_BT_QT:
+      // One window covers both phone states.
+      return "BT/QT";
+    case DATA_SOURCE_QUIET_TIME:
+      return "QT";
     case DATA_SOURCE_ACTIVE_MINUTES:
       return "ACTV";
     case DATA_SOURCE_AQI:
@@ -249,6 +255,19 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       // A Turbo Vision checkbox: ticked while the phone is there.
       snprintf(val_buf, val_len, "%s", s_connected ? "[x]" : "[ ]");
       if (percent) *percent = s_connected ? 100 : 0;
+      break;
+    case DATA_SOURCE_BT_QT:
+      // Turbo Vision checkboxes: ticked while the state holds — `x` for the
+      // phone connection (which alone moves the band, per the BT precedent),
+      // `z` for Quiet Time.
+      snprintf(val_buf, val_len, "[%s][%s]", s_connected ? "x" : " ",
+               s_quiet_time_active ? "z" : " ");
+      if (percent) *percent = s_connected ? 100 : 0;
+      break;
+    case DATA_SOURCE_QUIET_TIME:
+      // Same checkbox, alone in its own window.
+      snprintf(val_buf, val_len, "%s", s_quiet_time_active ? "[z]" : "[ ]");
+      if (percent) *percent = s_quiet_time_active ? 100 : 0;
       break;
     case DATA_SOURCE_ACTIVE_MINUTES:
       snprintf(val_buf, val_len, "%dm", s_active_minutes);

@@ -24,6 +24,8 @@ typedef enum {
   DATA_SOURCE_WEATHER_FULL = 27,
   DATA_SOURCE_WEATHER_PCP = 28,
   DATA_SOURCE_TEMP_HIGH_LOW = 30,  // 29 is retired (SUN_TIMES), see 19
+  DATA_SOURCE_QUIET_TIME = 31,
+  DATA_SOURCE_BT_QT = 32,  // 19 and 29 are retired, 20 is EMPTY
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -68,6 +70,7 @@ bool high_low_hi_leads(void);
 extern int s_active_minutes;
 extern int s_active_minutes_goal;
 extern bool s_connected;
+extern bool s_quiet_time_active;
 // Timeline Quick View: true while the system overlay covers the bottom slot
 // row. Written only by the UnobstructedArea handler in main.c.
 extern bool s_quick_view_active;

@@ -36,9 +36,11 @@ void setUp(void) {
   s_hi_hour_tmrw = -1;
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_connected = true;
+  s_quiet_time_active = false;
   s_quick_view_active = false;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
   mock_set_hidden_count = 0;
+  mock_quiet_time_active = false;
   // Isolate the timestamp-based health throttle: zero both the mock clock
   // offset and the last-refresh stamp so no test inherits a window.
   mock_time_offset = 0;
@@ -202,8 +204,8 @@ void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
 
   TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
   // The bottom row hides under the overlay; the top text slot stays visible.
-  // Slots 0 (WEATHER) and 5 (FULL_DATE) paint onto the canvas instead, so
-  // their text layers are hidden either way.
+  // Slots 0 (WEATHER), 3 (BPM) and 5 (FULL_DATE) paint onto the canvas
+  // instead, so their text layers are hidden either way.
   TEST_ASSERT_TRUE(mock_set_hidden_states[2]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[4]);
@@ -217,7 +219,8 @@ void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
 
   TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
   TEST_ASSERT_FALSE(mock_set_hidden_states[2]);
-  TEST_ASSERT_FALSE(mock_set_hidden_states[3]);
+  // Slot 3's layer never comes back: canvas-drawn, not a restore target.
+  TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
   TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
 }
 
@@ -555,6 +558,10 @@ void test_get_source_label_should_return_correct_labels(void) {
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_SHORT_DATE));
+  TEST_ASSERT_EQUAL_STRING("BT", get_source_label(DATA_SOURCE_BLUETOOTH));
+  // One window covering both phone states; the standalone keeps the short tag.
+  TEST_ASSERT_EQUAL_STRING("BT/QT", get_source_label(DATA_SOURCE_BT_QT));
+  TEST_ASSERT_EQUAL_STRING("QT", get_source_label(DATA_SOURCE_QUIET_TIME));
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
@@ -817,7 +824,6 @@ void test_get_source_data_should_format_bluetooth(void) {
   char buf[16];
   int percent = 0;
 
-  // A checkbox, so the glyph carries the state on its own — no color needed.
   s_connected = true;
   get_source_data(DATA_SOURCE_BLUETOOTH, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("[x]", buf);
@@ -832,6 +838,74 @@ void test_get_source_data_should_format_bluetooth(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BLUETOOTH));
   s_connected = true;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BLUETOOTH));
+}
+
+void test_get_source_data_should_format_bt_qt(void) {
+  char buf[16];
+  int percent = 0;
+
+  // The combined phone-status window inks one checkbox per state: `x` while
+  // the phone is connected, `z` while Quiet Time is active. The glyphs carry
+  // the state on their own — no color needed. Quiet Time never feeds the
+  // percent: the band belongs to the connection alone.
+  s_connected = true;
+  s_quiet_time_active = true;
+  get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[x][z]", buf);
+  TEST_ASSERT_EQUAL_INT(100, percent);
+
+  s_quiet_time_active = false;
+  get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[x][ ]", buf);
+  TEST_ASSERT_EQUAL_INT(100, percent);
+
+  s_connected = false;
+  get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[ ][ ]", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_quiet_time_active = true;
+  get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[ ][z]", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_active_theme = &s_theme_panel;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BT_QT));
+  s_quiet_time_active = false;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BT_QT));
+}
+
+void test_get_source_data_should_format_quiet_time(void) {
+  char buf[16];
+  int percent = 0;
+
+  // The standalone window shows one checkbox from the same state the
+  // combined window inks in its second box.
+  s_quiet_time_active = true;
+  get_source_data(DATA_SOURCE_QUIET_TIME, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[z]", buf);
+  TEST_ASSERT_EQUAL_INT(100, percent);
+
+  s_quiet_time_active = false;
+  get_source_data(DATA_SOURCE_QUIET_TIME, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("[ ]", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_active_theme = &s_theme_panel;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_QUIET_TIME));
+  s_quiet_time_active = true;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_QUIET_TIME));
+}
+
+void test_bt_qt_window_should_split_captions_only_at_top_width(void) {
+  // The combined window trades its single "BT/QT" title for one frame-side
+  // caption stub per checkbox (with an air cell joining the boxes) only once
+  // the window is top-slot wide. The pixels are screenshot-gated; the width
+  // switch is not.
+  TEST_ASSERT_FALSE(bt_qt_split_captions(62));  // Bottom Center
+  TEST_ASSERT_FALSE(bt_qt_split_captions(63));  // Bottom Left/Right
+  TEST_ASSERT_TRUE(bt_qt_split_captions(93));   // Top row
+  TEST_ASSERT_TRUE(bt_qt_split_captions(184));  // Centre row
 }
 
 void test_get_source_data_should_format_active_minutes(void) {
@@ -2363,6 +2437,18 @@ void test_update_time_should_keep_date_output_when_nothing_changes(void) {
   TEST_ASSERT_EQUAL_STRING(once_short, s_short_date_display);
 }
 
+void test_tick_handler_should_refresh_quiet_time_state(void) {
+  struct tm t = {0};
+
+  mock_quiet_time_active = true;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_TRUE(s_quiet_time_active);
+
+  mock_quiet_time_active = false;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_FALSE(s_quiet_time_active);
+}
+
 void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
   struct tm t = {0};
 
@@ -2524,6 +2610,9 @@ int main(void) {
   RUN_TEST(test_battery_band_and_color_should_agree_at_every_level);
   RUN_TEST(test_centre_slot_should_be_the_sixth_and_default_to_the_date);
   RUN_TEST(test_get_source_data_should_format_bluetooth);
+  RUN_TEST(test_get_source_data_should_format_bt_qt);
+  RUN_TEST(test_get_source_data_should_format_quiet_time);
+  RUN_TEST(test_bt_qt_window_should_split_captions_only_at_top_width);
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
   RUN_TEST(test_get_source_data_should_format_humidity);
@@ -2578,6 +2667,7 @@ int main(void) {
   RUN_TEST(test_update_time_should_refresh_the_hi_lo_phase_hour);
   RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
+  RUN_TEST(test_tick_handler_should_refresh_quiet_time_state);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   RUN_TEST(test_tick_handler_should_skip_weather_with_no_weather_slots);
   RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);

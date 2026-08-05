@@ -248,6 +248,7 @@ void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge))
 bool clock_is_24h_style(void);
 bool connection_service_peek_pebble_app_connection(void);
 void connection_service_subscribe(ConnectionHandlers handlers);
+bool quiet_time_is_active(void);
 Tuple* dict_find(const DictionaryIterator* iter, uint32_t key);
 void dict_write_uint8(DictionaryIterator* iter, uint32_t key, uint8_t value);
 GFont fonts_get_system_font(const char* font_key);
@@ -296,6 +297,7 @@ extern int mock_health_accessible_count;
 extern int mock_health_sum_today_count;
 extern int mock_health_peek_count;
 extern time_t mock_time_offset;
+extern bool mock_quiet_time_active;
 extern int mock_vibes_count;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;

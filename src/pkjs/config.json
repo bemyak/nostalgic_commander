@@ -150,15 +150,15 @@
             "value": "0"
           },
           {
-            "label": "Bluetooth Status",
-            "value": "9"
+            "label": "Bluetooth + Quiet Time",
+            "value": "32"
           },
           {
             "label": "Short Date (no year)",
             "value": "22"
           },
           {
-            "label": ".beat (Swatch Internet Time)",
+            "label": ".beat time",
             "value": "21"
           },
           {
@@ -182,7 +182,7 @@
             "value": "5"
           },
           {
-            "label": "High / Low Temperature (rolls as extremes pass)",
+            "label": "Next High / Low temperatures",
             "value": "30"
           },
           {
@@ -222,15 +222,15 @@
             "value": "0"
           },
           {
-            "label": "Bluetooth Status",
-            "value": "9"
+            "label": "Bluetooth + Quiet Time",
+            "value": "32"
           },
           {
             "label": "Short Date (no year)",
             "value": "22"
           },
           {
-            "label": ".beat (Swatch Internet Time)",
+            "label": ".beat time",
             "value": "21"
           },
           {
@@ -254,7 +254,7 @@
             "value": "5"
           },
           {
-            "label": "High / Low Temperature (rolls as extremes pass)",
+            "label": "Next High / Low temperatures",
             "value": "30"
           },
           {
@@ -322,7 +322,11 @@
             "value": "9"
           },
           {
-            "label": ".beat (Swatch Internet Time)",
+            "label": "Quiet Time",
+            "value": "31"
+          },
+          {
+            "label": ".beat time",
             "value": "21"
           },
           {
@@ -378,7 +382,11 @@
             "value": "9"
           },
           {
-            "label": ".beat (Swatch Internet Time)",
+            "label": "Quiet Time",
+            "value": "31"
+          },
+          {
+            "label": ".beat time",
             "value": "21"
           },
           {
@@ -434,7 +442,11 @@
             "value": "9"
           },
           {
-            "label": ".beat (Swatch Internet Time)",
+            "label": "Quiet Time",
+            "value": "31"
+          },
+          {
+            "label": ".beat time",
             "value": "21"
           },
           {

@@ -46,6 +46,10 @@ bool clock_is_24h_style(void) {
 bool connection_service_peek_pebble_app_connection(void) {
   return true;
 }
+bool mock_quiet_time_active = false;
+bool quiet_time_is_active(void) {
+  return mock_quiet_time_active;
+}
 void connection_service_subscribe(ConnectionHandlers handlers) {}
 
 // Scriptable inbound dictionary: tests stage tuples with mock_dict_add_*()

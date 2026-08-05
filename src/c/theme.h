@@ -8,7 +8,8 @@ typedef struct {
   GColor frame;        // ASCII window borders and corner crosses
   GColor text_primary;
   GColor text_secondary;
-  GColor mark;        // accented characters: unit letter, weekday, the beats "@"
+  GColor mark;        // accented characters: unit letter, weekday, the beats "@",
+                      // the bpm window's heart
   GColor status_ink;  // text drawn on top of a status-colored fill
   GColor status_green;
   GColor status_yellow;

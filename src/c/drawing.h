@@ -32,11 +32,22 @@
 // registered to each other.
 #define FULL_WEATHER_STRIP_CELLS 18
 
+// The combined BT/QT window widens its layout at top-slot width: the single
+// "BT/QT" title splits into one caption stub per checkbox (the frame runs
+// through between them) and the boxes gain an air cell: two 3-cell boxes
+// plus the gap. A test pins the threshold, so a layout edit can't silently
+// retune the switch.
+#define BT_QT_SPLIT_MIN_W 93
+#define BT_QT_STRIP_CELLS 7
+
 extern Window* s_main_window;
 extern Layer* s_canvas_layer;
 extern TextLayer* s_time_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
+
+// Width switch for the combined BT/QT window (see BT_QT_SPLIT_MIN_W).
+bool bt_qt_split_captions(int width);
 void canvas_update_proc(Layer* layer, GContext* ctx);
 // Build a snapshot of all displayed state and schedule the one full-tree
 // render iff it differs from what the last render drew. Safe to call from

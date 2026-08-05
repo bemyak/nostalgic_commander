@@ -107,13 +107,16 @@ GColor get_source_color(ComplicationDataSource source) {
       return s_active_theme->status_red;
     // Plain readouts, drawn in the primary text color. Heart rate belongs here,
     // not with the status colors: it has no thresholds to encode, so tinting it
-    // only made it look like a warning. Bluetooth says it with a checkbox
-    // glyph, so it needs no color either. Same for humidity: outdoor RH has no
-    // actionable threshold, its diurnal swing makes bands noise.
+    // only made it look like a warning. Bluetooth and Quiet Time say it with
+    // checkbox glyphs, so they need no color either. Same for humidity:
+    // outdoor RH has no actionable threshold, its diurnal swing makes bands
+    // noise.
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
     case DATA_SOURCE_HEART_RATE:
     case DATA_SOURCE_BLUETOOTH:
+    case DATA_SOURCE_BT_QT:
+    case DATA_SOURCE_QUIET_TIME:
     case DATA_SOURCE_HUMIDITY:
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:

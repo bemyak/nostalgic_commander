@@ -9,6 +9,13 @@ rejected it gets deleted (git history remembers). Proposals welcome — see
 
 - Distance Walked
 - UTC Offset (e.g. -07:00 or +08:00)
+- Wind (speed + direction). Open questions: direction as 8-way compass
+  letters (`NW 12k`) vs degrees (`240°`; ° exists in the font) — arrows are
+  out, the font has cardinals only; speed = now vs next-12h max (the face's
+  weather is future-looking); unit follows the imperial/metric toggle.
+  Data path is the existing Open-Meteo request plus two fields
+  (wind_speed_10m, wind_direction_10m). `NW 12k` = 6 cells, fits both slot
+  sizes.
 
 ## Interactions
 

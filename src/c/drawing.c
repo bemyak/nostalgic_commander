@@ -134,8 +134,9 @@ static void draw_full_date_complication(GContext* ctx, GRect box_rect) {
   draw_date_text(ctx, box_rect, s_date_display);
 }
 
-// CP437 shade characters, as UTF-8. FONT_VGA_16's characterRegex admits exactly
-// these two; the 64pt clock never draws them.
+// CP437 shade characters, as UTF-8. FONT_VGA_16's characterRegex admits
+// these two plus U+2665 BLACK HEART SUIT (the heart rate window's chrome);
+// the 64pt clock draws none of them.
 #define BAR_TRACK "\xE2\x96\x91"  // U+2591 LIGHT SHADE
 #define BAR_VALUE_CELLS 4         // three digits plus '%'
 #define BAR_VALUE_MAX 999         // ...so this is the largest reading that fits
@@ -444,6 +445,98 @@ static void draw_captioned_bar(GContext* ctx, GRect rect) {
   }
 }
 
+bool bt_qt_split_captions(int width) {
+  return width >= BT_QT_SPLIT_MIN_W;
+}
+
+// Wide BT/QT frame: one caption straddling the top line per checkbox, each
+// ink-centred over the box it names; the runs before, between, and after
+// carry the frame itself. Same stub math as draw_captioned_bar.
+static void draw_split_caption_window(GContext* ctx, GRect rect, const char* left,
+                                      const char* right) {
+  int x = rect.origin.x;
+  int y = rect.origin.y;
+  int w = rect.size.w;
+  int h = rect.size.h;
+  int top = y + TITLE_BORDER_DROP;
+
+  graphics_context_set_fill_color(ctx, s_active_theme->frame);
+
+  graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, h - TITLE_BORDER_DROP), 0, GCornerNone);
+  graphics_fill_rect(ctx,
+                     GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, h - TITLE_BORDER_DROP),
+                     0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+
+  // Three-cell boxes sit at strip cells 0 and 4; a 2-cell caption centres
+  // over its box with half a cell of air to the nearest frame ink.
+  int strip_x = x + (w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  const int pad = VGA16_CHAR_W / 2;
+  int left_x = strip_x + VGA16_CHAR_W / 2;
+  int right_x = strip_x + 4 * VGA16_CHAR_W + VGA16_CHAR_W / 2;
+  int left_end = left_x + (int)strlen(left) * VGA16_CHAR_W;
+  int right_end = right_x + (int)strlen(right) * VGA16_CHAR_W;
+
+  graphics_fill_rect(ctx, GRect(x, top, left_x - pad - x, WINDOW_BORDER_PX), 0, GCornerNone);
+  graphics_fill_rect(ctx,
+                     GRect(left_end + pad, top, right_x - pad - left_end - pad, WINDOW_BORDER_PX),
+                     0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(right_end + pad, top, x + w - right_end - pad, WINDOW_BORDER_PX), 0,
+                     GCornerNone);
+
+  graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
+  graphics_draw_text(ctx, left, vga_font_16(),
+                     GRect(left_x, y - VGA16_CELL_H / 2, strlen(left) * VGA16_CHAR_W, VGA16_CELL_H),
+                     GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  graphics_draw_text(
+      ctx, right, vga_font_16(),
+      GRect(right_x, y - VGA16_CELL_H / 2, strlen(right) * VGA16_CHAR_W, VGA16_CELL_H),
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+}
+
+static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
+  char buf[8];
+  get_source_data(DATA_SOURCE_BLUETOOTH, buf, sizeof(buf), NULL);
+  GRect row = vga16_value_rect(box_rect, buf);
+  GColor color = get_source_color(DATA_SOURCE_BLUETOOTH);
+  if (!bt_qt_split_captions(box_rect.size.w)) {
+    // Narrow: the same centred pair the TextLayer path would have drawn.
+    draw_run(ctx, row, 0, buf, strlen(buf), color);
+    return;
+  }
+  // Wide: the boxes hold the strip's centre but gain an air cell; the split
+  // captions above stay registered to them.
+  int strip_x = box_rect.origin.x + (box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  GRect strip = GRect(strip_x, row.origin.y, BT_QT_STRIP_CELLS * VGA16_CHAR_W, row.size.h);
+  draw_run(ctx, strip, 0, buf, 3, color);
+  draw_run(ctx, strip, 4, buf + 3, 3, color);
+}
+
+static void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
+  char buf[8];
+  get_source_data(DATA_SOURCE_HEART_RATE, buf, sizeof(buf), NULL);
+  if (s_heart_rate <= 0) {
+    // No reading: plain dashed value, no heart — the icon only decorates a
+    // live number.
+    draw_run(ctx, vga16_value_rect(box_rect, buf), 0, buf, strlen(buf),
+             get_source_color(DATA_SOURCE_HEART_RATE));
+    return;
+  }
+  // A yellow heart cell fused to the right of the digits, a marquee accent
+  // like the beats window's "@": chrome in the theme mark, value in primary.
+  // The heart is multi-byte, so — like the bar's shade runs — it takes an
+  // explicit one-cell span instead of draw_run.
+  int cells = (int)strlen(buf) + 1;
+  GRect row = GRect(box_rect.origin.x + (box_rect.size.w - cells * VGA16_CHAR_W) / 2,
+                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+  draw_run(ctx, row, 0, buf, strlen(buf), get_source_color(DATA_SOURCE_HEART_RATE));
+  graphics_context_set_text_color(ctx, s_active_theme->mark);
+  graphics_draw_text(
+      ctx, "\xE2\x99\xA5" /* U+2665 BLACK HEART SUIT */, vga_font_16(),
+      GRect(row.origin.x + strlen(buf) * VGA16_CHAR_W, row.origin.y, VGA16_CHAR_W, row.size.h),
+      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+}
+
 static void draw_beats_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
@@ -481,6 +574,10 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
       return draw_weather_full_complication;
     case DATA_SOURCE_BEATS:
       return draw_beats_complication;
+    case DATA_SOURCE_HEART_RATE:
+      return draw_heart_rate_complication;
+    case DATA_SOURCE_BT_QT:
+      return draw_bt_qt_complication;
     case DATA_SOURCE_BATTERY:
       return draw_battery_complication;
     case DATA_SOURCE_WEATHER:
@@ -528,6 +625,8 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
     if (slot->source != DATA_SOURCE_EMPTY) {
       if (slot->source == DATA_SOURCE_WEATHER_FULL) {
         draw_captioned_bar(ctx, slot->box_rect);
+      } else if (slot->source == DATA_SOURCE_BT_QT && bt_qt_split_captions(slot->box_rect.size.w)) {
+        draw_split_caption_window(ctx, slot->box_rect, "BT", "QT");
       } else {
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }

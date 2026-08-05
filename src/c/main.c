@@ -165,6 +165,7 @@ void update_time() {
 }
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
+  s_quiet_time_active = quiet_time_is_active();
   update_time();
   // Fetch on the tick edge only. update_time() also runs from
   // inbox_received_callback; triggering there too re-armed the fetch on
@@ -351,6 +352,7 @@ static void init(void) {
   // Initial states (seed connection state directly — no vibe on launch)
   battery_callback(battery_state_service_peek());
   s_connected = connection_service_peek_pebble_app_connection();
+  s_quiet_time_active = quiet_time_is_active();
 
   // AppMessage setup
   app_message_register_inbox_received(inbox_received_callback);
