@@ -130,10 +130,11 @@ void format_strip_temp(char* buf, int buf_size) {
   format_temp(buf, buf_size, s_weather_temp, s_settings_units != 1);
 }
 
-// An extreme "has passed" once its own event hour is a grace hour past.
-// Unknown hours (-1) count as not passed.
+// An extreme "has passed" at the top of its own event hour — from then on
+// the cell shows tomorrow's value, keeping the readout strictly about the
+// next occurrence. Unknown hours (-1) count as not passed.
 static bool extreme_passed(int event_hour) {
-  return event_hour >= 0 && s_wall_hour >= event_hour + HIGH_LOW_GRACE_HOURS;
+  return event_hour >= 0 && s_wall_hour >= event_hour;
 }
 
 // Which cell leads, hours only: the sooner event goes left. A tie, or
@@ -159,8 +160,8 @@ static void format_high_low(char* buf, size_t len) {
     snprintf(buf, len, "-- / --");
     return;
   }
-  // Each cell shows the next occurrence of its kind: today's value until an
-  // hour past its own extreme, then tomorrow's.
+  // Each cell shows the next occurrence of its kind: today's value until
+  // the extreme's own hour begins, then tomorrow's.
   int lo_val = extreme_passed(s_lo_hour_today) ? s_temp_low_tmrw : s_temp_low;
   int hi_val = extreme_passed(s_hi_hour_today) ? s_temp_high_tmrw : s_temp_high;
   // Chronological left to right — the sooner event leads.

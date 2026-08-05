@@ -33,10 +33,6 @@ typedef enum {
 #define BATTERY_LOW_PCT 39
 #define BATTERY_CRIT_PCT 19
 
-// An extreme "has passed" this many hours after its own event hour; unknown
-// hours (-1) count as not passed.
-#define HIGH_LOW_GRACE_HOURS 1
-
 extern int s_battery_level;
 extern bool s_battery_charging;
 extern int s_step_count;

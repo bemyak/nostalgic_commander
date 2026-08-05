@@ -113,14 +113,18 @@
         "label": "Enable vibration on phone disconnect",
         "options": [
           {
-            "label": "Yes, I can disable battery optimization for Pebble app",
+            "label": "On",
             "value": "1"
           },
           {
-            "label": "No, but it'll break notifications and weather updates",
+            "label": "Off",
             "value": "0"
           }
         ]
+      },
+      {
+        "type": "text",
+        "defaultValue": "If disconnects are frequent, your phone is killing the Pebble app in the background - which also breaks notifications and weather. On Android, exclude the app from battery optimization."
       }
     ]
   },
