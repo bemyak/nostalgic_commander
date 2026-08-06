@@ -53,7 +53,9 @@
       "WEATHER_LO_HOUR_TODAY",
       "WEATHER_HI_HOUR_TOMORROW",
       "WEATHER_LO_HOUR_TOMORROW",
-      "SETTINGS_DISCONNECT_VIBE"
+      "SETTINGS_DISCONNECT_VIBE",
+      "WEATHER_WIND_DIRECTION",
+      "WEATHER_WIND_SPEED"
     ],
     "resources": {
       "media": [
@@ -61,7 +63,7 @@
           "type": "font",
           "name": "FONT_VGA_16",
           "file": "fonts/Px437_IBM_VGA_8x16.ttf",
-          "characterRegex": "[\\x20-\\x7E█░♥↖↗↘↙]",
+          "characterRegex": "[\\x20-\\x7E█░♥←↑→↓↖↗↘↙]",
           "size": 16
         },
         {

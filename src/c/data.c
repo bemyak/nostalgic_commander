@@ -12,16 +12,18 @@ int s_sleep_seconds = -1;   // -1 indicates no data
 int s_heart_rate = 0;       // Default to 0 (displays "--" if no HRM is present)
 int s_weather_temp = -999;  // -999 indicates no data
 char s_weather_cond[16] = "--";
-int s_weather_aqi = -1;       // -1 indicates no data
-int s_weather_uv = -1;        // -1 indicates no data
-int s_weather_humidity = -1;  // -1 indicates no data
-int s_weather_pcp = -1;       // -1 indicates no data
-int s_precip_now = -1;        // tenths of mm over the past hour; -1 indicates no data
-int s_temp_high = -999;       // -999 indicates no data
-int s_temp_low = -999;        // -999 indicates no data
-int s_temp_high_tmrw = -999;  // -999 indicates no data
-int s_temp_low_tmrw = -999;   // -999 indicates no data
-int s_hi_hour_today = -1;     // event hours 0-23; -1 unknown
+int s_weather_aqi = -1;             // -1 indicates no data
+int s_weather_uv = -1;              // -1 indicates no data
+int s_weather_humidity = -1;        // -1 indicates no data
+int s_weather_wind_direction = -1;  // meteo bearing, degrees FROM; -1 indicates no data
+int s_weather_wind_speed = -1;      // in the settings unit (mph/m/s); -1 indicates no data
+int s_weather_pcp = -1;             // -1 indicates no data
+int s_precip_now = -1;              // tenths of mm over the past hour; -1 indicates no data
+int s_temp_high = -999;             // -999 indicates no data
+int s_temp_low = -999;              // -999 indicates no data
+int s_temp_high_tmrw = -999;        // -999 indicates no data
+int s_temp_low_tmrw = -999;         // -999 indicates no data
+int s_hi_hour_today = -1;           // event hours 0-23; -1 unknown
 int s_lo_hour_today = -1;
 int s_hi_hour_tmrw = -1;
 int s_lo_hour_tmrw = -1;
@@ -84,8 +86,8 @@ const char* get_source_label(ComplicationDataSource source) {
       return "BT/QT";
     case DATA_SOURCE_QUIET_TIME:
       return "QT";
-    case DATA_SOURCE_ARROWS:
-      return "DIR";
+    case DATA_SOURCE_WIND:
+      return "WIND";
     case DATA_SOURCE_ACTIVE_MINUTES:
       return "ACTV";
     case DATA_SOURCE_AQI:
@@ -132,6 +134,19 @@ bool weather_shows_precip_amount(void) {
   if (s_settings_units != 1 || s_precip_now < 0) return false;
   return strcmp(s_weather_cond, "RAIN") == 0 || strcmp(s_weather_cond, "SNOW") == 0 ||
          strcmp(s_weather_cond, "TSTM") == 0;
+}
+
+// The eight arrows, clockwise from north. UTF-8 for U+2190..U+2199.
+static const char* s_wind_arrows[8] = {"\xE2\x86\x91", "\xE2\x86\x97", "\xE2\x86\x92",
+                                       "\xE2\x86\x98", "\xE2\x86\x93", "\xE2\x86\x99",
+                                       "\xE2\x86\x90", "\xE2\x86\x96"};
+
+const char* wind_direction_arrow(int deg) {
+  if (deg < 0) return "--";
+  // The meteo bearing is the direction the wind blows FROM; the face points
+  // the way it goes, half a compass around.
+  int toward = (deg % 360 + 180) % 360;
+  return s_wind_arrows[(toward + 22) / 45 % 8];
 }
 
 void format_strip_temp(char* buf, int buf_size) {
@@ -266,10 +281,6 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
                s_quiet_time_active ? "z" : " ");
       if (percent) *percent = s_connected ? 100 : 0;
       break;
-    case DATA_SOURCE_ARROWS:
-      // Font-experiment window: the patched-in diagonal arrows, all four.
-      snprintf(val_buf, val_len, "\xE2\x86\x96\xE2\x86\x97\xE2\x86\x98\xE2\x86\x99");
-      break;
     case DATA_SOURCE_QUIET_TIME:
       // Same checkbox, alone in its own window.
       snprintf(val_buf, val_len, "%s", s_quiet_time_active ? "[z]" : "[ ]");
@@ -322,6 +333,27 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
         if (percent) *percent = s_weather_humidity;
       }
       break;
+    case DATA_SOURCE_WIND: {
+      // The arrow plus the current speed in the settings unit; either half
+      // alone is still worth showing while the other is unsent.
+      const char* arrow =
+          s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
+      char speed_buf[8] = "";
+      if (s_weather_wind_speed >= 0) {
+        int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
+        // spelled out, unglued — a lone letter read as knots
+        snprintf(speed_buf, sizeof(speed_buf), "%d %s", speed,
+                 s_settings_units == 1 ? "m/s" : "mph");
+      }
+      if (arrow && speed_buf[0]) {
+        snprintf(val_buf, val_len, "%s %s", arrow, speed_buf);
+      } else if (arrow || speed_buf[0]) {
+        snprintf(val_buf, val_len, "%s", arrow ? arrow : speed_buf);
+      } else {
+        snprintf(val_buf, val_len, "--");
+      }
+      break;
+    }
     case DATA_SOURCE_WEATHER_PCP:
       if (weather_shows_precip_amount()) {
         // Whole millimetres; trace drizzle reads "<1mm", a cloudburst clamps.

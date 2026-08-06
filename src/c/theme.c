@@ -110,11 +110,12 @@ GColor get_source_color(ComplicationDataSource source) {
     // only made it look like a warning. Bluetooth and Quiet Time say it with
     // checkbox glyphs, so they need no color either. Same for humidity:
     // outdoor RH has no actionable threshold, its diurnal swing makes bands
-    // noise.
+    // noise. A wind arrow likewise carries no warning — a compass point has
+    // no threshold to flag.
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
     case DATA_SOURCE_HEART_RATE:
-    case DATA_SOURCE_ARROWS:
+    case DATA_SOURCE_WIND:
     case DATA_SOURCE_BLUETOOTH:
     case DATA_SOURCE_BT_QT:
     case DATA_SOURCE_QUIET_TIME:

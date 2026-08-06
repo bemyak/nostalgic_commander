@@ -12,7 +12,8 @@ var WEATHER_DICT_KEYS = [
   'WEATHER_TEMP', 'WEATHER_COND', 'WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
   'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_PRECIP_NOW', 'WEATHER_LOW_TOMORROW',
   'WEATHER_TEMP_HIGH_TOMORROW', 'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY',
-  'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW'
+  'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW', 'WEATHER_WIND_DIRECTION',
+  'WEATHER_WIND_SPEED'
 ];
 
 function isCompleteWeatherPayload(payload) {
@@ -110,14 +111,15 @@ function getWeather(attempt) {
         }
         var units = settings['SETTINGS_UNITS'] || '0';
         var tempUnit = (units === '1' || units === 1) ? 'celsius' : 'fahrenheit';
+        var windSpeedUnit = (units === '1' || units === 1) ? 'ms' : 'mph';
 
         // The modern `current` block carries temp/code/humidity in one shot;
         // `current_weather=true` is legacy and silently suppresses `current=`.
         var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
             '&longitude=' + lon +
-            '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation' +
+            '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation,wind_direction_10m,wind_speed_10m' +
             '&timezone=auto' +
-            '&temperature_unit=' + tempUnit +
+            '&temperature_unit=' + tempUnit + '&wind_speed_unit=' + windSpeedUnit +
             '&hourly=uv_index,precipitation_probability,temperature_2m&forecast_days=2' +
             '&daily=temperature_2m_max,temperature_2m_min';
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
@@ -146,6 +148,8 @@ function getWeather(attempt) {
                 'WEATHER_AQI': aqi,
                 'WEATHER_UV': forecast.uv,
                 'WEATHER_HUMIDITY': forecast.humidity,
+                'WEATHER_WIND_DIRECTION': forecast.windDirection,
+                'WEATHER_WIND_SPEED': forecast.windSpeed,
                 'WEATHER_PCP': forecast.pcp,
                 'WEATHER_PRECIP_NOW': forecast.precipNow,
                 'WEATHER_HIGH': forecast.high,
@@ -172,6 +176,16 @@ function getWeather(attempt) {
               var humidity = -1;
               if (typeof json.current.relative_humidity_2m === 'number') {
                 humidity = Math.round(json.current.relative_humidity_2m);
+              }
+              // Meteo FROM bearing, whole degrees; the watch flips it to the
+              // direction the wind blows. Same missing-field guard as humidity.
+              var windDirection = -1;
+              if (typeof json.current.wind_direction_10m === 'number') {
+                windDirection = Math.round(json.current.wind_direction_10m);
+              }
+              var windSpeed = -1;
+              if (typeof json.current.wind_speed_10m === 'number') {
+                windSpeed = Math.round(json.current.wind_speed_10m);
               }
               // Tenths of mm over the past hour. Always mm — the watch
               // displays the live rate only in metric mode, so no unit param.
@@ -293,6 +307,8 @@ function getWeather(attempt) {
                 cond: cond,
                 uv: uv,
                 humidity: humidity,
+                windDirection: windDirection,
+                windSpeed: windSpeed,
                 pcp: pcp,
                 precipNow: precipNow,
                 high: high,

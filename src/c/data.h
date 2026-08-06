@@ -26,7 +26,7 @@ typedef enum {
   DATA_SOURCE_TEMP_HIGH_LOW = 30,  // 29 is retired (SUN_TIMES), see 19
   DATA_SOURCE_QUIET_TIME = 31,
   DATA_SOURCE_BT_QT = 32,  // 19 and 29 are retired, 20 is EMPTY
-  DATA_SOURCE_ARROWS = 33,
+  DATA_SOURCE_WIND = 34,   // 33 is retired (ARROWS font test)
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -47,6 +47,8 @@ extern char s_weather_cond[16];
 extern int s_weather_aqi;
 extern int s_weather_uv;
 extern int s_weather_humidity;
+extern int s_weather_wind_direction;
+extern int s_weather_wind_speed;
 extern int s_weather_pcp;
 extern int s_precip_now;
 
@@ -110,6 +112,9 @@ extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
+// The single arrow for a wind blowing FROM `deg` (meteo bearing); the face
+// points the way the wind goes. "--" on any negative bearing.
+const char* wind_direction_arrow(int deg);
 // One of the four DateFormat bodies with the weekday attached per
 // `dow_position`. `short_format` only matters for DATE_FORMAT_SHORT.
 void format_date_string(int format, int short_format, int dow_position, struct tm* tick_time,

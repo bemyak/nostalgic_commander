@@ -45,6 +45,8 @@ void setUp(void) {
   // offset and the last-refresh stamp so no test inherits a window.
   mock_time_offset = 0;
   s_last_throttled_health_refresh = 0;
+  s_weather_wind_direction = -1;
+  s_weather_wind_speed = -1;
   // main_window_load() reads the theme like init() applies one first; the
   // render-gate tests load the window without going through init().
   s_active_theme = &s_theme_panel;
@@ -562,7 +564,7 @@ void test_get_source_label_should_return_correct_labels(void) {
   // One window covering both phone states; the standalone keeps the short tag.
   TEST_ASSERT_EQUAL_STRING("BT/QT", get_source_label(DATA_SOURCE_BT_QT));
   TEST_ASSERT_EQUAL_STRING("QT", get_source_label(DATA_SOURCE_QUIET_TIME));
-  TEST_ASSERT_EQUAL_STRING("DIR", get_source_label(DATA_SOURCE_ARROWS));
+  TEST_ASSERT_EQUAL_STRING("WIND", get_source_label(DATA_SOURCE_WIND));
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
@@ -876,16 +878,107 @@ void test_get_source_data_should_format_bt_qt(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BT_QT));
 }
 
-void test_get_source_data_should_format_diagonal_arrows(void) {
-  char buf[16];
+void test_wind_direction_arrow_should_point_where_the_wind_blows(void) {
+  // Meteo reports the bearing the wind blows FROM; the face points the way
+  // it goes — a northerly reads "down".
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x93", wind_direction_arrow(0));    // N wind blows S
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x99", wind_direction_arrow(45));   // NE blows SW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x90", wind_direction_arrow(90));   // E blows W
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x96", wind_direction_arrow(135));  // SE blows NW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x91", wind_direction_arrow(180));  // S blows N
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x97", wind_direction_arrow(225));  // SW blows NE
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x92", wind_direction_arrow(270));  // W blows E
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x98", wind_direction_arrow(315));  // NW blows SE
+}
 
-  // Font-experiment window: the four patched-in glyphs (U+2196..U+2199),
-  // plain text — legibility of the new glyphs is screenshot-gated.
-  get_source_data(DATA_SOURCE_ARROWS, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x96\xE2\x86\x97\xE2\x86\x98\xE2\x86\x99", buf);
+void test_wind_direction_arrow_should_take_the_clockwise_sector_on_boundaries(void) {
+  // Sectors are 45 degrees wide, centered on their arrow's compass point;
+  // the half-sector boundaries (x.5 degrees) fall between two ints, and the
+  // first int on the clockwise side must flip the sector.
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x91", wind_direction_arrow(202));  // blows N
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x97", wind_direction_arrow(203));  // blows NE
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x97", wind_direction_arrow(247));  // blows NE
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x92", wind_direction_arrow(248));  // blows E
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x92", wind_direction_arrow(292));  // blows E
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x98", wind_direction_arrow(293));  // blows SE
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x98", wind_direction_arrow(337));  // blows SE
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x93", wind_direction_arrow(338));  // blows S
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x93", wind_direction_arrow(22));   // blows S
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x99", wind_direction_arrow(23));   // blows SW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x99", wind_direction_arrow(67));   // blows SW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x90", wind_direction_arrow(68));   // blows W
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x90", wind_direction_arrow(112));  // blows W
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x96", wind_direction_arrow(113));  // blows NW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x96", wind_direction_arrow(157));  // blows NW
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x91", wind_direction_arrow(158));  // blows N
+}
+
+void test_wind_direction_arrow_should_normalize_or_reject_out_of_range_bearings(void) {
+  // The N sector wraps the zero point in both bearing and result.
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x93", wind_direction_arrow(359));  // blows S
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x93", wind_direction_arrow(21));   // blows S
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x91", wind_direction_arrow(179));  // blows N
+  // Wire values over 360 are junk, not a new kind of circle — clamp modulo.
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x91", wind_direction_arrow(540));  // 360+180
+  // No data is the sentinel, and any negative is the sentinel's family.
+  TEST_ASSERT_EQUAL_STRING("--", wind_direction_arrow(-1));
+  TEST_ASSERT_EQUAL_STRING("--", wind_direction_arrow(-270));
+}
+
+void test_get_source_data_should_format_wind(void) {
+  char buf[16];
+  int percent = -1;
+
+  s_weather_wind_direction = -1;
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  // A one-glyph arrow is a caption, not a progress bar.
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_weather_wind_direction = 225;  // a southwesterly
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x97", buf);
+
+  // Speed rides with the arrow; the unit is m/s metric, mph imperial — spelled
+  // out, since a lone letter read as knots.
+  int saved_units = s_settings_units;
+  s_settings_units = 1;  // metric
+  s_weather_wind_speed = 12;
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  // JS hex escapes swallow trailing digits; split the literal.
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x97"
+      " 12 m/s",
+      buf);
+
+  s_settings_units = 0;  // imperial
+  s_weather_wind_speed = 45;
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x97"
+      " 45 mph",
+      buf);
+
+  // Speed alone, no bearing yet: still worth showing.
+  s_weather_wind_direction = -1;
+  s_settings_units = 1;
+  s_weather_wind_speed = 12;
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("12 m/s", buf);
+
+  // Absurd readings clamp at the three digits the window can hold.
+  s_weather_wind_direction = 225;
+  s_settings_units = 0;
+  s_weather_wind_speed = 1042;
+  get_source_data(DATA_SOURCE_WIND, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x97"
+      " 999 mph",
+      buf);
+  s_settings_units = saved_units;
 
   s_active_theme = &s_theme_panel;
-  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_ARROWS));
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WIND));
 }
 
 void test_get_source_data_should_format_quiet_time(void) {
@@ -1830,6 +1923,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_hi_hour_today = 15;
   s_lo_hour_tmrw = 4;
   s_hi_hour_tmrw = 14;
+  s_weather_wind_direction = 270;
   save_weather_cache();
 
   // Simulate a relaunch: globals reset to sentinels
@@ -1848,6 +1942,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_hi_hour_today = -1;
   s_lo_hour_tmrw = -1;
   s_hi_hour_tmrw = -1;
+  s_weather_wind_direction = -1;
 
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
@@ -1865,6 +1960,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
   TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
   TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
 }
 
 void test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches(void) {
@@ -1882,6 +1978,8 @@ void test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches(vo
   s_hi_hour_today = -1;
   s_lo_hour_tmrw = -1;
   s_hi_hour_tmrw = -1;
+  s_weather_wind_direction = -1;
+  s_weather_wind_speed = -1;
 
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
@@ -1892,6 +1990,7 @@ void test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches(vo
   TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_today);
   TEST_ASSERT_EQUAL_INT(-1, s_lo_hour_tmrw);
   TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(-1, s_weather_wind_direction);
 }
 
 void test_weather_cache_should_reject_missing_or_stale_data(void) {
@@ -2234,6 +2333,54 @@ void test_inbox_should_parse_and_persist_tomorrow_low(void) {
   TEST_ASSERT_EQUAL_INT(55, persist_read_int(PERSIST_KEY_WEATHER_LOW_TOMORROW));
 }
 
+void test_inbox_should_parse_and_persist_wind_direction(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 270);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
+  TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_WIND_DIRECTION));
+  TEST_ASSERT_EQUAL_INT(270, persist_read_int(PERSIST_KEY_WEATHER_WIND_DIRECTION));
+
+  s_weather_wind_direction = -1;
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
+}
+
+void test_inbox_should_parse_and_persist_wind_speed(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");  // cache save needs a real payload
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_SPEED, 23);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(23, s_weather_wind_speed);
+  TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_WIND_SPEED));
+
+  s_weather_wind_speed = -1;
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(23, s_weather_wind_speed);
+}
+
+void test_inbox_without_wind_should_leave_the_sentinel(void) {
+  // An old phone-side build sends no wind key; nothing is invented.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  s_weather_wind_direction = -1;
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-1, s_weather_wind_direction);
+}
+
 void test_inbox_should_parse_and_persist_extreme_rollover_keys(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -2500,6 +2647,29 @@ void test_tick_handler_should_skip_weather_with_no_weather_slots(void) {
   restore_slots(saved);
 }
 
+void test_wind_slot_should_join_the_weather_fetch_gate(void) {
+  // A wind-only layout must fetch on the :00/:30 edge like any other
+  // weather reading, or the arrow never leaves "--".
+  ComplicationDataSource saved[NUM_SLOTS];
+  save_slots(saved);
+  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
+                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
+                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
+  restore_slots(weather_free);
+
+  struct tm t = {0};
+  t.tm_min = 30;
+  int before = mock_outbox_sends;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+
+  s_complication_slots[2].source = DATA_SOURCE_WIND;  // Bottom Left
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+
+  restore_slots(saved);
+}
+
 void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
   ComplicationDataSource saved[NUM_SLOTS];
   save_slots(saved);
@@ -2625,7 +2795,10 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_bt_qt);
   RUN_TEST(test_get_source_data_should_format_quiet_time);
-  RUN_TEST(test_get_source_data_should_format_diagonal_arrows);
+  RUN_TEST(test_get_source_data_should_format_wind);
+  RUN_TEST(test_wind_direction_arrow_should_point_where_the_wind_blows);
+  RUN_TEST(test_wind_direction_arrow_should_take_the_clockwise_sector_on_boundaries);
+  RUN_TEST(test_wind_direction_arrow_should_normalize_or_reject_out_of_range_bearings);
   RUN_TEST(test_bt_qt_window_should_split_captions_only_at_top_width);
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
@@ -2669,6 +2842,9 @@ int main(void) {
   RUN_TEST(test_handle_bluetooth_should_stay_silent_on_drops_when_the_buzz_is_disabled);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
+  RUN_TEST(test_inbox_should_parse_and_persist_wind_direction);
+  RUN_TEST(test_inbox_should_parse_and_persist_wind_speed);
+  RUN_TEST(test_inbox_without_wind_should_leave_the_sentinel);
   RUN_TEST(test_inbox_should_parse_and_persist_extreme_rollover_keys);
   RUN_TEST(test_inbox_without_tomorrow_low_should_leave_the_sentinel);
   RUN_TEST(test_inbox_without_extreme_timing_should_leave_the_sentinels);
@@ -2684,6 +2860,7 @@ int main(void) {
   RUN_TEST(test_tick_handler_should_refresh_quiet_time_state);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   RUN_TEST(test_tick_handler_should_skip_weather_with_no_weather_slots);
+  RUN_TEST(test_wind_slot_should_join_the_weather_fetch_gate);
   RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);
   RUN_TEST(test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown);
   RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
