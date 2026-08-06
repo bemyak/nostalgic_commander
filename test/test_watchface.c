@@ -226,6 +226,28 @@ void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
   TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
 }
 
+// As delivered to the canvas, both checkboxes of the combined window must be
+// drawn — a stray atomic-source read inside the drawer is exactly the bug
+// where the QT box comes out empty.
+void test_bt_qt_wide_should_draw_both_checkboxes(void) {
+  test_apply_theme();
+  s_complication_slots[0].source = DATA_SOURCE_BT_QT;  // top slot: wide form
+  s_connected = true;
+  s_quiet_time_active = true;
+  mock_text_run_count = 0;
+  canvas_update_proc(NULL, NULL);
+
+  bool x_found = false, z_found = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], "[x]") == 0) x_found = true;
+    if (strcmp(mock_text_runs[i], "[z]") == 0) z_found = true;
+  }
+  TEST_ASSERT_TRUE(x_found);
+  TEST_ASSERT_TRUE(z_found);
+
+  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
+}
+
 void test_canvas_procs_should_never_word_wrap(void) {
   test_apply_theme();
   s_complication_slots[3].source = DATA_SOURCE_BATTERY_BAR;  // exercise the shade runs too
@@ -1502,7 +1524,7 @@ void test_get_source_data_should_format_high_low(void) {
   TEST_ASSERT_TRUE(strlen(buf) <= 11);
 }
 
-void test_high_low_cells_should_roll_when_their_extreme_hour_starts(void) {
+void test_high_low_cells_should_roll_when_their_extreme_hour_ends(void) {
   char buf[24];
   s_settings_units = 1;
   // Typical day: this morning's low at 05:00, this afternoon's high at 15:00
@@ -1519,13 +1541,21 @@ void test_high_low_cells_should_roll_when_their_extreme_hour_starts(void) {
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 
-  s_wall_hour = 5;  // the low's own hour has started: it counts as passed,
-                    // tonight's value shows and the 15:00 high leads as the
-                    // next event
+  s_wall_hour = 5;  // inside the low's own hour: it only rolls when the hour
+                    // ends — today's low while it's the low
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
+
+  s_wall_hour = 6;  // the 05:00 hour is over: low rolled to tonight's; the
+                    // 15:00 high leads as the next event
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);
 
-  s_wall_hour = 15;  // the high has rolled too: tomorrow's pair, dawn LO leads
+  s_wall_hour = 15;  // inside the high's own hour — still today's high
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);
+
+  s_wall_hour = 16;  // the 15:00 hour is over: tomorrow's pair, dawn LO leads
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 
@@ -2890,6 +2920,7 @@ int main(void) {
   RUN_TEST(test_quick_view_should_hide_and_restore_bottom_row_text_layers);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_hum_pcp_window_should_paint_its_halves);
+  RUN_TEST(test_bt_qt_wide_should_draw_both_checkboxes);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
@@ -2932,7 +2963,7 @@ int main(void) {
   RUN_TEST(test_strip_temp_formatter_should_always_carry_the_unit_letter);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);
-  RUN_TEST(test_high_low_cells_should_roll_when_their_extreme_hour_starts);
+  RUN_TEST(test_high_low_cells_should_roll_when_their_extreme_hour_ends);
   RUN_TEST(test_high_low_cells_should_stay_chronological_on_inversion_days);
   RUN_TEST(test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown);
   RUN_TEST(test_high_low_stub_order_should_follow_the_layout);

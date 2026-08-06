@@ -186,10 +186,7 @@
             "value": "30"
           },
           {
-            "label": {
-              "label": "Wind",
-              "value": "34"
-            },
+            "label": "Wind",
             "value": "34"
           },
           {
@@ -253,10 +250,7 @@
             "value": "30"
           },
           {
-            "label": {
-              "label": "Wind",
-              "value": "34"
-            },
+            "label": "Wind",
             "value": "34"
           },
           {
@@ -340,10 +334,7 @@
             "value": "28"
           },
           {
-            "label": {
-              "label": "Wind (m/s or mph)",
-              "value": "34"
-            },
+            "label": "Wind (m/s or mph)",
             "value": "34"
           },
           {
@@ -407,10 +398,7 @@
             "value": "28"
           },
           {
-            "label": {
-              "label": "Wind (m/s or mph)",
-              "value": "34"
-            },
+            "label": "Wind (m/s or mph)",
             "value": "34"
           },
           {
@@ -474,10 +462,7 @@
             "value": "28"
           },
           {
-            "label": {
-              "label": "Wind (m/s or mph)",
-              "value": "34"
-            },
+            "label": "Wind (m/s or mph)",
             "value": "34"
           },
           {

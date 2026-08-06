@@ -33,10 +33,10 @@ This document explains how the pieces fit together.
    hour) from the `current` block; hourly UV and precipitation probability,
    each reduced to the peak over the next 12 hours; the high/low extremes
    from the `daily` block plus each day's argmin/argmax hour from the hourly
-   curve: the extremes slot rolls each cell to tomorrow's value at the top of
-   its own extreme's hour, ordered so the next event sits left; the caption
-   flips with the layout (`HI/LO` vs `LO/HI`) so the readout stays
-   self-labelling)
+   curve: the extremes slot rolls each cell to tomorrow's value when its own
+   extreme's hour ends (the roll never contradicts a live reading inside
+   the hour), ordered so the next event sits left; its `HI`/`LO` frame stubs
+   swap with the layout, so the readout stays self-labelling)
    and the air-quality API (US AQI).
    The PCP complication swaps probability for that live rate while it
    actually rains (metric only). It maps the

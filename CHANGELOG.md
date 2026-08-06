@@ -4,6 +4,20 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
+## [1.4.1] - 2026-08-06
+
+### Fixed
+
+- **Combined BT/QT window in a top slot never painted its QT half** — the
+  drawer read the atomic Bluetooth source after the source renumbering, so
+  `[z]` never rendered.
+- **Slot settings showed `[object Object]` where the wind option should be**:
+  a botched options edit had nested the option object into its own label in
+  config.json.
+- **HI/LO rolled to tomorrow one hour early**: the roll fired at the start
+  of an extreme's own hour, so a "now" reading inside that hour could
+  disagree with the cell. Roll now happens when the hour ends.
+
 ## [1.4.0] - 2026-08-06
 
 Quiet time, wind, and a caption grammar for two-field windows.

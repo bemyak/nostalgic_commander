@@ -173,11 +173,13 @@ void format_strip_temp(char* buf, int buf_size) {
   format_temp(buf, buf_size, s_weather_temp, true);
 }
 
-// An extreme "has passed" at the top of its own event hour — from then on
-// the cell shows tomorrow's value, keeping the readout strictly about the
-// next occurrence. Unknown hours (-1) count as not passed.
+// An extreme "has passed" when its own event hour has ended — during that
+// hour the face's now-reading can still equal it (a 14:00 high is true at
+// 14:30), so the roll waits for the hour to be over. From then on the cell
+// shows tomorrow's value, keeping the readout about the next occurrence.
+// Unknown hours (-1) count as not passed.
 static bool extreme_passed(int event_hour) {
-  return event_hour >= 0 && s_wall_hour >= event_hour;
+  return event_hour >= 0 && s_wall_hour > event_hour;
 }
 
 // Which cell leads, hours only: the sooner event goes left. A tie, or

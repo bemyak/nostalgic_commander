@@ -561,7 +561,9 @@ static void draw_wind_complication(GContext* ctx, GRect box_rect) {
 
 static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
-  get_source_data(DATA_SOURCE_BLUETOOTH, buf, sizeof(buf), NULL);
+  // Reads its own combined source — not the atomic Bluetooth one, or the QT
+  // half comes out empty (the rename 9→32 once left this pointing at BT).
+  get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), NULL);
   GRect row = vga16_value_rect(box_rect, buf);
   GColor color = get_source_color(DATA_SOURCE_BLUETOOTH);
   if (!bt_qt_split_captions(box_rect.size.w)) {
