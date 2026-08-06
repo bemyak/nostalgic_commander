@@ -95,15 +95,15 @@ const char* get_source_label(ComplicationDataSource source) {
     case DATA_SOURCE_UV:
       return "UV";
     case DATA_SOURCE_AQI_UV:
-      return "AQI/UV";
+    case DATA_SOURCE_HUM_PCP:
+    case DATA_SOURCE_TEMP_HIGH_LOW:
+      // Frame-stub windows never consult the title; only the generic branch
+      // would, and these sources never reach it.
+      return "";
     case DATA_SOURCE_HUMIDITY:
       return "HUM";
     case DATA_SOURCE_WEATHER_PCP:
       return "PCP";
-    case DATA_SOURCE_TEMP_HIGH_LOW:
-      // The cells swap sides as extremes roll; the caption must name the
-      // current round, or "+20/+16" reads as "min 20, max 16".
-      return high_low_hi_leads() ? "HI/LO" : "LO/HI";
     case DATA_SOURCE_WEATHER_FULL:
       // Caption tokens live in drawing.c's field table, centred per chip.
       return "";
@@ -117,9 +117,8 @@ const char* get_source_label(ComplicationDataSource source) {
 }
 
 // The face's temperature spelling, unit-aware by policy: imperial prints the
-// unit letter and signs negatives only, metric always signs (Celsius crosses
-// zero as a matter of course). with_unit=false is the centre strip's metric
-// trade: the sign cell plus the letter would not fit the fixed chips.
+// unit letter and signs negatives only, metric always signs and letters
+// (Celsius crosses zero as a matter of course).
 static void format_temp(char* buf, size_t len, int temp, bool with_unit) {
   if (temp == -999) {
     snprintf(buf, len, "--");
@@ -149,8 +148,29 @@ const char* wind_direction_arrow(int deg) {
   return s_wind_arrows[(toward + 22) / 45 % 8];
 }
 
+// Canonical wind readout: arrow, air, speed, air, unit. Narrow windows drop
+// the unit (with_unit=false); the arrow alone, the number alone, and "--"
+// for nothing are all legal.
+void format_wind(char* buf, size_t len, bool with_unit) {
+  const char* arrow =
+      s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
+  char speed_buf[16] = "";
+  if (s_weather_wind_speed >= 0) {
+    int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
+    snprintf(speed_buf, sizeof(speed_buf), "%d%s", speed,
+             with_unit ? (s_settings_units == 1 ? " m/s" : " mph") : "");
+  }
+  if (arrow && speed_buf[0]) {
+    snprintf(buf, len, "%s %s", arrow, speed_buf);
+  } else if (arrow || speed_buf[0]) {
+    snprintf(buf, len, "%s", arrow ? arrow : speed_buf);
+  } else {
+    snprintf(buf, len, "--");
+  }
+}
+
 void format_strip_temp(char* buf, int buf_size) {
-  format_temp(buf, buf_size, s_weather_temp, s_settings_units != 1);
+  format_temp(buf, buf_size, s_weather_temp, true);
 }
 
 // An extreme "has passed" at the top of its own event hour — from then on
@@ -322,7 +342,8 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       } else {
         snprintf(uv_str, sizeof(uv_str), "%d", s_weather_uv);
       }
-      snprintf(val_buf, val_len, "%s / %s", aqi_str, uv_str);
+      // Air joins the halves; the frame stubs carry the naming.
+      snprintf(val_buf, val_len, "%s %s", aqi_str, uv_str);
       break;
     }
     case DATA_SOURCE_HUMIDITY:
@@ -335,25 +356,18 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
         if (percent) *percent = s_weather_humidity;
       }
       break;
-    case DATA_SOURCE_WIND: {
-      // The arrow plus the current speed in the settings unit; either half
-      // alone is still worth showing while the other is unsent.
-      const char* arrow =
-          s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
-      char speed_buf[8] = "";
-      if (s_weather_wind_speed >= 0) {
-        int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
-        // spelled out, unglued — a lone letter read as knots
-        snprintf(speed_buf, sizeof(speed_buf), "%d %s", speed,
-                 s_settings_units == 1 ? "m/s" : "mph");
-      }
-      if (arrow && speed_buf[0]) {
-        snprintf(val_buf, val_len, "%s %s", arrow, speed_buf);
-      } else if (arrow || speed_buf[0]) {
-        snprintf(val_buf, val_len, "%s", arrow ? arrow : speed_buf);
-      } else {
-        snprintf(val_buf, val_len, "--");
-      }
+    case DATA_SOURCE_WIND:
+      // Canonical (wide) form; narrow windows render format_wind(false)
+      // from draw_wind_complication.
+      format_wind(val_buf, val_len, true);
+      break;
+    case DATA_SOURCE_HUM_PCP: {
+      // Humidity and precipitation chance side by side; either half missing
+      // shows dashes in place. The stubs above name the halves.
+      char hum[8], pcp[8];
+      get_source_data(DATA_SOURCE_HUMIDITY, hum, sizeof(hum), NULL);
+      get_source_data(DATA_SOURCE_WEATHER_PCP, pcp, sizeof(pcp), NULL);
+      snprintf(val_buf, val_len, "%s %s", hum, pcp);
       break;
     }
     case DATA_SOURCE_WEATHER_PCP:

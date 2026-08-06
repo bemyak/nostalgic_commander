@@ -154,10 +154,6 @@
             "value": "32"
           },
           {
-            "label": "Wind Direction",
-            "value": "34"
-          },
-          {
             "label": "Short Date (no year)",
             "value": "22"
           },
@@ -190,23 +186,18 @@
             "value": "30"
           },
           {
-            "label": "Precipitation (next 12h max)",
-            "value": "28"
+            "label": {
+              "label": "Wind",
+              "value": "34"
+            },
+            "value": "34"
           },
           {
-            "label": "Humidity",
-            "value": "26"
+            "label": "Humidity + Precipitation (next 12h max)",
+            "value": "35"
           },
           {
-            "label": "Air Quality (AQI)",
-            "value": "16"
-          },
-          {
-            "label": "UV Index (next 12h max)",
-            "value": "17"
-          },
-          {
-            "label": "AQI / UV Index (next 12h max)",
+            "label": "AQI UV Index (next 12h max)",
             "value": "18"
           }
         ]
@@ -230,10 +221,6 @@
             "value": "32"
           },
           {
-            "label": "Wind Direction",
-            "value": "34"
-          },
-          {
             "label": "Short Date (no year)",
             "value": "22"
           },
@@ -266,23 +253,18 @@
             "value": "30"
           },
           {
-            "label": "Precipitation (next 12h max)",
-            "value": "28"
+            "label": {
+              "label": "Wind",
+              "value": "34"
+            },
+            "value": "34"
           },
           {
-            "label": "Humidity",
-            "value": "26"
+            "label": "Humidity + Precipitation (next 12h max)",
+            "value": "35"
           },
           {
-            "label": "Air Quality (AQI)",
-            "value": "16"
-          },
-          {
-            "label": "UV Index (next 12h max)",
-            "value": "17"
-          },
-          {
-            "label": "AQI / UV Index (next 12h max)",
+            "label": "AQI UV Index (next 12h max)",
             "value": "18"
           }
         ]
@@ -358,6 +340,13 @@
             "value": "28"
           },
           {
+            "label": {
+              "label": "Wind (m/s or mph)",
+              "value": "34"
+            },
+            "value": "34"
+          },
+          {
             "label": "Humidity",
             "value": "26"
           },
@@ -418,6 +407,13 @@
             "value": "28"
           },
           {
+            "label": {
+              "label": "Wind (m/s or mph)",
+              "value": "34"
+            },
+            "value": "34"
+          },
+          {
             "label": "Humidity",
             "value": "26"
           },
@@ -476,6 +472,13 @@
           {
             "label": "Precipitation (next 12h max)",
             "value": "28"
+          },
+          {
+            "label": {
+              "label": "Wind (m/s or mph)",
+              "value": "34"
+            },
+            "value": "34"
           },
           {
             "label": "Humidity",

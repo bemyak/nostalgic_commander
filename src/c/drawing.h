@@ -30,7 +30,7 @@
 // equal this, so a width edit can't silently desync the strip; captions and
 // chip values share the same centring formula (drawing.c) so they stay
 // registered to each other.
-#define FULL_WEATHER_STRIP_CELLS 18
+#define FULL_WEATHER_STRIP_CELLS 19
 
 // The combined BT/QT window widens its layout at top-slot width: the single
 // "BT/QT" title splits into one caption stub per checkbox (the frame runs
@@ -42,6 +42,11 @@
 
 // The HI/LO window's value strip: two 4-cell halves with one air cell between.
 #define HI_LO_STRIP_CELLS 9
+
+// HUM/PCP two-field rhythm: 3-cell fields with a 2-cell gap, centred as one
+// strip so the pair reads close together and off the frame.
+#define HUM_PCP_FIELD_CELLS 3
+#define HUM_PCP_GAP_CELLS 2
 
 extern Window* s_main_window;
 extern Layer* s_canvas_layer;

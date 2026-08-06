@@ -290,6 +290,34 @@ static void draw_uv_complication(GContext* ctx, GRect box_rect) {
 // Both readings side by side, each banding its own half of the cell so a good
 // AQI next to a high UV reads as two fields rather than one blended color. The
 // separator sits on the ground between them.
+// Humidity and precipitation side by side, same two-field shape as
+// AQI/UV: the PCP half keeps its calm-amount "mm" accent (the strip chip
+// rule); the humidity half never bands.
+static void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
+  char pcp_str[8];
+  const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
+  const int gap_px = HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
+  int left_x = box_rect.origin.x + (box_rect.size.w - (2 * field_px + gap_px)) / 2;
+  int right_x = left_x + field_px + gap_px;
+
+  char hum_str[8];
+  get_source_data(DATA_SOURCE_HUMIDITY, hum_str, sizeof(hum_str), NULL);
+  draw_status_field(ctx, box_rect, left_x, field_px, hum_str, false, GColorClear);
+
+  get_source_data(DATA_SOURCE_WEATHER_PCP, pcp_str, sizeof(pcp_str), NULL);
+  bool pcp_banded = reading_commands_attention(DATA_SOURCE_WEATHER_PCP);
+  if (weather_shows_precip_amount() && !pcp_banded) {
+    int len = strlen(pcp_str);
+    int cx = right_x + (field_px - len * VGA16_CHAR_W) / 2;
+    draw_accented_value(
+        ctx, GRect(cx, box_rect.origin.y + VALUE_ROW_DY, len * VGA16_CHAR_W, VALUE_ROW_H), pcp_str,
+        len - 2, 2, s_active_theme->text_primary, s_active_theme->mark);
+  } else {
+    draw_status_field(ctx, box_rect, right_x, field_px, pcp_str, pcp_banded,
+                      get_source_color(DATA_SOURCE_WEATHER_PCP));
+  }
+}
+
 static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
   char aqi_str[8];
   char uv_str[8];
@@ -304,15 +332,12 @@ static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
   int half = (band.size.w - VGA16_CHAR_W) / 2;
   int right_x = band.origin.x + band.size.w - half;
 
+  // No separator glyph: the frame stubs above (AQI/UV) name the halves, a
+  // cell of ground separates them, like the centre strip's chips.
   draw_status_field(ctx, box_rect, band.origin.x, half, aqi_str,
                     reading_commands_attention(DATA_SOURCE_AQI), get_source_color(DATA_SOURCE_AQI));
   draw_status_field(ctx, box_rect, right_x, half, uv_str,
                     reading_commands_attention(DATA_SOURCE_UV), get_source_color(DATA_SOURCE_UV));
-
-  // The separator sits on the ground in the gap, keeping the two fields legible
-  // as separate readings even when both carry the same color.
-  int gap_x = band.origin.x + half;
-  draw_status_field(ctx, box_rect, gap_x, band.size.w - 2 * half, "/", false, GColorClear);
 }
 
 // One chip per reading; one-cell gaps between chips. The fill comes from the
@@ -330,9 +355,8 @@ typedef struct {
 
 static const FullWeatherField s_full_weather_fields[] = {
     {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, -999},
-    // 3 cells: fits "72F"/"+22"; imperial extremes ("103F", "-22F") spill
-    // 4px into the gaps, the established trade for fixed-width chips.
-    {DATA_SOURCE_WEATHER_TEMP, 3, "TMP", &s_weather_temp, -999},
+    // 4 cells since the unit letter always shows: "+22C"/"103F" fit whole.
+    {DATA_SOURCE_WEATHER_TEMP, 4, "TMP", &s_weather_temp, -999},
     {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, -1},
     {DATA_SOURCE_WEATHER_PCP, 4, "PCP", &s_weather_pcp, -1},
 };
@@ -354,8 +378,8 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   for (size_t i = 0; i < FULL_WEATHER_NUM_FIELDS; i++) {
     const FullWeatherField* field = &s_full_weather_fields[i];
     int w = field->cells * VGA16_CHAR_W;
-    // Sized past chip width: imperial temp extremes ("103F", "-22F")
-    // intentionally spill 4px into the flanking gaps rather than clipping.
+    // Sized past chip width: a value wider than its chip centres in place
+    // rather than clipping (no current reading exceeds its chip).
     char buf[12];
     if (field->source == DATA_SOURCE_WEATHER_TEMP) {
       format_strip_temp(buf, sizeof(buf));
@@ -450,11 +474,11 @@ bool bt_qt_split_captions(int width) {
 }
 
 // Two-stub frame: one caption straddling the top line per value half, each
-// ink-centred over its anchor point in the value strip below (anchor offsets
-// in px from the strip's left edge); the runs before, between, and after
-// carry the frame itself. Stub math lifted from draw_captioned_bar.
+// ink-centred over an anchor offset (px from the box's left edge); the runs
+// before, between, and after carry the frame itself. Stub math lifted from
+// draw_captioned_bar.
 static void draw_split_caption_window(GContext* ctx, GRect rect, const char* left, int left_cx,
-                                      const char* right, int right_cx, int strip_cells) {
+                                      const char* right, int right_cx) {
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
@@ -469,10 +493,9 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
                      0, GCornerNone);
   graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
 
-  int strip_x = x + (w - strip_cells * VGA16_CHAR_W) / 2;
   const int pad = VGA16_CHAR_W / 2;
-  int left_x = strip_x + left_cx - (int)strlen(left) * VGA16_CHAR_W / 2;
-  int right_x = strip_x + right_cx - (int)strlen(right) * VGA16_CHAR_W / 2;
+  int left_x = x + left_cx - (int)strlen(left) * VGA16_CHAR_W / 2;
+  int right_x = x + right_cx - (int)strlen(right) * VGA16_CHAR_W / 2;
   int left_end = left_x + (int)strlen(left) * VGA16_CHAR_W;
   int right_end = right_x + (int)strlen(right) * VGA16_CHAR_W;
 
@@ -491,6 +514,49 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
       ctx, right, vga_font_16(),
       GRect(right_x, y - VGA16_CELL_H / 2, strlen(right) * VGA16_CHAR_W, VGA16_CELL_H),
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+}
+
+static void draw_wind_complication(GContext* ctx, GRect box_rect) {
+  // Bottom windows drop the unit — the "↗ 12" form; top slots keep the
+  // canonical string out of format_wind. The arrow is multi-byte, so the
+  // strip is laid out cell-by-cell (the heart drawer's precedent), never by
+  // strlen-centred text.
+  bool wide = bt_qt_split_captions(box_rect.size.w);
+  const char* arrow =
+      s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
+  char speed[16] = "";
+  if (s_weather_wind_speed >= 0) {
+    int s = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
+    if (wide) {
+      snprintf(speed, sizeof(speed), "%d %s", s, s_settings_units == 1 ? "m/s" : "mph");
+    } else {
+      snprintf(speed, sizeof(speed), "%d", s);
+    }
+  }
+  // Extreme wind takes the status band: severity color fill, ink flips — the
+  // lone-reading convention from draw_status_field. rungs live in
+  // get_source_color, so nothing here compares speeds.
+  GColor band = get_source_color(DATA_SOURCE_WIND);
+  bool banded = !gcolor_equal(band, s_active_theme->text_primary);
+  GColor ink = banded ? s_active_theme->status_ink : band;
+  if (banded) {
+    graphics_context_set_fill_color(ctx, band);
+    graphics_fill_rect(ctx, status_band_rect(box_rect), 0, GCornerNone);
+  }
+  if (!arrow) {
+    // No bearing: the speed (or "--"), ASCII-only, centres by strlen.
+    const char* buf = speed[0] ? speed : "--";
+    draw_run(ctx, vga16_value_rect(box_rect, buf), 0, buf, strlen(buf), ink);
+    return;
+  }
+  int cells = 1 + (speed[0] ? 1 + (int)strlen(speed) : 0);
+  GRect row = GRect(box_rect.origin.x + (box_rect.size.w - cells * VGA16_CHAR_W) / 2,
+                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+  graphics_context_set_text_color(ctx, ink);
+  graphics_draw_text(ctx, arrow, vga_font_16(),
+                     GRect(row.origin.x, row.origin.y, VGA16_CHAR_W, row.size.h),
+                     GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+  if (speed[0]) draw_run(ctx, row, 2, speed, strlen(speed), ink);
 }
 
 static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
@@ -577,6 +643,10 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
       return draw_heart_rate_complication;
     case DATA_SOURCE_BT_QT:
       return draw_bt_qt_complication;
+    case DATA_SOURCE_WIND:
+      return draw_wind_complication;
+    case DATA_SOURCE_HUM_PCP:
+      return draw_hum_pcp_complication;
     case DATA_SOURCE_BATTERY:
       return draw_battery_complication;
     case DATA_SOURCE_WEATHER:
@@ -626,14 +696,40 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
         draw_captioned_bar(ctx, slot->box_rect);
       } else if (slot->source == DATA_SOURCE_BT_QT && bt_qt_split_captions(slot->box_rect.size.w)) {
         // Captions centre over the 3-cell boxes at strip cells 0 and 4.
-        draw_split_caption_window(ctx, slot->box_rect, "BT", 12, "QT", 44, BT_QT_STRIP_CELLS);
-      } else if (slot->source == DATA_SOURCE_TEMP_HIGH_LOW &&
-                 bt_qt_split_captions(slot->box_rect.size.w)) {
-        // Stubs name the current round — centred over each 4-cell half
-        // (cells 0..3 and 5..8), following the same swap the value performs.
+        int strip_x = slot->box_rect.origin.x +
+                      (slot->box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+        draw_split_caption_window(ctx, slot->box_rect, "BT", strip_x + 12 - slot->box_rect.origin.x,
+                                  "QT", strip_x + 44 - slot->box_rect.origin.x);
+      } else if (slot->source == DATA_SOURCE_TEMP_HIGH_LOW) {
+        // Never a plain-title window: the settings offer this source for top
+        // slots only, but even off-list it gets its structured frame rather
+        // than a clipped title. Stubs name the current round and follow the
+        // same swap the value performs.
         bool hi_leads = high_low_hi_leads();
-        draw_split_caption_window(ctx, slot->box_rect, hi_leads ? "HI" : "LO", 16,
-                                  hi_leads ? "LO" : "HI", 56, HI_LO_STRIP_CELLS);
+        int strip_x = slot->box_rect.origin.x +
+                      (slot->box_rect.size.w - HI_LO_STRIP_CELLS * VGA16_CHAR_W) / 2;
+        draw_split_caption_window(ctx, slot->box_rect, hi_leads ? "HI" : "LO",
+                                  strip_x + 16 - slot->box_rect.origin.x, hi_leads ? "LO" : "HI",
+                                  strip_x + 56 - slot->box_rect.origin.x);
+      } else if (slot->source == DATA_SOURCE_AQI_UV || slot->source == DATA_SOURCE_HUM_PCP) {
+        // Two-field windows: captions centre over the fields the drawers
+        // paint below (band halves for AQI/UV, tight strip for HUM/PCP).
+        bool aqi_uv = slot->source == DATA_SOURCE_AQI_UV;
+        int left_cx, right_cx;
+        if (aqi_uv) {
+          GRect band = status_band_rect(slot->box_rect);
+          int half = (band.size.w - VGA16_CHAR_W) / 2;
+          left_cx = band.origin.x + half / 2 - slot->box_rect.origin.x;
+          right_cx = band.origin.x + band.size.w - half / 2 - slot->box_rect.origin.x;
+        } else {
+          const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
+          int strip_px = 2 * field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
+          int left_x = (slot->box_rect.size.w - strip_px) / 2;
+          left_cx = left_x + field_px / 2;
+          right_cx = left_x + field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W + field_px / 2;
+        }
+        draw_split_caption_window(ctx, slot->box_rect, aqi_uv ? "AQI" : "HUM", left_cx,
+                                  aqi_uv ? "UV" : "PCP", right_cx);
       } else {
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }

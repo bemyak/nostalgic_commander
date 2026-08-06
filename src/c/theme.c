@@ -110,16 +110,26 @@ GColor get_source_color(ComplicationDataSource source) {
     // only made it look like a warning. Bluetooth and Quiet Time say it with
     // checkbox glyphs, so they need no color either. Same for humidity:
     // outdoor RH has no actionable threshold, its diurnal swing makes bands
-    // noise. A wind arrow likewise carries no warning — a compass point has
-    // no threshold to flag.
+    // noise.
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
     case DATA_SOURCE_HEART_RATE:
-    case DATA_SOURCE_WIND:
     case DATA_SOURCE_BLUETOOTH:
     case DATA_SOURCE_BT_QT:
     case DATA_SOURCE_QUIET_TIME:
     case DATA_SOURCE_HUMIDITY:
+    case DATA_SOURCE_HUM_PCP:  // halves band on their own in the drawer
+      return s_active_theme->text_primary;
+    // Wind shows sustained speed (the consumer convention — Yle/FMI family);
+    // the band follows Beaufort rungs on it, unit-rounded: strong breeze
+    // (Bf 6) yellow, gale (Bf 8) red. The speed is stored in the settings
+    // unit, so rungs follow it.
+    case DATA_SOURCE_WIND:
+      if (s_weather_wind_speed < 0) return s_active_theme->text_primary;
+      if (s_weather_wind_speed >= (s_settings_units == 1 ? 17 : 39))
+        return s_active_theme->status_red;
+      if (s_weather_wind_speed >= (s_settings_units == 1 ? 11 : 25))
+        return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:
     case DATA_SOURCE_WEATHER:

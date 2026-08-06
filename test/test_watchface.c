@@ -235,6 +235,33 @@ void test_canvas_procs_should_never_word_wrap(void) {
   s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
+void test_hum_pcp_window_should_paint_its_halves(void) {
+  test_apply_theme();
+  s_complication_slots[0].source = DATA_SOURCE_HUM_PCP;
+  s_weather_humidity = 61;
+  s_weather_pcp = 12;
+  mock_text_run_count = 0;
+  canvas_update_proc(NULL, NULL);
+
+  // The tight strip: an 8-cell block (3+2+3) centred in the 93px box at
+  // x=8 places the fields at 22 and 62; content fills its field exactly.
+  bool hum_found = false, pcp_found = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], "61%") == 0) {
+      hum_found = true;
+      TEST_ASSERT_EQUAL_INT(22, mock_text_run_boxes[i].origin.x);
+    }
+    if (strcmp(mock_text_runs[i], "12%") == 0) {
+      pcp_found = true;
+      TEST_ASSERT_EQUAL_INT(62, mock_text_run_boxes[i].origin.x);
+    }
+  }
+  TEST_ASSERT_TRUE(hum_found);
+  TEST_ASSERT_TRUE(pcp_found);
+
+  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
+}
+
 void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
   test_apply_theme();
   s_complication_slots[3].source = DATA_SOURCE_BATTERY_BAR;
@@ -550,12 +577,8 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("WEATHER", get_source_label(DATA_SOURCE_WEATHER));
   TEST_ASSERT_EQUAL_STRING("AQI", get_source_label(DATA_SOURCE_AQI));
   TEST_ASSERT_EQUAL_STRING("UV", get_source_label(DATA_SOURCE_UV));
-  TEST_ASSERT_EQUAL_STRING("AQI/UV", get_source_label(DATA_SOURCE_AQI_UV));
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
   TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
-  // The extremes slot's caption flips with its layout; setUp's unknown event
-  // hours fall back to the LO-first shape.
-  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
@@ -977,8 +1000,40 @@ void test_get_source_data_should_format_wind(void) {
       buf);
   s_settings_units = saved_units;
 
+  s_weather_wind_speed = 5;  // calm, or the band ladder paints it
   s_active_theme = &s_theme_panel;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WIND));
+}
+
+void test_get_source_data_should_format_hum_pcp(void) {
+  char buf[16];
+  int percent = -1;
+
+  // Either half missing shows dashes in place; never a half-number.
+  s_weather_humidity = -1;
+  s_weather_pcp = -1;
+  get_source_data(DATA_SOURCE_HUM_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
+  s_weather_humidity = 61;
+  get_source_data(DATA_SOURCE_HUM_PCP, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("61% --", buf);
+
+  s_weather_pcp = 12;
+  get_source_data(DATA_SOURCE_HUM_PCP, buf, sizeof(buf), &percent);
+  // Air joins the halves; the frame stubs (HUM/PCP) carry the naming.
+  TEST_ASSERT_EQUAL_STRING("61% 12%", buf);
+
+  // Metric rain swaps the PCP half to the amount spelling.
+  s_settings_units = 1;
+  s_precip_now = 34;
+  strcpy(s_weather_cond, "RAIN");
+  get_source_data(DATA_SOURCE_HUM_PCP, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("61% 3mm", buf);
+
+  s_active_theme = &s_theme_panel;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_HUM_PCP));
 }
 
 void test_get_source_data_should_format_quiet_time(void) {
@@ -1173,12 +1228,13 @@ void test_get_source_data_should_format_aqi_and_uv(void) {
   s_weather_aqi = -1;
   s_weather_uv = -1;
   get_source_data(DATA_SOURCE_AQI_UV, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   s_weather_aqi = 42;
   s_weather_uv = 5;
   get_source_data(DATA_SOURCE_AQI_UV, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("42 / 5", buf);
+  // Air joins the halves; the frame stubs (AQI/UV) carry the naming.
+  TEST_ASSERT_EQUAL_STRING("42 5", buf);
 }
 
 void test_get_source_data_should_format_humidity(void) {
@@ -1244,15 +1300,14 @@ void test_get_source_data_should_format_weather_full(void) {
   s_weather_humidity = 100;
   s_weather_pcp = 100;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
-  // Metric strip temps drop the unit letter to fund the sign cell
-  TEST_ASSERT_EQUAL_STRING("TSTM -22 100% 100%", buf);
+  TEST_ASSERT_EQUAL_STRING("TSTM -22C 100% 100%", buf);
   TEST_ASSERT_TRUE(strlen(buf) <= FULL_WEATHER_STRIP_CELLS);
 }
 
-void test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric(void) {
+void test_strip_temp_formatter_should_always_carry_the_unit_letter(void) {
   char buf[12];
 
-  // Imperial: unit fits, so signs appear only on negatives
+  // Imperial: signs appear only on negatives
   s_settings_units = 0;
   s_weather_temp = 72;
   format_strip_temp(buf, sizeof(buf));
@@ -1261,23 +1316,24 @@ void test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric(void) 
   format_strip_temp(buf, sizeof(buf));
   TEST_ASSERT_EQUAL_STRING("-22F", buf);
 
-  // Metric: always signed, never lettered; "no data" matches the atomic
+  // Metric: always signed, always lettered — the letter is what tells a strip
+  // reading from humidity or PCP at a glance
   s_settings_units = 1;
   s_weather_temp = 22;
   format_strip_temp(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("+22", buf);
+  TEST_ASSERT_EQUAL_STRING("+22C", buf);
   s_weather_temp = -9;
   format_strip_temp(buf, sizeof(buf));
-  TEST_ASSERT_EQUAL_STRING("-9", buf);
+  TEST_ASSERT_EQUAL_STRING("-9C", buf);
   s_weather_temp = -999;
   format_strip_temp(buf, sizeof(buf));
   TEST_ASSERT_EQUAL_STRING("--", buf);
 
-  // Nothing ever exceeds the 3-cell chip
+  // Worst case is a winter extreme: four cells, the chip's accepted spill
   s_settings_units = 1;
   s_weather_temp = -22;
   format_strip_temp(buf, sizeof(buf));
-  TEST_ASSERT_TRUE(strlen(buf) <= 3);
+  TEST_ASSERT_TRUE(strlen(buf) <= 4);
 }
 
 void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
@@ -1516,7 +1572,7 @@ void test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown(void) 
   TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 }
 
-void test_high_low_label_should_follow_the_layout(void) {
+void test_high_low_stub_order_should_follow_the_layout(void) {
   char buf[24];
   s_settings_units = 1;
   // Typical day: low at 02:00, high at 14:00 — the noon readout (+20/+16
@@ -1531,24 +1587,26 @@ void test_high_low_label_should_follow_the_layout(void) {
   s_hi_hour_tmrw = 16;
 
   s_wall_hour = 12;  // low rolled to tonight's; the 14:00 high leads
-  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  TEST_ASSERT_TRUE(high_low_hi_leads());
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);  // caption and numbers agree
+  // stubs and numbers share high_low_hi_leads(): the stub order below can't
+  // drift from the value order here
+  TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);
 
   s_wall_hour = 1;  // before dawn: today's pair, LO leads
-  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  TEST_ASSERT_FALSE(high_low_hi_leads());
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 
   s_wall_hour = 16;  // high passed too: tomorrow's pair, its dawn LO leads
-  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  TEST_ASSERT_FALSE(high_low_hi_leads());
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 
-  // Layout-only decision: missing values don't silence the caption
+  // Layout-only decision: missing values don't silence the stubs
   s_temp_high = -999;
   s_wall_hour = 12;
-  TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  TEST_ASSERT_TRUE(high_low_hi_leads());
 
   // Unknown hours own the fallback, values or not
   s_lo_hour_today = -1;
@@ -1558,7 +1616,7 @@ void test_high_low_label_should_follow_the_layout(void) {
   s_temp_low = -999;
   s_temp_low_tmrw = -999;
   s_temp_high_tmrw = -999;
-  TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
+  TEST_ASSERT_FALSE(high_low_hi_leads());
 }
 
 void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
@@ -2351,6 +2409,67 @@ void test_inbox_should_parse_and_persist_wind_direction(void) {
   TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
 }
 
+void test_wind_color_should_follow_the_beaufort_rungs(void) {
+  s_active_theme = &s_theme_panel;
+
+  // Sentinel: no band on an empty readout
+  s_weather_wind_speed = -1;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WIND));
+
+  // Metric (m/s): strong breeze (Bf 6, 10.8 m/s) is yellow, gale (Bf 8,
+  // 17.2 m/s) is red — rungs rounded to whole units
+  s_settings_units = 1;
+  s_weather_wind_speed = 10;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 11;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 16;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 17;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WIND));
+
+  // Imperial (mph): same Beaufort rungs, 24/39
+  s_settings_units = 0;
+  s_weather_wind_speed = 24;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 25;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 38;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WIND));
+  s_weather_wind_speed = 39;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WIND));
+}
+
+void test_format_wind_narrow_should_drop_the_unit(void) {
+  char buf[16];
+
+  s_weather_wind_direction = 225;
+  s_weather_wind_speed = 12;
+  s_settings_units = 1;
+  format_wind(buf, sizeof(buf), false);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x97"
+      " 12",
+      buf);
+
+  // Narrow never prints the unit, whatever the toggle state
+  s_settings_units = 0;
+  format_wind(buf, sizeof(buf), false);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x97"
+      " 12",
+      buf);
+
+  s_weather_wind_direction = -1;
+  format_wind(buf, sizeof(buf), false);
+  TEST_ASSERT_EQUAL_STRING("12", buf);
+
+  s_weather_wind_speed = -1;
+  s_weather_wind_direction = 225;
+  format_wind(buf, sizeof(buf), false);
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x97", buf);
+}
+
 void test_inbox_should_parse_and_persist_wind_speed(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -2770,6 +2889,7 @@ int main(void) {
   RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
   RUN_TEST(test_quick_view_should_hide_and_restore_bottom_row_text_layers);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
+  RUN_TEST(test_hum_pcp_window_should_paint_its_halves);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
@@ -2794,8 +2914,11 @@ int main(void) {
   RUN_TEST(test_centre_slot_should_be_the_sixth_and_default_to_the_date);
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_bt_qt);
+  RUN_TEST(test_get_source_data_should_format_hum_pcp);
   RUN_TEST(test_get_source_data_should_format_quiet_time);
   RUN_TEST(test_get_source_data_should_format_wind);
+  RUN_TEST(test_wind_color_should_follow_the_beaufort_rungs);
+  RUN_TEST(test_format_wind_narrow_should_drop_the_unit);
   RUN_TEST(test_wind_direction_arrow_should_point_where_the_wind_blows);
   RUN_TEST(test_wind_direction_arrow_should_take_the_clockwise_sector_on_boundaries);
   RUN_TEST(test_wind_direction_arrow_should_normalize_or_reject_out_of_range_bearings);
@@ -2806,13 +2929,13 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_weather_full);
   RUN_TEST(test_full_weather_captions_should_align_with_the_strip);
   RUN_TEST(test_full_weather_chips_should_fill_only_on_a_status_color);
-  RUN_TEST(test_strip_temp_formatter_should_trade_the_unit_for_a_sign_in_metric);
+  RUN_TEST(test_strip_temp_formatter_should_always_carry_the_unit_letter);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_high_low_cells_should_roll_when_their_extreme_hour_starts);
   RUN_TEST(test_high_low_cells_should_stay_chronological_on_inversion_days);
   RUN_TEST(test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown);
-  RUN_TEST(test_high_low_label_should_follow_the_layout);
+  RUN_TEST(test_high_low_stub_order_should_follow_the_layout);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
