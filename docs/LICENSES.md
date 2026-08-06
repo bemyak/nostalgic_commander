@@ -14,8 +14,14 @@ and its license.
 `test/pebble.h` and `test/pebble_mock.c` are hand-written mocks original to
 this project, not copies of SDK code.
 
-No fonts or other media are vendored — the watchface uses only Pebble system
-fonts (`fonts_get_system_font`), which ship with the firmware (Apache 2.0).
+## Bundled assets
+
+| Asset | How it's used | License | Notes |
+|---|---|---|---|
+| [Px437 IBM VGA 8x16](https://int10h.org/oldschool-pc-fonts/) by VileR | Bundled TTF (`resources/fonts/`); every glyph the face renders comes from it, baked per build into two sizes | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Unmodified. The baked font resources inside the pbw are derivatives of this asset and stay under CC BY-SA 4.0. Attribution per the license: this file's table plus the README License section. |
+
+The system fonts PebbleOS draws outside the watchface app area are firmware
+assets (Apache 2.0), not bundled here.
 
 ## Data / service dependencies
 
