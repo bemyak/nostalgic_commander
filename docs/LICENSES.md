@@ -18,7 +18,7 @@ this project, not copies of SDK code.
 
 | Asset | How it's used | License | Notes |
 |---|---|---|---|
-| [Px437 IBM VGA 8x16](https://int10h.org/oldschool-pc-fonts/) by VileR | Bundled TTF (`resources/fonts/`); every glyph the face renders comes from it, baked per build into two sizes | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Unmodified. The baked font resources inside the pbw are derivatives of this asset and stay under CC BY-SA 4.0. Attribution per the license: this file's table plus the README License section. |
+| [Px437 IBM VGA 8x16](https://int10h.org/oldschool-pc-fonts/) by VileR | Bundled TTF (`resources/fonts/`); every glyph the face renders comes from it, baked per build into two sizes | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Modified: four diagonal arrows (U+2196–2199) added as new glyphs, drawn on the font's own 8x16 grid; every original glyph is untouched. The baked font resources inside the pbw are derivatives of this asset and stay under CC BY-SA 4.0. Attribution per the license: this file's table plus the README License section. |
 
 The system fonts PebbleOS draws outside the watchface app area are firmware
 assets (Apache 2.0), not bundled here.

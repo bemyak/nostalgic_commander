@@ -145,7 +145,7 @@ not permitted. Upstream's required copyright notice ("Copyright Elizardbeth")
 is retained in [LICENSE.md](LICENSE.md).
 
 The bundled font is [Px437 IBM VGA 8x16](https://int10h.org/oldschool-pc-fonts/)
-by VileR, used unmodified under
+by VileR, with four diagonal arrows added, under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) — see
 [docs/LICENSES.md](docs/LICENSES.md) for the full dependency audit.
 

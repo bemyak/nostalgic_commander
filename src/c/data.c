@@ -84,6 +84,8 @@ const char* get_source_label(ComplicationDataSource source) {
       return "BT/QT";
     case DATA_SOURCE_QUIET_TIME:
       return "QT";
+    case DATA_SOURCE_ARROWS:
+      return "DIR";
     case DATA_SOURCE_ACTIVE_MINUTES:
       return "ACTV";
     case DATA_SOURCE_AQI:
@@ -263,6 +265,10 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
       snprintf(val_buf, val_len, "[%s][%s]", s_connected ? "x" : " ",
                s_quiet_time_active ? "z" : " ");
       if (percent) *percent = s_connected ? 100 : 0;
+      break;
+    case DATA_SOURCE_ARROWS:
+      // Font-experiment window: the patched-in diagonal arrows, all four.
+      snprintf(val_buf, val_len, "\xE2\x86\x96\xE2\x86\x97\xE2\x86\x98\xE2\x86\x99");
       break;
     case DATA_SOURCE_QUIET_TIME:
       // Same checkbox, alone in its own window.

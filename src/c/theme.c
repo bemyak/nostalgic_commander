@@ -114,6 +114,7 @@ GColor get_source_color(ComplicationDataSource source) {
     case DATA_SOURCE_STEPS:
     case DATA_SOURCE_ACTIVE_MINUTES:
     case DATA_SOURCE_HEART_RATE:
+    case DATA_SOURCE_ARROWS:
     case DATA_SOURCE_BLUETOOTH:
     case DATA_SOURCE_BT_QT:
     case DATA_SOURCE_QUIET_TIME:

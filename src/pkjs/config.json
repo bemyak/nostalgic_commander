@@ -154,6 +154,10 @@
             "value": "32"
           },
           {
+            "label": "Diagonal Arrows (font test)",
+            "value": "33"
+          },
+          {
             "label": "Short Date (no year)",
             "value": "22"
           },
@@ -224,6 +228,10 @@
           {
             "label": "Bluetooth + Quiet Time",
             "value": "32"
+          },
+          {
+            "label": "Diagonal Arrows (font test)",
+            "value": "33"
           },
           {
             "label": "Short Date (no year)",

@@ -26,6 +26,7 @@ typedef enum {
   DATA_SOURCE_TEMP_HIGH_LOW = 30,  // 29 is retired (SUN_TIMES), see 19
   DATA_SOURCE_QUIET_TIME = 31,
   DATA_SOURCE_BT_QT = 32,  // 19 and 29 are retired, 20 is EMPTY
+  DATA_SOURCE_ARROWS = 33,
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 

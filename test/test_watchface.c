@@ -562,6 +562,7 @@ void test_get_source_label_should_return_correct_labels(void) {
   // One window covering both phone states; the standalone keeps the short tag.
   TEST_ASSERT_EQUAL_STRING("BT/QT", get_source_label(DATA_SOURCE_BT_QT));
   TEST_ASSERT_EQUAL_STRING("QT", get_source_label(DATA_SOURCE_QUIET_TIME));
+  TEST_ASSERT_EQUAL_STRING("DIR", get_source_label(DATA_SOURCE_ARROWS));
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
@@ -873,6 +874,18 @@ void test_get_source_data_should_format_bt_qt(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BT_QT));
   s_quiet_time_active = false;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BT_QT));
+}
+
+void test_get_source_data_should_format_diagonal_arrows(void) {
+  char buf[16];
+
+  // Font-experiment window: the four patched-in glyphs (U+2196..U+2199),
+  // plain text — legibility of the new glyphs is screenshot-gated.
+  get_source_data(DATA_SOURCE_ARROWS, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("\xE2\x86\x96\xE2\x86\x97\xE2\x86\x98\xE2\x86\x99", buf);
+
+  s_active_theme = &s_theme_panel;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_ARROWS));
 }
 
 void test_get_source_data_should_format_quiet_time(void) {
@@ -2612,6 +2625,7 @@ int main(void) {
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_bt_qt);
   RUN_TEST(test_get_source_data_should_format_quiet_time);
+  RUN_TEST(test_get_source_data_should_format_diagonal_arrows);
   RUN_TEST(test_bt_qt_window_should_split_captions_only_at_top_width);
   RUN_TEST(test_get_source_data_should_format_active_minutes);
   RUN_TEST(test_get_source_data_should_format_aqi_and_uv);
