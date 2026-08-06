@@ -4,6 +4,37 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
+## [1.4.0] - 2026-08-06
+
+Quiet time, wind, and a caption grammar for two-field windows.
+
+### Added
+
+- **Quiet Time indicator.** A combined `BT/QT` window for top slots shows
+  both phone states as Turbo Vision checkboxes (`[x] [z]`); bottom slots get
+  a standalone `QT` window. State comes from `quiet_time_is_active()`.
+- **Wind complication.** Direction as an 8-way arrow — including four custom
+  diagonal glyphs patched into the bundled VGA font — plus sustained speed
+  in your settings unit. Top slots show the unit (`↗ 12 m/s`), bottom slots
+  save the space (`↗ 12`). The window bands yellow at strong breeze, red at
+  gale (Beaufort rungs).
+- **Combined Humidity + Precipitation** source for top slots (`HUM`/`PCP`
+  stubs over two tight fields).
+- **Heart glyph on the BPM reading** — `120♥`, drawn in the theme's accent
+  color.
+
+### Changed
+
+- **Two-field windows drop the slashes.** HI/LO, AQI/UV, HUM/PCP and BT/QT
+  now split their title into per-half frame stubs registered over the
+  values. HI/LO's value spells each number with its unit letter:
+  `+24C +18C`.
+- **Settings slimmer on top slots**: individual AQI, UV, Humidity and
+  Precipitation are gone there — the combined readouts are the option.
+- **Centre weather strip**: the temperature chip always lettered now
+  (`+22C`), chip widened to fit it.
+- Rename some settings to improve readability.
+
 ## [1.2.0] - 2026-08-03
 
 Color policy pass: the face only speaks up when something needs attention.
