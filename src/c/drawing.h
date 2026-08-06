@@ -40,6 +40,9 @@
 #define BT_QT_SPLIT_MIN_W 93
 #define BT_QT_STRIP_CELLS 7
 
+// The HI/LO window's value strip: two 4-cell halves with one air cell between.
+#define HI_LO_STRIP_CELLS 9
+
 extern Window* s_main_window;
 extern Layer* s_canvas_layer;
 extern TextLayer* s_time_layer;

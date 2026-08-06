@@ -449,11 +449,12 @@ bool bt_qt_split_captions(int width) {
   return width >= BT_QT_SPLIT_MIN_W;
 }
 
-// Wide BT/QT frame: one caption straddling the top line per checkbox, each
-// ink-centred over the box it names; the runs before, between, and after
-// carry the frame itself. Same stub math as draw_captioned_bar.
-static void draw_split_caption_window(GContext* ctx, GRect rect, const char* left,
-                                      const char* right) {
+// Two-stub frame: one caption straddling the top line per value half, each
+// ink-centred over its anchor point in the value strip below (anchor offsets
+// in px from the strip's left edge); the runs before, between, and after
+// carry the frame itself. Stub math lifted from draw_captioned_bar.
+static void draw_split_caption_window(GContext* ctx, GRect rect, const char* left, int left_cx,
+                                      const char* right, int right_cx, int strip_cells) {
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
@@ -468,12 +469,10 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
                      0, GCornerNone);
   graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
 
-  // Three-cell boxes sit at strip cells 0 and 4; a 2-cell caption centres
-  // over its box with half a cell of air to the nearest frame ink.
-  int strip_x = x + (w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  int strip_x = x + (w - strip_cells * VGA16_CHAR_W) / 2;
   const int pad = VGA16_CHAR_W / 2;
-  int left_x = strip_x + VGA16_CHAR_W / 2;
-  int right_x = strip_x + 4 * VGA16_CHAR_W + VGA16_CHAR_W / 2;
+  int left_x = strip_x + left_cx - (int)strlen(left) * VGA16_CHAR_W / 2;
+  int right_x = strip_x + right_cx - (int)strlen(right) * VGA16_CHAR_W / 2;
   int left_end = left_x + (int)strlen(left) * VGA16_CHAR_W;
   int right_end = right_x + (int)strlen(right) * VGA16_CHAR_W;
 
@@ -626,7 +625,15 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
       if (slot->source == DATA_SOURCE_WEATHER_FULL) {
         draw_captioned_bar(ctx, slot->box_rect);
       } else if (slot->source == DATA_SOURCE_BT_QT && bt_qt_split_captions(slot->box_rect.size.w)) {
-        draw_split_caption_window(ctx, slot->box_rect, "BT", "QT");
+        // Captions centre over the 3-cell boxes at strip cells 0 and 4.
+        draw_split_caption_window(ctx, slot->box_rect, "BT", 12, "QT", 44, BT_QT_STRIP_CELLS);
+      } else if (slot->source == DATA_SOURCE_TEMP_HIGH_LOW &&
+                 bt_qt_split_captions(slot->box_rect.size.w)) {
+        // Stubs name the current round — centred over each 4-cell half
+        // (cells 0..3 and 5..8), following the same swap the value performs.
+        bool hi_leads = high_low_hi_leads();
+        draw_split_caption_window(ctx, slot->box_rect, hi_leads ? "HI" : "LO", 16,
+                                  hi_leads ? "LO" : "HI", 56, HI_LO_STRIP_CELLS);
       } else {
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }

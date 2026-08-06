@@ -1396,34 +1396,34 @@ void test_get_source_data_should_format_high_low(void) {
   s_temp_low_tmrw = 55;
   s_temp_high_tmrw = 77;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   s_temp_high = 82;
   s_temp_low = -999;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   // …and tomorrow's extremes sink it too: partial data reads as data
   s_temp_low = 61;
   s_temp_low_tmrw = -999;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   s_temp_low_tmrw = 55;
   s_temp_high_tmrw = -999;
   s_wall_hour = 8;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
   s_wall_hour = 21;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("-- / --", buf);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   // Values with unknown event hours still display; LO leads (see the layout
   // test below). hours are -1 here by the setUp reset.
   s_temp_high_tmrw = 77;
   s_settings_units = 0;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("61/82F", buf);
+  TEST_ASSERT_EQUAL_STRING("61F 82F", buf);
 
   s_settings_units = 1;
   s_temp_high = 28;
@@ -1431,7 +1431,7 @@ void test_get_source_data_should_format_high_low(void) {
   s_temp_low_tmrw = 1;
   s_temp_high_tmrw = 26;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+4/+28C", buf);
+  TEST_ASSERT_EQUAL_STRING("+4C +28C", buf);
 
   // Top-slot values cap at 11 cells even at winter extremes, any hour
   s_temp_high = 3;
@@ -1461,21 +1461,21 @@ void test_high_low_cells_should_roll_when_their_extreme_hour_starts(void) {
 
   s_wall_hour = 4;  // nothing passed: today's pair, LO leads
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+  TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 
   s_wall_hour = 5;  // the low's own hour has started: it counts as passed,
                     // tonight's value shows and the 15:00 high leads as the
                     // next event
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+20/+7C", buf);
+  TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);
 
   s_wall_hour = 15;  // the high has rolled too: tomorrow's pair, dawn LO leads
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 
   s_wall_hour = 23;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 }
 
 void test_high_low_cells_should_stay_chronological_on_inversion_days(void) {
@@ -1493,15 +1493,15 @@ void test_high_low_cells_should_stay_chronological_on_inversion_days(void) {
 
   s_wall_hour = 12;  // high passed: right cell is tomorrow's high; low leads
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+11/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+11C +22C", buf);
 
   s_wall_hour = 21;  // the low's own event hasn't passed yet
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+11/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+11C +22C", buf);
 
   s_wall_hour = 23;  // both passed: tomorrow's pair, LO sooner
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 }
 
 void test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown(void) {
@@ -1513,7 +1513,7 @@ void test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown(void) 
   s_temp_high_tmrw = 22;  // hours all -1 via setUp: no roll, no sort
   s_wall_hour = 21;
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+  TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 }
 
 void test_high_low_label_should_follow_the_layout(void) {
@@ -1533,17 +1533,17 @@ void test_high_low_label_should_follow_the_layout(void) {
   s_wall_hour = 12;  // low rolled to tonight's; the 14:00 high leads
   TEST_ASSERT_EQUAL_STRING("HI/LO", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+20/+7C", buf);  // caption and numbers agree
+  TEST_ASSERT_EQUAL_STRING("+20C +7C", buf);  // caption and numbers agree
 
   s_wall_hour = 1;  // before dawn: today's pair, LO leads
   TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+11/+20C", buf);
+  TEST_ASSERT_EQUAL_STRING("+11C +20C", buf);
 
   s_wall_hour = 16;  // high passed too: tomorrow's pair, its dawn LO leads
   TEST_ASSERT_EQUAL_STRING("LO/HI", get_source_label(DATA_SOURCE_TEMP_HIGH_LOW));
   get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("+7/+22C", buf);
+  TEST_ASSERT_EQUAL_STRING("+7C +22C", buf);
 
   // Layout-only decision: missing values don't silence the caption
   s_temp_high = -999;

@@ -180,21 +180,23 @@ static void format_high_low(char* buf, size_t len) {
   // Either pair incomplete sinks the readout: a half-number reads as data.
   if (s_temp_high == -999 || s_temp_low == -999 || s_temp_high_tmrw == -999 ||
       s_temp_low_tmrw == -999) {
-    snprintf(buf, len, "-- / --");
+    snprintf(buf, len, "-- --");
     return;
   }
   // Each cell shows the next occurrence of its kind: today's value until
   // the extreme's own hour begins, then tomorrow's.
   int lo_val = extreme_passed(s_lo_hour_today) ? s_temp_low_tmrw : s_temp_low;
   int hi_val = extreme_passed(s_hi_hour_today) ? s_temp_high_tmrw : s_temp_high;
-  // Chronological left to right — the sooner event leads.
+  // Chronological left to right — the sooner event leads. Every number
+  // carries its unit letter; the air between halves is what the frame-stub
+  // captions above register to.
   bool lo_left = !high_low_hi_leads();
   int left = lo_left ? lo_val : hi_val;
   int right = lo_left ? hi_val : lo_val;
   if (s_settings_units == 1) {
-    snprintf(buf, len, "%+d/%+dC", left, right);
+    snprintf(buf, len, "%+dC %+dC", left, right);
   } else {
-    snprintf(buf, len, "%d/%dF", left, right);
+    snprintf(buf, len, "%dF %dF", left, right);
   }
 }
 
