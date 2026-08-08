@@ -61,15 +61,19 @@ Verify: `make test` green; no `config.json` references outside CHANGELOG.
 
 ## Phase 1 — test floor hardening (~½–1 day; 1.1 is the swing factor)
 
-- [ ] 1.1 `test/Makefile`: `-fsanitize=address,undefined -fno-omit-frame-pointer
-      -Werror`; fix fallout.
-- [ ] 1.2 Mocks: `MOCK_DICT_MAX` 16→24; `assert()` overflow →
+- [x] 1.1 `test/Makefile`: `-fsanitize=address,undefined -fno-omit-frame-pointer
+      -Werror`; fix fallout. (Zero sanitizer findings; unity needed no
+      exclusions.)
+- [x] 1.2 Mocks: `MOCK_DICT_MAX` 16→24; `assert()` overflow →
       `TEST_FAIL_MESSAGE`; `graphics_draw_text` last param →
       `const GTextAttributes*` (stub type in `pebble.h`); fonts return
       distinct non-NULL sentinels.
-- [ ] 1.3 `data_reset()` in `data.c` resets every global to its definition
-      value; `setUp` calls it. Kill the two live leaks and dead manual
-      restores. Ten copied slot arrays → two named const fixtures.
+- [x] 1.3 `reset_all_state()` in test_watchface.c (single-TU reaches
+      everything, incl. main.c's moved-to-file-scope `s_fmt_*` cache);
+      `setUp` calls it. Leaks killed; 3 named slot fixtures + `set_slots`
+      replaced 10+ copy-pasted save/restore blocks; dead tail restores
+      deleted. (`data_reset()` in data.c rejected: the reset walks
+      messaging.c's static table, only reachable from the test TU.)
 - [ ] 1.4 Mock knobs: record subscriptions; peek values (battery, BT, 24h),
       `outbox_begin` failure, health permission denied, real
       `time_start_of_today`.

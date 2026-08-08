@@ -64,6 +64,9 @@ typedef uint32_t GColor;
 #define GColorIcterine 25
 #define GColorDarkCandyAppleRed 26
 static inline GColor GColorFromRGB(int r, int g, int b) {
+  (void)r;
+  (void)g;
+  (void)b;
   return (GColor)0;
 }
 
@@ -79,6 +82,8 @@ typedef enum { GTextAlignmentLeft, GTextAlignmentCenter, GTextAlignmentRight } G
 
 typedef const void* GFont;
 typedef void* ResHandle;
+// Opaque; the SDK version exposes text-attribute fields the face never uses.
+typedef struct GTextAttributes GTextAttributes;
 typedef int32_t HealthValue;
 
 #define FONT_KEY_GOTHIC_14_BOLD "FONT_KEY_GOTHIC_14_BOLD"
@@ -268,7 +273,7 @@ void graphics_context_set_text_color(GContext* ctx, GColor color);
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1);
 void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
                         GTextOverflowMode overflow_mode, GTextAlignment alignment,
-                        GContext* layout_cache);
+                        const GTextAttributes* layout_attributes);
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius, GCornerMask corner_mask);
 void health_service_events_subscribe(void (*handler)(HealthEventType event, void* context),
                                      void* context);
@@ -295,6 +300,7 @@ int persist_write_string(const uint32_t key, const char* cstring);
 int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_size);
 // Test helpers/knobs below are not part of the real SDK
 void mock_persist_reset(void);
+void mock_reset(void);
 extern int mock_persist_write_count;
 extern int32_t mock_heart_rate;
 extern int mock_health_accessible_count;

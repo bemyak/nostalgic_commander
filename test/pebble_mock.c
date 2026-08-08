@@ -1,5 +1,5 @@
 #include "pebble.h"
-#include <assert.h>
+#include "unity.h"
 #include <stdarg.h>
 
 // Mock Data
@@ -41,7 +41,10 @@ uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED = 132;
 
 // Implementations
 void app_event_loop(void) {}
-void app_message_open(uint32_t size_inbound, uint32_t size_outbound) {}
+void app_message_open(uint32_t size_inbound, uint32_t size_outbound) {
+  (void)size_inbound;
+  (void)size_outbound;
+}
 
 int mock_outbox_sends = 0;
 void app_message_outbox_begin(DictionaryIterator** iterator) {
@@ -51,28 +54,45 @@ void app_message_outbox_begin(DictionaryIterator** iterator) {
 void app_message_outbox_send(void) {
   mock_outbox_sends++;
 }
-void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context)) {}
+void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context)) {
+  (void)callback;
+}
 void app_message_register_inbox_received(void (*callback)(DictionaryIterator* iterator,
-                                                          void* context)) {}
+                                                          void* context)) {
+  (void)callback;
+}
 void app_message_register_outbox_sent(void (*callback)(DictionaryIterator* iterator,
-                                                       void* context)) {}
+                                                       void* context)) {
+  (void)callback;
+}
 void app_message_register_outbox_failed(void (*callback)(DictionaryIterator* iterator,
-                                                         AppMessageResult reason, void* context)) {}
+                                                         AppMessageResult reason, void* context)) {
+  (void)callback;
+}
 
 AppTimer* app_timer_register(uint32_t timeout_ms, void (*callback)(void* data), void* data) {
+  (void)timeout_ms;
+  (void)callback;
+  (void)data;
   return NULL;  // host tests drive retries by calling the callback directly
 }
 bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms) {
+  (void)timer;
+  (void)new_timeout_ms;
   return false;
 }
-void app_timer_cancel(AppTimer* timer) {}
+void app_timer_cancel(AppTimer* timer) {
+  (void)timer;
+}
 
 BatteryChargeState battery_state_service_peek(void) {
   BatteryChargeState state = {.charge_percent = 100, .is_charging = false, .is_plugged = false};
   return state;
 }
 
-void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge)) {}
+void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge)) {
+  (void)handler;
+}
 bool clock_is_24h_style(void) {
   return false;
 }
@@ -83,11 +103,15 @@ bool mock_quiet_time_active = false;
 bool quiet_time_is_active(void) {
   return mock_quiet_time_active;
 }
-void connection_service_subscribe(ConnectionHandlers handlers) {}
+void connection_service_subscribe(ConnectionHandlers handlers) {
+  (void)handlers;
+}
 
 // Scriptable inbound dictionary: tests stage tuples with mock_dict_add_*()
 // and dict_find() serves them back, so inbox_received_callback is testable.
-#define MOCK_DICT_MAX 16
+// Capacity covers the real weather payload (weather.js WEATHER_FIELDS) with
+// headroom, so tests can stage the message shape the watch actually gets.
+#define MOCK_DICT_MAX 24
 #define MOCK_DICT_TUPLE_BYTES 64
 static uint8_t mock_dict_storage[MOCK_DICT_MAX][MOCK_DICT_TUPLE_BYTES];
 static int mock_dict_count = 0;
@@ -97,7 +121,9 @@ void mock_dict_reset(void) {
 }
 
 static Tuple* mock_dict_next_slot(uint32_t key) {
-  assert(mock_dict_count < MOCK_DICT_MAX);
+  if (mock_dict_count >= MOCK_DICT_MAX) {
+    TEST_FAIL_MESSAGE("mock dict capacity exceeded; raise MOCK_DICT_MAX");
+  }
   Tuple* t = (Tuple*)mock_dict_storage[mock_dict_count++];
   t->key = key;
   return t;
@@ -112,34 +138,46 @@ void mock_dict_add_int(uint32_t key, int32_t value) {
 
 void mock_dict_add_cstring(uint32_t key, const char* str) {
   Tuple* t = mock_dict_next_slot(key);
-  assert(strlen(str) < MOCK_DICT_TUPLE_BYTES - sizeof(Tuple));
+  if (strlen(str) >= MOCK_DICT_TUPLE_BYTES - sizeof(Tuple)) {
+    TEST_FAIL_MESSAGE("mock dict tuple too long; raise MOCK_DICT_TUPLE_BYTES");
+  }
   t->type = TUPLE_CSTRING;
   t->length = strlen(str) + 1;
   strcpy(t->value->cstring, str);
 }
 
 Tuple* dict_find(const DictionaryIterator* iter, uint32_t key) {
+  (void)iter;
   for (int i = 0; i < mock_dict_count; i++) {
     Tuple* t = (Tuple*)mock_dict_storage[i];
     if (t->key == key) return t;
   }
   return NULL;
 }
-void dict_write_uint8(DictionaryIterator* iter, uint32_t key, uint8_t value) {}
+void dict_write_uint8(DictionaryIterator* iter, uint32_t key, uint8_t value) {
+  (void)iter;
+  (void)key;
+  (void)value;
+}
 
 GFont fonts_get_system_font(const char* font_key) {
-  return NULL;
+  return (GFont)font_key;  // pointer identity is the distinct sentinel
 }
 
 ResHandle resource_get_handle(uint32_t resource_id) {
-  return NULL;
+  return (ResHandle)(uintptr_t)resource_id;
 }
 
+// Stable one-to-one with the handle, like the SDK's font cache, so tests can
+// tell the two baked sizes apart.
 GFont fonts_load_custom_font(ResHandle handle) {
-  return NULL;
+  static char s_mock_fonts[8];
+  return (GFont)&s_mock_fonts[(uintptr_t)handle % 8];
 }
 
-void fonts_unload_custom_font(GFont font) {}
+void fonts_unload_custom_font(GFont font) {
+  (void)font;
+}
 
 bool grect_equal(const GRect* const rect_a, const GRect* const rect_b) {
   return rect_a->origin.x == rect_b->origin.x && rect_a->origin.y == rect_b->origin.y &&
@@ -148,15 +186,27 @@ bool grect_equal(const GRect* const rect_a, const GRect* const rect_b) {
 
 static GColor s_mock_fill_color = GColorClear;
 void graphics_context_set_fill_color(GContext* ctx, GColor color) {
+  (void)ctx;
   s_mock_fill_color = color;
 }
-void graphics_context_set_stroke_color(GContext* ctx, GColor color) {}
-void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {}
+void graphics_context_set_stroke_color(GContext* ctx, GColor color) {
+  (void)ctx;
+  (void)color;
+}
+void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {
+  (void)ctx;
+  (void)stroke_width;
+}
 static GColor s_mock_text_color = GColorClear;
 void graphics_context_set_text_color(GContext* ctx, GColor color) {
+  (void)ctx;
   s_mock_text_color = color;
 }
-void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {}
+void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {
+  (void)ctx;
+  (void)p0;
+  (void)p1;
+}
 int mock_wordwrap_calls = 0;
 int mock_bar_glyph_calls = 0;
 char mock_text_runs[MOCK_MAX_TEXT_RUNS][32];
@@ -168,7 +218,11 @@ void mock_text_runs_reset(void) {
 }
 void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
                         GTextOverflowMode overflow_mode, GTextAlignment alignment,
-                        GContext* layout_cache) {
+                        const GTextAttributes* layout_attributes) {
+  (void)ctx;
+  (void)font;
+  (void)alignment;
+  (void)layout_attributes;
   if (overflow_mode == GTextOverflowModeWordWrap) mock_wordwrap_calls++;
   if (strstr(text, "\xE2\x96\x88")) mock_bar_glyph_calls++;  // U+2588 FULL BLOCK
   if (mock_text_run_count < MOCK_MAX_TEXT_RUNS) {
@@ -186,6 +240,9 @@ void mock_fill_rect_reset(void) {
 }
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
                         GCornerMask corner_mask) {
+  (void)ctx;
+  (void)corner_radius;
+  (void)corner_mask;
   if (mock_fill_rect_count < MOCK_MAX_FILL_RECTS) {
     mock_fill_rects[mock_fill_rect_count] = rect;
     mock_fill_rect_colors[mock_fill_rect_count++] = s_mock_fill_color;
@@ -193,7 +250,10 @@ void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
 }
 
 void health_service_events_subscribe(void (*handler)(HealthEventType event, void* context),
-                                     void* context) {}
+                                     void* context) {
+  (void)handler;
+  (void)context;
+}
 void health_service_events_unsubscribe(void) {}
 int32_t mock_heart_rate = 0;
 int mock_health_accessible_count = 0;
@@ -213,6 +273,10 @@ HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric met
 }
 HealthServiceAccessibilityMask health_service_metric_averaged_accessible(
     HealthMetric metric, time_t time_start, time_t time_end, HealthServiceTimeScope scope) {
+  (void)metric;
+  (void)time_start;
+  (void)time_end;
+  (void)scope;
   return HealthServiceAccessibilityMaskAvailable;
 }
 int32_t health_service_peek_current_value(HealthMetric metric) {
@@ -222,14 +286,22 @@ int32_t health_service_peek_current_value(HealthMetric metric) {
 }
 int32_t health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
                                     HealthServiceTimeScope scope) {
+  (void)metric;
+  (void)time_start;
+  (void)time_end;
+  (void)scope;
   return 10000;
 }
 int32_t health_service_sum_today(HealthMetric metric) {
+  (void)metric;
   mock_health_sum_today_count++;
   return 5000;
 }
 
-void layer_add_child(Layer* parent, Layer* child) {}
+void layer_add_child(Layer* parent, Layer* child) {
+  (void)parent;
+  (void)child;
+}
 // Return sentinels instead of NULL so layer-attached code paths are testable.
 static char mock_layer_storage[8];
 static int mock_layers_given = 0;
@@ -237,21 +309,29 @@ Layer* layer_create(GRect frame) {
   (void)frame;
   return (Layer*)&mock_layer_storage[mock_layers_given++ % 8];
 }
-void layer_destroy(Layer* layer) {}
+void layer_destroy(Layer* layer) {
+  (void)layer;
+}
 GRect layer_get_bounds(Layer* layer) {
+  (void)layer;
   // The face targets emery, so the root layer spans the 200x228 screen.
   return GRect(0, 0, 200, 228);
 }
 // Tests shrink this from the bottom to stand in for a Quick View overlay.
 GRect mock_unobstructed_bounds = GRect(0, 0, 200, 228);
 GRect layer_get_unobstructed_bounds(Layer* layer) {
+  (void)layer;
   return mock_unobstructed_bounds;
 }
 int mock_mark_dirty_count = 0;
 void layer_mark_dirty(Layer* layer) {
+  (void)layer;
   mock_mark_dirty_count++;
 }
-void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {}
+void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {
+  (void)layer;
+  (void)update_proc;
+}
 
 char mock_persist_strings[256][64];
 int mock_persist_write_count = 0;
@@ -291,25 +371,47 @@ TextLayer* text_layer_create(GRect frame) {
   (void)frame;
   return (TextLayer*)&mock_text_layer_storage[mock_text_layers_given++ % 8];
 }
-void text_layer_destroy(TextLayer* text_layer) {}
+void text_layer_destroy(TextLayer* text_layer) {
+  (void)text_layer;
+}
 Layer* text_layer_get_layer(TextLayer* text_layer) {
+  (void)text_layer;
   return NULL;
 }
-void text_layer_set_background_color(TextLayer* text_layer, GColor color) {}
-void text_layer_set_font(TextLayer* text_layer, GFont font) {}
+void text_layer_set_background_color(TextLayer* text_layer, GColor color) {
+  (void)text_layer;
+  (void)color;
+}
+void text_layer_set_font(TextLayer* text_layer, GFont font) {
+  (void)text_layer;
+  (void)font;
+}
 int mock_set_text_count = 0;
 void text_layer_set_text(TextLayer* text_layer, const char* text) {
+  (void)text_layer;
+  (void)text;
   mock_set_text_count++;
 }
-void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment) {}
+void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment) {
+  (void)text_layer;
+  (void)text_alignment;
+}
 int mock_set_text_color_count = 0;
 void text_layer_set_text_color(TextLayer* text_layer, GColor color) {
+  (void)text_layer;
+  (void)color;
   mock_set_text_color_count++;
 }
 
 void tick_timer_service_subscribe(TimeUnits tick_units,
-                                  void (*handler)(struct tm* tick_time, TimeUnits units_changed)) {}
-void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context) {}
+                                  void (*handler)(struct tm* tick_time, TimeUnits units_changed)) {
+  (void)tick_units;
+  (void)handler;
+}
+void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context) {
+  (void)handlers;
+  (void)context;
+}
 time_t time_start_of_today(void) {
   return 0;
 }
@@ -331,18 +433,59 @@ void vibes_double_pulse(void) {
 Window* window_create(void) {
   return NULL;
 }
-void window_destroy(Window* window) {}
+void window_destroy(Window* window) {
+  (void)window;
+}
 Layer* window_get_root_layer(Window* window) {
+  (void)window;
   return NULL;
 }
-void window_set_background_color(Window* window, GColor background_color) {}
-void window_set_window_handlers(Window* window, WindowHandlers handlers) {}
-void window_stack_push(Window* window, bool animated) {}
+void window_set_background_color(Window* window, GColor background_color) {
+  (void)window;
+  (void)background_color;
+}
+void window_set_window_handlers(Window* window, WindowHandlers handlers) {
+  (void)window;
+  (void)handlers;
+}
+void window_stack_push(Window* window, bool animated) {
+  (void)window;
+  (void)animated;
+}
 
 void APP_LOG(uint8_t level, const char* fmt, ...) {
+  (void)level;
   va_list args;
   va_start(args, fmt);
   vprintf(fmt, args);
   printf("\n");
   va_end(args);
+}
+
+// All knobs and counters back to their power-on values. setUp calls this via
+// reset_all_state(); new mock state belongs here.
+void mock_reset(void) {
+  mock_time_offset = 0;
+  mock_quiet_time_active = false;
+  mock_heart_rate = 0;
+  mock_outbox_sends = 0;
+  mock_health_accessible_count = 0;
+  mock_health_sum_today_count = 0;
+  mock_health_peek_count = 0;
+  mock_vibes_count = 0;
+  mock_mark_dirty_count = 0;
+  mock_set_text_count = 0;
+  mock_set_text_color_count = 0;
+  mock_wordwrap_calls = 0;
+  mock_bar_glyph_calls = 0;
+  mock_persist_write_count = 0;
+  mock_layers_given = 0;
+  mock_text_layers_given = 0;
+  mock_unobstructed_bounds = GRect(0, 0, 200, 228);
+  s_mock_fill_color = GColorClear;
+  s_mock_text_color = GColorClear;
+  mock_dict_reset();
+  mock_persist_reset();
+  mock_text_runs_reset();
+  mock_fill_rect_reset();
 }

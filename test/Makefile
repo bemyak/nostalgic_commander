@@ -1,5 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -I. -I./unity/src -g -DTEST_ENV
+CFLAGS = -Wall -Wextra -Werror -I. -I./unity/src -g -DTEST_ENV \
+         -fsanitize=address,undefined -fno-omit-frame-pointer
 TARGET = test_watchface
 SRCS = test_watchface.c pebble_mock.c unity/src/unity.c
 

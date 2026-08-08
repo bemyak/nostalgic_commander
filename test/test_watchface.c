@@ -1,5 +1,3 @@
-#define TEST_ENV
-
 #include "unity/src/unity.h"
 #include "pebble.h"
 
@@ -11,47 +9,85 @@
 #include "../src/c/messaging.c"
 #include "../src/c/main.c"
 
-void setUp(void) {
-  // Reset any global states if needed before each test
-  s_settings_theme = 0;  // Auto
-  s_settings_units = 0;  // Imperial
+void tearDown(void) {}
+
+// Slot layouts tests stand up against the shipped one; reset_all_state()
+// restores boot before every test, so a test sets its layout and owes
+// nothing afterwards.
+static const ComplicationDataSource kSlotsBoot[NUM_SLOTS] = {
+    DATA_SOURCE_WEATHER,    DATA_SOURCE_SLEEP,     DATA_SOURCE_STEPS,
+    DATA_SOURCE_HEART_RATE, DATA_SOURCE_BLUETOOTH, DATA_SOURCE_FULL_DATE};
+static const ComplicationDataSource kSlotsNoHealth[NUM_SLOTS] = {
+    DATA_SOURCE_DATE,       DATA_SOURCE_BLUETOOTH, DATA_SOURCE_BEATS,
+    DATA_SOURCE_SHORT_DATE, DATA_SOURCE_AQI_UV,    DATA_SOURCE_FULL_DATE};
+static const ComplicationDataSource kSlotsOnlySteps[NUM_SLOTS] = {
+    DATA_SOURCE_STEPS,      DATA_SOURCE_BLUETOOTH, DATA_SOURCE_BEATS,
+    DATA_SOURCE_SHORT_DATE, DATA_SOURCE_DATE,      DATA_SOURCE_FULL_DATE};
+static const ComplicationDataSource kSlotsNoWeather[NUM_SLOTS] = {
+    DATA_SOURCE_DATE,       DATA_SOURCE_BLUETOOTH, DATA_SOURCE_STEPS,
+    DATA_SOURCE_HEART_RATE, DATA_SOURCE_BEATS,     DATA_SOURCE_FULL_DATE};
+
+static void set_slots(const ComplicationDataSource* sources) {
+  for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = sources[i];
+}
+
+// Every global the single-TU build can see, back to its power-on value. New
+// globals are reset here: added to data.c/main.c/drawing.c means added below,
+// and the weather walk keeps itself in sync with messaging.c's wire table.
+static void reset_all_state(void) {
+  mock_reset();
+
+  s_settings_theme = 2;  // Norton: apply_theme() stays palette-deterministic
+  s_settings_units = 0;
+  s_settings_date_format = 0;
+  s_settings_short_date_format = 0;
+  s_settings_dow_position = 0;
   s_settings_disconnect_vibe = 1;
+
   s_battery_level = 100;
   s_battery_charging = false;
+  s_connected = true;
+  s_quiet_time_active = false;
   s_step_count = -1;
   s_sleep_seconds = -1;
   s_heart_rate = 0;
-  // Every weather-contract reading starts at its sentinel; the messaging
-  // table owns the set, so a new field resets itself.
+  s_active_minutes = 0;
+
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
   }
   strcpy(s_weather_cond, "--");
-  s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
-  s_connected = true;
-  s_quiet_time_active = false;
-  s_quick_view_active = false;
-  mock_unobstructed_bounds = GRect(0, 0, 200, 228);
-  mock_quiet_time_active = false;
-  // Isolate the timestamp-based health throttle: zero both the mock clock
-  // offset and the last-refresh stamp so no test inherits a window.
-  mock_time_offset = 0;
-  s_last_throttled_health_refresh = 0;
-  // main_window_load() reads the theme like init() applies one first; the
-  // render-gate tests load the window without going through init().
-  s_active_theme = &s_theme_panel;
 
-  // Slot contents gate health reads and the render snapshot, and the inbox
-  // tests rewrite them; restore the shipped layout before every test.
-  const ComplicationDataSource defaults[NUM_SLOTS] = {DATA_SOURCE_WEATHER,   DATA_SOURCE_SLEEP,
-                                                      DATA_SOURCE_STEPS,     DATA_SOURCE_HEART_RATE,
-                                                      DATA_SOURCE_BLUETOOTH, DATA_SOURCE_FULL_DATE};
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    s_complication_slots[i].source = defaults[i];
-  }
+  s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
+  s_date_day = 10;
+  s_beats = 0;
+  s_date_display[0] = '\0';
+  s_short_date_display[0] = '\0';
+  s_quick_view_active = false;
+  set_slots(kSlotsBoot);
+
+  // File-scope caches and counters (main.c / drawing.c).
+  s_weather_request_retries = 0;
+  s_last_throttled_health_refresh = 0;
+  s_fmt_yday = -1;
+  s_fmt_format = -1;
+  s_fmt_dow = -1;
+  s_fmt_short = -1;
+
+  s_shown_time[0] = '\0';
+  s_canvas_layer = NULL;
+  s_main_window = NULL;
+  s_time_layer = NULL;
+  s_vga_16 = NULL;
+  s_vga_64 = NULL;
+  reset_ui_snapshot();
+
+  s_active_theme = &s_theme_panel;
 }
 
-void tearDown(void) {}
+void setUp(void) {
+  reset_all_state();
+}
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -66,11 +102,10 @@ static void test_apply_theme(void) {
 
 void test_render_gate_should_go_silent_when_nothing_changes(void) {
   main_window_load(NULL);
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   mock_mark_dirty_count = 0;
   mock_set_text_count = 0;
 
-  request_ui_redraw();  // cold: zeroed snapshot differs, applies once
+  request_ui_redraw();  // cold: cleared snapshot differs, applies once
   int marks = mock_mark_dirty_count;
   int texts = mock_set_text_count;
 
@@ -82,19 +117,16 @@ void test_render_gate_should_go_silent_when_nothing_changes(void) {
 
 void test_render_gate_should_ignore_changes_nobody_displays(void) {
   main_window_load(NULL);
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   request_ui_redraw();
   int marks = mock_mark_dirty_count;
 
   s_battery_level = 5;  // the default layout shows no battery slot
   request_ui_redraw();
   TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
-  s_battery_level = 100;
 }
 
 void test_render_gate_should_pass_displayed_changes_through(void) {
   main_window_load(NULL);
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   request_ui_redraw();
   int marks = mock_mark_dirty_count;
 
@@ -102,7 +134,6 @@ void test_render_gate_should_pass_displayed_changes_through(void) {
   request_ui_redraw();
   // STEPS paints on the canvas now: the value change marks the canvas layer.
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
-  s_step_count = -1;
 }
 
 void test_render_gate_should_notice_bar_slot_changes(void) {
@@ -113,22 +144,17 @@ void test_render_gate_should_notice_bar_slot_changes(void) {
   main_window_load(NULL);
   s_complication_slots[2].source = DATA_SOURCE_STEPS_BAR;
   s_step_count = 1000;
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   request_ui_redraw();
   int marks = mock_mark_dirty_count;
 
   s_step_count = 6000;  // same "--"/number shape, different fill and reading
   request_ui_redraw();
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
-
-  s_step_count = -1;
-  s_complication_slots[2].source = DATA_SOURCE_STEPS;
 }
 
 void test_render_gate_should_reapply_colors_on_theme_change(void) {
   main_window_load(NULL);
   s_settings_theme = 2;  // pin Panel so the Shadow swap below is unconditional
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   test_apply_theme();
   request_ui_redraw();
   mock_set_text_color_count = 0;
@@ -143,7 +169,6 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
   // theme swap even when the time string is unchanged.
   update_time();
   TEST_ASSERT_TRUE(mock_set_text_color_count > 0);
-  test_apply_theme();
 }
 
 void test_quick_view_did_change_should_gate_and_restore(void) {
@@ -206,8 +231,6 @@ void test_bt_qt_wide_should_draw_both_checkboxes(void) {
   }
   TEST_ASSERT_TRUE(x_found);
   TEST_ASSERT_TRUE(z_found);
-
-  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
 }
 
 void test_canvas_procs_should_never_word_wrap(void) {
@@ -216,7 +239,6 @@ void test_canvas_procs_should_never_word_wrap(void) {
   mock_wordwrap_calls = 0;
   canvas_update_proc(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(0, mock_wordwrap_calls);
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_hum_pcp_window_should_paint_its_halves(void) {
@@ -250,8 +272,6 @@ void test_hum_pcp_window_should_paint_its_halves(void) {
   }
   TEST_ASSERT_TRUE(hum_found);
   TEST_ASSERT_TRUE(pcp_found);
-
-  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
 }
 
 void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
@@ -283,8 +303,6 @@ void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
   }
   TEST_ASSERT_TRUE(found);
   TEST_ASSERT_EQUAL_INT(0, mock_bar_glyph_calls);  // no block glyphs for the fill
-
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_steps_bar_should_fill_with_the_plain_text_color(void) {
@@ -304,9 +322,6 @@ void test_steps_bar_should_fill_with_the_plain_text_color(void) {
     }
   }
   TEST_ASSERT_TRUE(saw_bar_fill);
-
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
-  s_step_count = -1;
 }
 
 void test_battery_bar_should_fill_with_the_status_color(void) {
@@ -335,9 +350,6 @@ void test_battery_bar_should_fill_with_the_status_color(void) {
     }
     TEST_ASSERT_TRUE(saw_fill);
   }
-
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
-  s_battery_level = 100;
 }
 
 void test_aqi_chip_should_band_only_on_an_attention_reading(void) {
@@ -373,8 +385,6 @@ void test_aqi_chip_should_band_only_on_an_attention_reading(void) {
     }
   }
   TEST_ASSERT_TRUE(saw_band);
-
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_battery_complications_should_wear_green_while_charging(void) {
@@ -409,9 +419,6 @@ void test_battery_complications_should_wear_green_while_charging(void) {
     }
   }
   TEST_ASSERT_TRUE(saw_bar_fill);
-
-  s_battery_charging = false;
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
 }
 
 // A PCP fill at the slot's band rect in the given color = the chip banded in
@@ -470,8 +477,6 @@ void test_pcp_chip_should_band_on_attention_probability(void) {
   canvas_update_proc(NULL, NULL);
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
-
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 // A run inside `row` spelled exactly `text` and painted `color` — the generic
@@ -512,7 +517,6 @@ void test_weather_strip_should_draw_the_condition_in_mark(void) {
     }
   }
   TEST_ASSERT_TRUE(cond_marked);
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
 }
 
 void test_heart_rate_chip_should_trail_the_heart(void) {
@@ -530,7 +534,6 @@ void test_heart_rate_chip_should_trail_the_heart(void) {
   }
   TEST_ASSERT_TRUE(heart_x >= 0 && digits_x >= 0);
   TEST_ASSERT_TRUE(heart_x > digits_x);
-  s_heart_rate = 0;
 }
 
 void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
@@ -593,8 +596,6 @@ void test_battery_chip_should_band_without_hinting_the_percent(void) {
   mock_text_runs_reset();
   canvas_update_proc(NULL, NULL);
   TEST_ASSERT_FALSE(row_has_run(row, "%", s_active_theme->mark));
-  s_battery_charging = false;
-  s_battery_level = 100;
 }
 
 void test_humidity_chip_should_stay_plain(void) {
@@ -627,7 +628,6 @@ void test_temp_chip_should_color_shift_and_hint_the_unit(void) {
   GRect row = vga16_value_rect(s_complication_slots[3].box_rect, "-2C");
   TEST_ASSERT_TRUE(row_has_run(row, "-2", s_active_theme->accent_cold));
   TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
-  s_settings_units = 0;
 }
 
 void test_high_low_chip_should_hint_the_trailing_unit(void) {
@@ -647,8 +647,6 @@ void test_high_low_chip_should_hint_the_trailing_unit(void) {
   GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "+11C +20C");
   TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
   TEST_ASSERT_TRUE(row_has_run(row, "+11C +20", s_active_theme->text_primary));
-  s_wall_hour = 12;
-  s_settings_units = 0;
 }
 
 void test_wind_chip_should_hint_the_unit_until_gale(void) {
@@ -679,8 +677,6 @@ void test_wind_chip_should_hint_the_unit_until_gale(void) {
     }
   }
   TEST_ASSERT_FALSE(mph_marked);
-  s_weather_wind_speed = -1;
-  s_weather_wind_direction = -1;
 }
 
 void test_weather_strip_should_hint_quiet_units(void) {
@@ -712,7 +708,6 @@ void test_weather_strip_should_hint_quiet_units(void) {
   }
   TEST_ASSERT_TRUE(f_marked);
   TEST_ASSERT_FALSE(pct_marked);
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
 }
 
 void test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm(void) {
@@ -747,16 +742,10 @@ void test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm(void) 
   TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_red));
   TEST_ASSERT_FALSE(
       pcp_slot_shows_unit_accent(vga16_value_rect(s_complication_slots[3].box_rect, "8mm")));
-
-  s_precip_now = -1;
-  s_settings_units = 0;
-  strcpy(s_weather_cond, "--");
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
   main_window_load(NULL);
-  memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   battery_callback((BatteryChargeState){.charge_percent = 100});
   int marks = mock_mark_dirty_count;
   battery_callback((BatteryChargeState){.charge_percent = 100});
@@ -769,7 +758,6 @@ void test_battery_callback_should_coalesce_unchanged_levels(void) {
   marks = mock_mark_dirty_count;
   battery_callback((BatteryChargeState){.charge_percent = 100, .is_charging = true});
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
-  s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
 }
 
 void test_to_upper_str_should_convert_lowercase_to_uppercase(void) {
@@ -2506,65 +2494,31 @@ void test_update_health_info_should_read_heart_rate(void) {
   TEST_ASSERT_EQUAL_STRING("--", buf);
 }
 
-static void save_slots(ComplicationDataSource* saved) {
-  for (int i = 0; i < NUM_SLOTS; i++) saved[i] = s_complication_slots[i].source;
-}
-
-static void restore_slots(const ComplicationDataSource* saved) {
-  for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = saved[i];
-}
-
 void test_update_health_info_should_do_nothing_with_no_health_slots(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,   DATA_SOURCE_BLUETOOTH,
-                                                    DATA_SOURCE_BEATS,  DATA_SOURCE_SHORT_DATE,
-                                                    DATA_SOURCE_AQI_UV, DATA_SOURCE_FULL_DATE};
-  restore_slots(weather_free);
+  set_slots(kSlotsNoHealth);
 
-  mock_health_accessible_count = 0;
-  mock_health_sum_today_count = 0;
-  mock_health_peek_count = 0;
   update_health_info();
   TEST_ASSERT_EQUAL_INT(0, mock_health_accessible_count);
   TEST_ASSERT_EQUAL_INT(0, mock_health_sum_today_count);
   TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
-
-  restore_slots(saved);
 }
 
 void test_update_health_info_should_read_only_displayed_metrics(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
-                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
-                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
-  restore_slots(only_steps);
+  set_slots(kSlotsOnlySteps);
 
-  mock_health_accessible_count = 0;
-  mock_health_sum_today_count = 0;
-  mock_health_peek_count = 0;
   update_health_info();
   // Steps alone: one accessibility check, one sum; no sleep/active/HR reads.
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   TEST_ASSERT_EQUAL_INT(1, mock_health_sum_today_count);
   TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
-
-  restore_slots(saved);
 }
 
 // PebbleOS posts MovementUpdate per accel batch at motion rate; a step- or
 // sleep-bearing slot turns every one into a render. HEALTH_EVENT_THROTTLE_S
 // bounds that to one refresh per window.
 void test_health_handler_should_throttle_movement_updates(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
-                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
-                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
-  restore_slots(only_steps);
+  set_slots(kSlotsOnlySteps);
 
-  mock_health_accessible_count = 0;
   health_handler(HealthEventMovementUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   int dirty_after_first = mock_mark_dirty_count;
@@ -2573,86 +2527,51 @@ void test_health_handler_should_throttle_movement_updates(void) {
   health_handler(HealthEventMovementUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   TEST_ASSERT_EQUAL_INT(dirty_after_first, mock_mark_dirty_count);
-
-  restore_slots(saved);
 }
 
 void test_health_handler_should_refresh_again_after_the_throttle_window(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
-                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
-                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
-  restore_slots(only_steps);
+  set_slots(kSlotsOnlySteps);
 
-  mock_health_accessible_count = 0;
   health_handler(HealthEventMovementUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
 
   mock_time_offset += HEALTH_EVENT_THROTTLE_S + 1;
   health_handler(HealthEventMovementUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
-
-  restore_slots(saved);
 }
 
 // A posted HR reading is already fresh — stale BPM is worse than a redraw
 // (ISSUES.md), so heart-rate events bypass the throttle.
 void test_health_handler_should_not_throttle_heart_rate_updates(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
-                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
-                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
-  restore_slots(only_steps);
+  set_slots(kSlotsOnlySteps);
 
-  mock_health_accessible_count = 0;
   health_handler(HealthEventMovementUpdate, NULL);  // opens a throttle window
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   health_handler(HealthEventHeartRateUpdate, NULL);
   health_handler(HealthEventHeartRateUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(3, mock_health_accessible_count);
-
-  restore_slots(saved);
 }
 
 // SignificantUpdate is the applib cache-invalidated signal — rare and
 // load-bearing, so it never waits out the throttle window.
 void test_health_handler_should_not_throttle_significant_updates(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource only_steps[NUM_SLOTS] = {DATA_SOURCE_STEPS, DATA_SOURCE_BLUETOOTH,
-                                                  DATA_SOURCE_BEATS, DATA_SOURCE_SHORT_DATE,
-                                                  DATA_SOURCE_DATE,  DATA_SOURCE_FULL_DATE};
-  restore_slots(only_steps);
+  set_slots(kSlotsOnlySteps);
 
-  mock_health_accessible_count = 0;
   health_handler(HealthEventMovementUpdate, NULL);  // opens a throttle window
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   health_handler(HealthEventSignificantUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
-
-  restore_slots(saved);
 }
 
 void test_undisplayed_health_metrics_should_read_as_no_data(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,   DATA_SOURCE_BLUETOOTH,
-                                                    DATA_SOURCE_BEATS,  DATA_SOURCE_SHORT_DATE,
-                                                    DATA_SOURCE_AQI_UV, DATA_SOURCE_FULL_DATE};
-  restore_slots(weather_free);
+  set_slots(kSlotsNoHealth);
 
   s_step_count = 4321;
   update_health_info();
   TEST_ASSERT_EQUAL_INT(-1, s_step_count);
-
-  restore_slots(saved);
 }
 
 void test_handle_bluetooth_should_vibrate_only_on_disconnect_transition(void) {
-  mock_vibes_count = 0;
-
   s_connected = true;
   handle_bluetooth(false);  // genuine drop: buzz
   TEST_ASSERT_EQUAL_INT(1, mock_vibes_count);
@@ -2925,10 +2844,6 @@ void test_inbox_should_parse_slot_assignments(void) {
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_UV, s_complication_slots[4].source);
   TEST_ASSERT_EQUAL_INT(16, persist_read_int(PERSIST_KEY_SLOT_1));
   TEST_ASSERT_EQUAL_INT(17, persist_read_int(PERSIST_KEY_SLOT_5));
-
-  // Restore defaults so later tests see the boot layout
-  s_complication_slots[0].source = DATA_SOURCE_WEATHER;
-  s_complication_slots[4].source = DATA_SOURCE_BLUETOOTH;
 }
 
 void test_inbox_should_parse_the_newer_settings_and_centre_slot(void) {
@@ -2962,11 +2877,6 @@ void test_inbox_should_parse_the_newer_settings_and_centre_slot(void) {
   TEST_ASSERT_EQUAL_INT(SHORT_DATE_DAY_MONTH, s_settings_short_date_format);
   TEST_ASSERT_EQUAL_INT(DOW_HIDDEN, s_settings_dow_position);
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_STEPS_BAR, s_complication_slots[5].source);
-
-  // Restore the boot layout for later tests.
-  s_settings_short_date_format = 0;
-  s_settings_dow_position = 0;
-  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
 }
 
 void test_inbox_should_parse_and_persist_disconnect_vibe_setting(void) {
@@ -2988,8 +2898,6 @@ void test_inbox_should_parse_and_persist_disconnect_vibe_setting(void) {
   s_settings_disconnect_vibe = 1;
   load_settings();
   TEST_ASSERT_EQUAL_INT(0, s_settings_disconnect_vibe);
-
-  s_settings_disconnect_vibe = 0;
 }
 
 void test_inbox_units_change_should_trigger_weather_refetch(void) {
@@ -3086,12 +2994,7 @@ void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
 }
 
 void test_tick_handler_should_skip_weather_with_no_weather_slots(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
-                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
-                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
-  restore_slots(weather_free);
+  set_slots(kSlotsNoWeather);
 
   struct tm t = {0};
   t.tm_min = 30;
@@ -3102,19 +3005,12 @@ void test_tick_handler_should_skip_weather_with_no_weather_slots(void) {
   s_complication_slots[0].source = DATA_SOURCE_WEATHER;
   tick_handler(&t, MINUTE_UNIT);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
-
-  restore_slots(saved);
 }
 
 void test_wind_slot_should_join_the_weather_fetch_gate(void) {
   // A wind-only layout must fetch on the :00/:30 edge like any other
   // weather reading, or the arrow never leaves "--".
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
-                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
-                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
-  restore_slots(weather_free);
+  set_slots(kSlotsNoWeather);
 
   struct tm t = {0};
   t.tm_min = 30;
@@ -3125,17 +3021,10 @@ void test_wind_slot_should_join_the_weather_fetch_gate(void) {
   s_complication_slots[2].source = DATA_SOURCE_WIND;  // Bottom Left
   tick_handler(&t, MINUTE_UNIT);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
-
-  restore_slots(saved);
 }
 
 void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
-  ComplicationDataSource saved[NUM_SLOTS];
-  save_slots(saved);
-  ComplicationDataSource weather_free[NUM_SLOTS] = {DATA_SOURCE_DATE,  DATA_SOURCE_BLUETOOTH,
-                                                    DATA_SOURCE_STEPS, DATA_SOURCE_HEART_RATE,
-                                                    DATA_SOURCE_BEATS, DATA_SOURCE_FULL_DATE};
-  restore_slots(weather_free);
+  set_slots(kSlotsNoWeather);
 
   mock_dict_reset();
   mock_dict_add_cstring(MESSAGE_KEY_SLOT_1, "16");  // DATA_SOURCE_AQI
@@ -3156,8 +3045,6 @@ void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
   before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
-
-  restore_slots(saved);
 }
 
 void test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown(void) {

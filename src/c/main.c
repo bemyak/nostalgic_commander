@@ -19,6 +19,14 @@ static GFont s_vga_64;
 // text_layer_set_text dirty-mark, below). Cleared on window load.
 static char s_shown_time[8] = "";
 
+// The date changes at midnight and on settings pushes only; reformat then,
+// not per tick. Consecutive days never share a tm_yday. File scope so tests
+// can clear the cache (reset_all_state reaches every file-scope static).
+static int s_fmt_yday = -1;
+static int s_fmt_format = -1;
+static int s_fmt_short = -1;
+static int s_fmt_dow = -1;
+
 GFont vga_font_16(void) {
   return s_vga_16;
 }
@@ -146,12 +154,7 @@ void update_time() {
     text_layer_set_text(s_time_layer, time_str);
   }
 
-  // The date changes at midnight and on settings pushes only; reformat then,
-  // not per tick. Consecutive days never share a tm_yday.
-  static int s_fmt_yday = -1;
-  static int s_fmt_format = -1;
-  static int s_fmt_short = -1;
-  static int s_fmt_dow = -1;
+  // The date cache corresponds one-to-one with what the string shows.
   if (tick_time->tm_yday != s_fmt_yday || s_settings_date_format != s_fmt_format ||
       s_settings_short_date_format != s_fmt_short || s_settings_dow_position != s_fmt_dow) {
     format_date_string(s_settings_date_format, s_settings_short_date_format,
@@ -170,6 +173,7 @@ void update_time() {
 }
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
+  (void)units_changed;
   s_quiet_time_active = quiet_time_is_active();
   update_time();
   // Fetch on the tick edge only. update_time() also runs from
@@ -190,15 +194,20 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
 static int s_weather_request_retries = 0;
 
 static void weather_retry_callback(void* data) {
+  (void)data;
   request_weather();
 }
 
 static void outbox_sent_callback(DictionaryIterator* iterator, void* context) {
+  (void)iterator;
+  (void)context;
   s_weather_request_retries = 0;
 }
 
 static void outbox_failed_callback(DictionaryIterator* iterator, AppMessageResult reason,
                                    void* context) {
+  (void)iterator;
+  (void)context;
   if (s_weather_request_retries >= WEATHER_REQUEST_MAX_RETRIES) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "Weather request failed (%d); retries exhausted", (int)reason);
     return;
@@ -242,6 +251,7 @@ static void handle_bluetooth(bool connected) {
 static time_t s_last_throttled_health_refresh;
 
 static void health_handler(HealthEventType event, void* context) {
+  (void)context;
   // SignificantUpdate = the applib health cache was invalidated (day
   // rollover, subscribe); rare, load-bearing, never throttled. HeartRateUpdate
   // bypasses the throttle too: a posted reading is already fresh, and stale
@@ -270,6 +280,7 @@ static void health_handler(HealthEventType event, void* context) {
 // of reflowing the layout. will_change fires too early for show/hide
 // decisions, so only did_change is wired.
 static void quick_view_did_change(void* context) {
+  (void)context;
   Layer* root_layer = window_get_root_layer(s_main_window);
   GRect full = layer_get_bounds(root_layer);
   GRect unobstructed = layer_get_unobstructed_bounds(root_layer);
@@ -307,6 +318,7 @@ static void main_window_load(Window* window) {
 }
 
 static void main_window_unload(Window* window) {
+  (void)window;
   text_layer_destroy(s_time_layer);
   layer_destroy(s_canvas_layer);
 }
@@ -370,4 +382,7 @@ int main(void) {
   app_event_loop();
   deinit();
 }
+#else
+// Single-TU tests compile main() out; init() is driven directly instead.
+void (*const test_env_unused_lifecycle[])(void) = {init, deinit};
 #endif

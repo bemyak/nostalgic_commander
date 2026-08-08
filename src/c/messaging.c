@@ -147,6 +147,7 @@ void request_weather() {
 }
 
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
+  (void)context;
   // WEATHER_TEMP + WEATHER_COND together mark a real weather payload: a
   // settings-only message must not refresh the cache timestamp, so the temp
   // is parsed with the condition word and both stay out of the generic walk.
@@ -213,5 +214,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
 }
 
 void inbox_dropped_callback(AppMessageResult reason, void* context) {
+  (void)reason;
+  (void)context;
   APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped!");
 }
