@@ -37,7 +37,8 @@ typedef struct {
 
 // Every int reading in a weather payload. Three walks share this table —
 // inbox parse, cache save, cache load — which keeps those halves from
-// drifting apart.
+// drifting apart. A NULL message_key marks a persist-only row: the inbox
+// fills it bespoke (the extremes octet is re-bucketed watch-side).
 static const MessageField s_weather_fields[] = {
     {&MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, -999},
     {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1},
@@ -48,17 +49,17 @@ static const MessageField s_weather_fields[] = {
     {&MESSAGE_KEY_WEATHER_WIND_SPEED, PERSIST_KEY_WEATHER_WIND_SPEED, &s_weather_wind_speed, -1},
     {&MESSAGE_KEY_WEATHER_PCP, PERSIST_KEY_WEATHER_PCP, &s_weather_pcp, -1},
     {&MESSAGE_KEY_WEATHER_PRECIP_NOW, PERSIST_KEY_WEATHER_PRECIP_NOW, &s_precip_now, -1},
-    {&MESSAGE_KEY_WEATHER_HIGH, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, -999},
-    {&MESSAGE_KEY_WEATHER_LOW, PERSIST_KEY_WEATHER_LOW, &s_temp_low, -999},
-    {&MESSAGE_KEY_WEATHER_LOW_TOMORROW, PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw, -999},
-    {&MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, PERSIST_KEY_WEATHER_HIGH_TOMORROW, &s_temp_high_tmrw,
-     -999},
-    {&MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today, -1},
-    {&MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today, -1},
-    {&MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, &s_hi_hour_tmrw,
-     -1},
-    {&MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, &s_lo_hour_tmrw,
-     -1},
+    // The extremes octet is persist-only: the inbox re-buckets it by the
+    // WATCH's day (bucket_extremes below), so the raw phone-day keys never
+    // flow through the generic walk.
+    {NULL, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, -999},
+    {NULL, PERSIST_KEY_WEATHER_LOW, &s_temp_low, -999},
+    {NULL, PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw, -999},
+    {NULL, PERSIST_KEY_WEATHER_HIGH_TOMORROW, &s_temp_high_tmrw, -999},
+    {NULL, PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today, -1},
+    {NULL, PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today, -1},
+    {NULL, PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, &s_hi_hour_tmrw, -1},
+    {NULL, PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, &s_lo_hour_tmrw, -1},
 };
 
 // The settings Clay pushes. load_settings() restores from the same rows'
@@ -139,6 +140,51 @@ void request_weather() {
   app_message_outbox_send();
 }
 
+// Which watch-local day an instant belongs to, relative to now: 0 today,
+// 1 tomorrow, -1 anything else. The tm_yday compare sidesteps 23/25-hour
+// DST days.
+static int rel_day_of(time_t instant, time_t now) {
+  struct tm at = *localtime(&instant);
+  struct tm during = *localtime(&now);
+  if (at.tm_year != during.tm_year) return at.tm_year < during.tm_year ? -1 : 1;
+  if (at.tm_yday < during.tm_yday || at.tm_yday > during.tm_yday + 1) return -1;
+  return at.tm_yday - during.tm_yday;
+}
+
+// The day's HI/LO events arrive as (value, instant) pairs keyed by the
+// *phone's* day; each lands in the watch-local day its instant belongs to.
+// Events outside today/tomorrow (or missing either half) read as no data —
+// the formatter sinks a half-filled readout to "-- --".
+static void bucket_extremes(DictionaryIterator* iterator, time_t now) {
+  const uint32_t* value_keys[2][2] = {
+      {&MESSAGE_KEY_WEATHER_HIGH, &MESSAGE_KEY_WEATHER_LOW},
+      {&MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, &MESSAGE_KEY_WEATHER_LOW_TOMORROW}};
+  const uint32_t* at_keys[2][2] = {
+      {&MESSAGE_KEY_WEATHER_HI_AT_TODAY, &MESSAGE_KEY_WEATHER_LO_AT_TODAY},
+      {&MESSAGE_KEY_WEATHER_HI_AT_TOMORROW, &MESSAGE_KEY_WEATHER_LO_AT_TOMORROW}};
+  int* value_slots[2][2] = {{&s_temp_high, &s_temp_low}, {&s_temp_high_tmrw, &s_temp_low_tmrw}};
+  int* hour_slots[2][2] = {{&s_hi_hour_today, &s_lo_hour_today},
+                           {&s_hi_hour_tmrw, &s_lo_hour_tmrw}};
+
+  // Every weather payload re-derives all eight: an event that fell out of
+  // the window must not keep yesterday's persisted reading.
+  s_temp_high = s_temp_low = s_temp_high_tmrw = s_temp_low_tmrw = -999;
+  s_hi_hour_today = s_lo_hour_today = s_hi_hour_tmrw = s_lo_hour_tmrw = -1;
+
+  for (int phone_day = 0; phone_day < 2; phone_day++) {
+    for (int hi_lo = 0; hi_lo < 2; hi_lo++) {
+      Tuple* value = dict_find(iterator, *value_keys[phone_day][hi_lo]);
+      Tuple* at = dict_find(iterator, *at_keys[phone_day][hi_lo]);
+      if (!value || !at || at->value->int32 < 0) continue;
+      time_t instant = at->value->int32;
+      int rel = rel_day_of(instant, now);
+      if (rel < 0) continue;
+      *value_slots[rel][hi_lo] = value->value->int32;
+      *hour_slots[rel][hi_lo] = localtime(&instant)->tm_hour;
+    }
+  }
+}
+
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   // WEATHER_TEMP + WEATHER_COND together mark a real weather payload: a
   // settings-only message must not refresh the cache timestamp, so the temp
@@ -152,10 +198,23 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
 
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     if (s_weather_fields[i].message_key == &MESSAGE_KEY_WEATHER_TEMP) continue;
+    if (!s_weather_fields[i].message_key) continue;  // persist-only row
     Tuple* tuple = dict_find(iterator, *s_weather_fields[i].message_key);
     if (tuple) {
       *s_weather_fields[i].target = tuple->value->int32;
     }
+  }
+
+  // Extremes travel as (value, instant) pairs per phone-local day; the watch
+  // re-buckets onto ITS OWN today/tomorrow, so phone/watch timezone skew
+  // (travel) can't corrupt the rollover. Any other weather message updates
+  // the four readings; anything without event instants (or settings-only)
+  // leaves them alone.
+  if (dict_find(iterator, MESSAGE_KEY_WEATHER_HI_AT_TODAY) ||
+      dict_find(iterator, MESSAGE_KEY_WEATHER_LO_AT_TODAY) ||
+      dict_find(iterator, MESSAGE_KEY_WEATHER_HI_AT_TOMORROW) ||
+      dict_find(iterator, MESSAGE_KEY_WEATHER_LO_AT_TOMORROW)) {
+    bucket_extremes(iterator, time(NULL));
   }
 
   // Persist the weather cache only for a real weather payload, so a

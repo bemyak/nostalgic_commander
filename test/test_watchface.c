@@ -2682,6 +2682,19 @@ void test_handle_bluetooth_should_stay_silent_on_drops_when_the_buzz_is_disabled
   TEST_ASSERT_EQUAL_INT(0, mock_vibes_count);
 }
 
+// An instant today/tomorrow at a local hour, built by mktime round-trip so
+// the expectation is valid in whichever timezone the host runs the suite.
+static time_t at_local_hour(int day_offset, int hour) {
+  time_t now = time(NULL);
+  struct tm t = *localtime(&now);
+  t.tm_mday += day_offset;
+  t.tm_hour = hour;
+  t.tm_min = 0;
+  t.tm_sec = 0;
+  t.tm_isdst = -1;
+  return mktime(&t);
+}
+
 void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -2694,6 +2707,10 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_dict_add_int(MESSAGE_KEY_WEATHER_PRECIP_NOW, 25);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
+  // Extremes travel as (value, instant) pairs — the hour each lands on in
+  // watch-local time.
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_AT_TODAY, (int32_t)at_local_hour(0, 15));
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_AT_TODAY, (int32_t)at_local_hour(0, 5));
 
   inbox_received_callback(NULL, NULL);
 
@@ -2706,6 +2723,8 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(25, s_precip_now);
   TEST_ASSERT_EQUAL_INT(82, s_temp_high);
   TEST_ASSERT_EQUAL_INT(61, s_temp_low);
+  TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(5, s_lo_hour_today);
 
   // A weather payload must persist the cache
   TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP));
@@ -2721,11 +2740,14 @@ void test_inbox_should_parse_and_persist_tomorrow_low(void) {
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
   mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  // The value alone is undatable; the (value, instant) pair is the event.
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW_TOMORROW, 55);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_AT_TOMORROW, (int32_t)at_local_hour(1, 4));
 
   inbox_received_callback(NULL, NULL);
 
   TEST_ASSERT_EQUAL_INT(55, s_temp_low_tmrw);
+  TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
   TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_LOW_TOMORROW));
   TEST_ASSERT_EQUAL_INT(55, persist_read_int(PERSIST_KEY_WEATHER_LOW_TOMORROW));
 }
@@ -2839,30 +2861,72 @@ void test_inbox_without_wind_should_leave_the_sentinel(void) {
   TEST_ASSERT_EQUAL_INT(-1, s_weather_wind_direction);
 }
 
-void test_inbox_should_parse_and_persist_extreme_rollover_keys(void) {
+void test_inbox_should_bucket_extremes_by_watch_local_day(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
   mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 84);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, 77);
-  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 15);
-  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, 5);
-  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, 14);
-  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, 4);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW_TOMORROW, 55);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_AT_TODAY, (int32_t)at_local_hour(0, 15));
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_AT_TODAY, (int32_t)at_local_hour(0, 5));
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_AT_TOMORROW, (int32_t)at_local_hour(1, 14));
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_AT_TOMORROW, (int32_t)at_local_hour(1, 4));
 
   inbox_received_callback(NULL, NULL);
 
+  TEST_ASSERT_EQUAL_INT(84, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(61, s_temp_low);
   TEST_ASSERT_EQUAL_INT(77, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(55, s_temp_low_tmrw);
   TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
   TEST_ASSERT_EQUAL_INT(5, s_lo_hour_today);
   TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
   TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
   TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_HIGH_TOMORROW));
   TEST_ASSERT_EQUAL_INT(77, persist_read_int(PERSIST_KEY_WEATHER_HIGH_TOMORROW));
+  TEST_ASSERT_EQUAL_INT(55, persist_read_int(PERSIST_KEY_WEATHER_LOW_TOMORROW));
   TEST_ASSERT_EQUAL_INT(15, persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TODAY));
   TEST_ASSERT_EQUAL_INT(5, persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TODAY));
   TEST_ASSERT_EQUAL_INT(14, persist_read_int(PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW));
   TEST_ASSERT_EQUAL_INT(4, persist_read_int(PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW));
+}
+
+void test_inbox_extremes_should_land_in_watch_days_under_timezone_skew(void) {
+  // The phone's "today" events, dated tomorrow by the watch's clock: they
+  // must land in the tomorrow cells — the wire's day labels no longer drive
+  // the bucketing.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 90);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_AT_TODAY, (int32_t)at_local_hour(1, 14));
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(90, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+}
+
+void test_inbox_extremes_should_drop_events_outside_today_and_tomorrow(void) {
+  // A stale or wildly skewed instant must not displace a good reading: the
+  // event is dropped and its cell holds the sentinel (a fresh payload
+  // re-derives all eight, so the cached one cannot linger).
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_AT_TODAY, (int32_t)at_local_hour(-1, 15));
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-999, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(-1, s_hi_hour_today);
 }
 
 void test_inbox_without_extreme_timing_should_leave_the_sentinels(void) {
@@ -3322,7 +3386,9 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_and_persist_wind_direction);
   RUN_TEST(test_inbox_should_parse_and_persist_wind_speed);
   RUN_TEST(test_inbox_without_wind_should_leave_the_sentinel);
-  RUN_TEST(test_inbox_should_parse_and_persist_extreme_rollover_keys);
+  RUN_TEST(test_inbox_should_bucket_extremes_by_watch_local_day);
+  RUN_TEST(test_inbox_extremes_should_land_in_watch_days_under_timezone_skew);
+  RUN_TEST(test_inbox_extremes_should_drop_events_outside_today_and_tomorrow);
   RUN_TEST(test_inbox_without_tomorrow_low_should_leave_the_sentinel);
   RUN_TEST(test_inbox_without_extreme_timing_should_leave_the_sentinels);
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);

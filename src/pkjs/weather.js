@@ -24,10 +24,13 @@ var WEATHER_FIELDS = [
   {key: 'WEATHER_LOW', sentinel: -999},
   {key: 'WEATHER_LOW_TOMORROW', sentinel: -999},
   {key: 'WEATHER_TEMP_HIGH_TOMORROW', sentinel: -999},
-  {key: 'WEATHER_HI_HOUR_TODAY', sentinel: -1},
-  {key: 'WEATHER_LO_HOUR_TODAY', sentinel: -1},
-  {key: 'WEATHER_HI_HOUR_TOMORROW', sentinel: -1},
-  {key: 'WEATHER_LO_HOUR_TOMORROW', sentinel: -1},
+  // The HI/LO events travel as UTC instants, and the watch re-buckets
+  // today/tomorrow by *its* date — the sieve against phone/watch timezone
+  // skew (the hour-of-day the string carries is phone-local and useless).
+  {key: 'WEATHER_HI_AT_TODAY', sentinel: -1},
+  {key: 'WEATHER_LO_AT_TODAY', sentinel: -1},
+  {key: 'WEATHER_HI_AT_TOMORROW', sentinel: -1},
+  {key: 'WEATHER_LO_AT_TOMORROW', sentinel: -1},
 ];
 
 // Every row at its sentinel — what the watch reads when the value can't be
@@ -76,6 +79,12 @@ function wmoCondition(code) {
 // Parse one Open-Meteo forecast response into a complete payload: every
 // WEATHER_FIELDS key present, unparsable values at their sentinel. `nowMs`
 // pins "now" for the UV/PCP window (tests pass a fixed instant).
+// The instant of an extreme's hour, seconds; -1 when the day's curve never
+// parsed a min/max (index stayed -1) — the watch then keeps the sentinel.
+function epochOfHourly(times, index) {
+  return index < 0 ? -1 : Math.round(new Date(times[index]).getTime() / 1000);
+}
+
 function parseForecast(json, nowMs) {
   var out = sentinelPayload();
   var current = json.current || {};
@@ -116,10 +125,10 @@ function parseForecast(json, nowMs) {
     if (out.WEATHER_UV >= 0) out.WEATHER_UV = Math.round(out.WEATHER_UV);
     if (out.WEATHER_PCP >= 0) out.WEATHER_PCP = Math.round(out.WEATHER_PCP);
 
-    // Event hours of the four extremes: each day's argmin/argmax over the
-    // hourly curve, grouped by phone-local date (timezone=auto). Unknown —
-    // or absent — days stay at the sentinel and the watch falls back to a
-    // plain LO/HI order.
+    // Event instants of the four extremes: each day's argmin/argmax over the
+    // hourly curve, tracked by index so the epoch comes straight off the
+    // timestamp string. Bare days stay at the sentinel and the watch drops
+    // any event it can't bucket onto its own today/tomorrow.
     if (hourly.temperature_2m) {
       var dayOrder = [];
       var dayExtremes = {};
@@ -130,28 +139,26 @@ function parseForecast(json, nowMs) {
         var dayKey = timestamp.substring(0, 10);
         if (!dayExtremes[dayKey]) {
           if (dayOrder.length === 2) continue;
-          dayExtremes[dayKey] = {min: Infinity, minH: -1, max: -Infinity, maxH: -1};
+          dayExtremes[dayKey] = {min: Infinity, minI: -1, max: -Infinity, maxI: -1};
           dayOrder.push(dayKey);
         }
-        var hour = parseInt(timestamp.substring(11, 13), 10);
-        if (isNaN(hour)) continue;
         var day = dayExtremes[dayKey];
         if (hourTemp < day.min) {
           day.min = hourTemp;
-          day.minH = hour;
+          day.minI = h;
         }
         if (hourTemp > day.max) {
           day.max = hourTemp;
-          day.maxH = hour;
+          day.maxI = h;
         }
       }
       if (dayOrder.length > 0) {
-        out.WEATHER_LO_HOUR_TODAY = dayExtremes[dayOrder[0]].minH;
-        out.WEATHER_HI_HOUR_TODAY = dayExtremes[dayOrder[0]].maxH;
+        out.WEATHER_LO_AT_TODAY = epochOfHourly(hourly.time, dayExtremes[dayOrder[0]].minI);
+        out.WEATHER_HI_AT_TODAY = epochOfHourly(hourly.time, dayExtremes[dayOrder[0]].maxI);
       }
       if (dayOrder.length > 1) {
-        out.WEATHER_LO_HOUR_TOMORROW = dayExtremes[dayOrder[1]].minH;
-        out.WEATHER_HI_HOUR_TOMORROW = dayExtremes[dayOrder[1]].maxH;
+        out.WEATHER_LO_AT_TOMORROW = epochOfHourly(hourly.time, dayExtremes[dayOrder[1]].minI);
+        out.WEATHER_HI_AT_TOMORROW = epochOfHourly(hourly.time, dayExtremes[dayOrder[1]].maxI);
       }
     }
   }

@@ -61,8 +61,8 @@ test('field table declares every key once, with the contract sentinel', () => {
   assert.equal(sentinel.WEATHER_COND, '--');
   for (const k
            of ['WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP', 'WEATHER_PRECIP_NOW',
-               'WEATHER_WIND_DIRECTION', 'WEATHER_WIND_SPEED', 'WEATHER_HI_HOUR_TODAY',
-               'WEATHER_LO_HOUR_TODAY', 'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW'])
+               'WEATHER_WIND_DIRECTION', 'WEATHER_WIND_SPEED', 'WEATHER_HI_AT_TODAY',
+               'WEATHER_LO_AT_TODAY', 'WEATHER_HI_AT_TOMORROW', 'WEATHER_LO_AT_TOMORROW'])
     assert.equal(sentinel[k], -1, k);
   // The sentinel payload is complete by construction.
   assert.ok(weather.isCompleteWeatherPayload(weather.sentinelPayload()));
@@ -88,7 +88,7 @@ test('parseForecast falls back to sentinels per field', () => {
   assert.equal(out.WEATHER_HUMIDITY, -1);
   assert.equal(out.WEATHER_UV, -1);
   assert.equal(out.WEATHER_HIGH, -999);
-  assert.equal(out.WEATHER_HI_HOUR_TODAY, -1);
+  assert.equal(out.WEATHER_HI_AT_TODAY, -1);
   assert.ok(weather.isCompleteWeatherPayload(out));
 });
 
@@ -115,12 +115,13 @@ test('extremes sink together when any one is missing', () => {
   assert.equal(out.WEATHER_TEMP, 23);
 });
 
-test('extreme event hours are per-day argmin/argmax', () => {
+test('extreme events travel as per-day argmin/argmax instants', () => {
   const out = weather.parseForecast(fullResponse(), NOW);
-  assert.equal(out.WEATHER_LO_HOUR_TODAY, 5);
-  assert.equal(out.WEATHER_HI_HOUR_TODAY, 15);
-  assert.equal(out.WEATHER_LO_HOUR_TOMORROW, 3);
-  assert.equal(out.WEATHER_HI_HOUR_TOMORROW, 21);
+  const epoch = idx => Math.round(new Date(fullResponse().hourly.time[idx]).getTime() / 1000);
+  assert.equal(out.WEATHER_LO_AT_TODAY, epoch(5));
+  assert.equal(out.WEATHER_HI_AT_TODAY, epoch(15));
+  assert.equal(out.WEATHER_LO_AT_TOMORROW, epoch(27));
+  assert.equal(out.WEATHER_HI_AT_TOMORROW, epoch(45));
 });
 
 test('a single-day series leaves tomorrow hours unknown', () => {
@@ -128,10 +129,11 @@ test('a single-day series leaves tomorrow hours unknown', () => {
   json.hourly.time = json.hourly.time.slice(0, 24);
   json.hourly.temperature_2m = json.hourly.temperature_2m.slice(0, 24);
   const out = weather.parseForecast(json, NOW);
-  assert.equal(out.WEATHER_LO_HOUR_TODAY, 5);
-  assert.equal(out.WEATHER_HI_HOUR_TODAY, 15);
-  assert.equal(out.WEATHER_LO_HOUR_TOMORROW, -1);
-  assert.equal(out.WEATHER_HI_HOUR_TOMORROW, -1);
+  const epoch = idx => Math.round(new Date(json.hourly.time[idx]).getTime() / 1000);
+  assert.equal(out.WEATHER_LO_AT_TODAY, epoch(5));
+  assert.equal(out.WEATHER_HI_AT_TODAY, epoch(15));
+  assert.equal(out.WEATHER_LO_AT_TOMORROW, -1);
+  assert.equal(out.WEATHER_HI_AT_TOMORROW, -1);
 });
 
 test('wmoCondition maps ranges and boundaries', () => {

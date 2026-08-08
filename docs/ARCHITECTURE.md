@@ -34,9 +34,11 @@ This document explains how the pieces fit together.
    weather code, humidity and the live precipitation rate (mm over the past
    hour) from the `current` block; hourly UV and precipitation probability,
    each reduced to the peak over the next 12 hours; the high/low extremes
-   from the `daily` block plus each day's argmin/argmax hour from the hourly
-   curve: the extremes slot rolls each cell to tomorrow's value when its own
-   extreme's hour ends (the roll never contradicts a live reading inside
+   from the `daily` block plus each day's argmin/argmax instant from the
+   hourly curve: extremes travel as (value, UTC instant) pairs, and the watch
+   re-buckets today/tomorrow by its own date — phone/watch timezone skew
+   can't corrupt it. The slot rolls each cell to tomorrow's value when its
+   own extreme's hour ends (the roll never contradicts a live reading inside
    the hour), ordered so the next event sits left; its `HI`/`LO` frame stubs
    swap with the layout, so the readout stays self-labelling)
    and the air-quality API (US AQI).
