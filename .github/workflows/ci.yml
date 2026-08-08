@@ -14,9 +14,5 @@ jobs:
           submodules: recursive
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
-      - name: Check formatting
-        run: make format-check
-      - name: Run unit tests
-        run: make -C test test
-      - name: Run pkjs tests
-        run: node --test test/pkjs/*.test.js
+      - name: Format check + unit tests
+        run: make test

@@ -16,7 +16,7 @@ format-check:
 	clang-format --dry-run -Werror $(FORMAT_SRCS)
 
 test: format-check test-js
-	$(MAKE) -C test test
+	$(MAKE) -C test test || { cat test/test-fail.log; exit 1; }
 
 # Phone-side contract tests; plain node, no framework.
 test-js:

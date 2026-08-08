@@ -74,17 +74,20 @@ Verify: `make test` green; no `config.json` references outside CHANGELOG.
       replaced 10+ copy-pasted save/restore blocks; dead tail restores
       deleted. (`data_reset()` in data.c rejected: the reset walks
       messaging.c's static table, only reachable from the test TU.)
-- [ ] 1.4 Mock knobs: record subscriptions; peek values (battery, BT, 24h),
+- [x] 1.4 Mock knobs: record subscriptions; peek values (battery, BT, 24h),
       `outbox_begin` failure, health permission denied, real
-      `time_start_of_today`.
-- [ ] 1.5 New tests: `init()` stale-cache launch-fetch gate; four init
+      `time_start_of_today`. (Incl. per-metric `mock_health_accessible[]`
+      masks, `mock_dict_add_*_width` staging, `mock_last_text` capture.)
+- [x] 1.5 New tests: `init()` stale-cache launch-fetch gate; four init
       subscriptions registered; ordinal suffixes asserted in the 372-day
       sweep; `tuple_get_int` width-1/2/uint arms; EMPTY/unknown draws nothing;
       permission-denied → sentinel paths; 24h clock + leading-zero strip via
-      captured `set_text`; a real 17-key weather payload parses.
-- [ ] 1.6 Runner-drift guard: `make test` fails when defined ≠ registered
-      test count.
-- [ ] 1.7 CI runs `make test` (single source) instead of reimplemented steps.
+      captured `set_text`; a real 17-key weather payload parses. (12 new
+      tests; ordinal sweep extended in place, all 372 days vs an independent
+      reference.)
+- [x] 1.6 Runner-drift guard: `make test` fails when defined ≠ registered
+      test count. (Caught a dropped registration on its first run.)
+- [x] 1.7 CI runs `make test` (single source) instead of reimplemented steps.
 
 Verify: suite green incl. sanitizers; sabotage one subscription and one
 ordinal → confirm red → revert.

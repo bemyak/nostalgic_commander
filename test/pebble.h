@@ -306,13 +306,34 @@ extern int32_t mock_heart_rate;
 extern int mock_health_accessible_count;
 extern int mock_health_sum_today_count;
 extern int mock_health_peek_count;
+// Per-metric permission knob, indexed by HealthMetric; a value without the
+// Available bit routes update_health_info() down its sentinel branch.
+#define MOCK_HEALTH_METRIC_COUNT 7
+extern HealthServiceAccessibilityMask mock_health_accessible[MOCK_HEALTH_METRIC_COUNT];
 extern time_t mock_time_offset;
 extern bool mock_quiet_time_active;
+extern uint8_t mock_battery_percent;
+extern bool mock_battery_charging;
+extern bool mock_bt_connected;
+extern bool mock_clock_24h;
+extern bool mock_outbox_begin_ok;
 extern int mock_vibes_count;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;
 extern int mock_set_text_count;
 extern int mock_set_text_color_count;
+extern char mock_last_text[32];  // most recent text_layer_set_text payload
+// Subscription recording: init()'s wiring is asserted, not assumed.
+extern int mock_tick_subscribe_count;
+extern TimeUnits mock_tick_units;
+extern int mock_battery_subscribe_count;
+extern int mock_connection_subscribe_count;
+extern int mock_health_subscribe_count;
+extern int mock_unobstructed_subscribe_count;
+extern int mock_inbox_received_count;
+extern int mock_inbox_dropped_count;
+extern int mock_outbox_sent_count;
+extern int mock_outbox_failed_count;
 extern int mock_wordwrap_calls;
 extern int mock_bar_glyph_calls;
 #define MOCK_MAX_FILL_RECTS 128
@@ -333,6 +354,8 @@ void mock_text_runs_reset(void);
 extern GRect mock_unobstructed_bounds;
 void mock_dict_reset(void);
 void mock_dict_add_int(uint32_t key, int32_t value);
+void mock_dict_add_int_width(uint32_t key, int32_t value, uint16_t width);
+void mock_dict_add_uint_width(uint32_t key, uint32_t value, uint16_t width);
 void mock_dict_add_cstring(uint32_t key, const char* str);
 TextLayer* text_layer_create(GRect frame);
 void text_layer_destroy(TextLayer* text_layer);

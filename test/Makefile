@@ -15,4 +15,9 @@ clean:
 	rm -f $(TARGET)
 
 test: $(TARGET)
+	@defined=$$(grep -c '^void test_' test_watchface.c); \
+	runner=$$(grep -c 'RUN_TEST(' test_watchface.c); \
+	if [ "$$defined" != "$$runner" ]; then \
+	  echo "RUN_TEST drift: $$defined defined tests vs $$runner registered"; exit 1; \
+	fi
 	./$(TARGET)

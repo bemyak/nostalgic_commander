@@ -46,28 +46,37 @@ void app_message_open(uint32_t size_inbound, uint32_t size_outbound) {
   (void)size_outbound;
 }
 
+bool mock_outbox_begin_ok = true;
 int mock_outbox_sends = 0;
 void app_message_outbox_begin(DictionaryIterator** iterator) {
   static int dummy;  // app code only checks the iterator for NULL
-  *iterator = (DictionaryIterator*)&dummy;
+  *iterator = mock_outbox_begin_ok ? (DictionaryIterator*)&dummy : NULL;
 }
 void app_message_outbox_send(void) {
   mock_outbox_sends++;
 }
+int mock_inbox_dropped_count = 0;
 void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context)) {
   (void)callback;
+  mock_inbox_dropped_count++;
 }
+int mock_inbox_received_count = 0;
 void app_message_register_inbox_received(void (*callback)(DictionaryIterator* iterator,
                                                           void* context)) {
   (void)callback;
+  mock_inbox_received_count++;
 }
+int mock_outbox_sent_count = 0;
 void app_message_register_outbox_sent(void (*callback)(DictionaryIterator* iterator,
                                                        void* context)) {
   (void)callback;
+  mock_outbox_sent_count++;
 }
+int mock_outbox_failed_count = 0;
 void app_message_register_outbox_failed(void (*callback)(DictionaryIterator* iterator,
                                                          AppMessageResult reason, void* context)) {
   (void)callback;
+  mock_outbox_failed_count++;
 }
 
 AppTimer* app_timer_register(uint32_t timeout_ms, void (*callback)(void* data), void* data) {
@@ -85,26 +94,35 @@ void app_timer_cancel(AppTimer* timer) {
   (void)timer;
 }
 
+uint8_t mock_battery_percent = 100;
+bool mock_battery_charging = false;
 BatteryChargeState battery_state_service_peek(void) {
-  BatteryChargeState state = {.charge_percent = 100, .is_charging = false, .is_plugged = false};
+  BatteryChargeState state = {.charge_percent = mock_battery_percent,
+                              .is_charging = mock_battery_charging};
   return state;
 }
 
+int mock_battery_subscribe_count = 0;
 void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge)) {
   (void)handler;
+  mock_battery_subscribe_count++;
 }
+bool mock_clock_24h = false;
 bool clock_is_24h_style(void) {
-  return false;
+  return mock_clock_24h;
 }
+bool mock_bt_connected = true;
 bool connection_service_peek_pebble_app_connection(void) {
-  return true;
+  return mock_bt_connected;
 }
 bool mock_quiet_time_active = false;
 bool quiet_time_is_active(void) {
   return mock_quiet_time_active;
 }
+int mock_connection_subscribe_count = 0;
 void connection_service_subscribe(ConnectionHandlers handlers) {
   (void)handlers;
+  mock_connection_subscribe_count++;
 }
 
 // Scriptable inbound dictionary: tests stage tuples with mock_dict_add_*()
@@ -120,29 +138,51 @@ void mock_dict_reset(void) {
   mock_dict_count = 0;
 }
 
-static Tuple* mock_dict_next_slot(uint32_t key) {
+static Tuple* mock_dict_new_slot(uint32_t key, uint16_t width, TupleType type) {
   if (mock_dict_count >= MOCK_DICT_MAX) {
     TEST_FAIL_MESSAGE("mock dict capacity exceeded; raise MOCK_DICT_MAX");
   }
+  if (width >= MOCK_DICT_TUPLE_BYTES - sizeof(Tuple)) {
+    TEST_FAIL_MESSAGE("mock dict tuple too wide; raise MOCK_DICT_TUPLE_BYTES");
+  }
   Tuple* t = (Tuple*)mock_dict_storage[mock_dict_count++];
   t->key = key;
+  t->type = type;
+  t->length = width;
   return t;
 }
 
 void mock_dict_add_int(uint32_t key, int32_t value) {
-  Tuple* t = mock_dict_next_slot(key);
-  t->type = TUPLE_INT;
-  t->length = 4;
-  t->value->int32 = value;
+  mock_dict_add_int_width(key, value, 4);
+}
+
+// Staging for tuple_get_int's wire-width arms: the SDK sends 1-, 2- or 4-byte
+// ints; the mock has to be able to stage them all.
+void mock_dict_add_int_width(uint32_t key, int32_t value, uint16_t width) {
+  Tuple* t = mock_dict_new_slot(key, width, TUPLE_INT);
+  if (width == 1) {
+    t->value->uint8 = (uint8_t)value;
+  } else if (width == 2) {
+    t->value->uint16 = (uint16_t)value;
+  } else {
+    t->value->int32 = value;
+  }
+}
+
+void mock_dict_add_uint_width(uint32_t key, uint32_t value, uint16_t width) {
+  Tuple* t = mock_dict_new_slot(key, width, TUPLE_UINT);
+  if (width == 1) {
+    t->value->uint8 = (uint8_t)value;
+  } else if (width == 2) {
+    t->value->uint16 = (uint16_t)value;
+  } else {
+    t->value->uint32 = value;
+  }
 }
 
 void mock_dict_add_cstring(uint32_t key, const char* str) {
-  Tuple* t = mock_dict_next_slot(key);
-  if (strlen(str) >= MOCK_DICT_TUPLE_BYTES - sizeof(Tuple)) {
-    TEST_FAIL_MESSAGE("mock dict tuple too long; raise MOCK_DICT_TUPLE_BYTES");
-  }
-  t->type = TUPLE_CSTRING;
-  t->length = strlen(str) + 1;
+  size_t len = strlen(str) + 1;
+  Tuple* t = mock_dict_new_slot(key, (uint16_t)len, TUPLE_CSTRING);
   strcpy(t->value->cstring, str);
 }
 
@@ -249,21 +289,29 @@ void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
   }
 }
 
+int mock_health_subscribe_count = 0;
 void health_service_events_subscribe(void (*handler)(HealthEventType event, void* context),
                                      void* context) {
   (void)handler;
   (void)context;
+  mock_health_subscribe_count++;
 }
 void health_service_events_unsubscribe(void) {}
 int32_t mock_heart_rate = 0;
 int mock_health_accessible_count = 0;
 int mock_health_sum_today_count = 0;
 int mock_health_peek_count = 0;
+// Per-metric permission, indexed by HealthMetric; default Available.
+HealthServiceAccessibilityMask mock_health_accessible[MOCK_HEALTH_METRIC_COUNT];
 
 HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric metric,
                                                                 time_t time_start,
                                                                 time_t time_end) {
   mock_health_accessible_count++;
+  // An explicit denial wins over every other rule.
+  if (mock_health_accessible[metric] != HealthServiceAccessibilityMaskAvailable) {
+    return mock_health_accessible[metric];
+  }
   // Mirror real firmware: heart-rate accessibility is only reported for an
   // instant query; a time-range query comes back unsupported.
   if (metric == HealthMetricHeartRateBPM && time_start != time_end) {
@@ -387,10 +435,11 @@ void text_layer_set_font(TextLayer* text_layer, GFont font) {
   (void)font;
 }
 int mock_set_text_count = 0;
+char mock_last_text[32] = "";
 void text_layer_set_text(TextLayer* text_layer, const char* text) {
   (void)text_layer;
-  (void)text;
   mock_set_text_count++;
+  snprintf(mock_last_text, sizeof(mock_last_text), "%s", text);
 }
 void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment) {
   (void)text_layer;
@@ -403,17 +452,19 @@ void text_layer_set_text_color(TextLayer* text_layer, GColor color) {
   mock_set_text_color_count++;
 }
 
+int mock_tick_subscribe_count = 0;
+TimeUnits mock_tick_units = 0;
 void tick_timer_service_subscribe(TimeUnits tick_units,
                                   void (*handler)(struct tm* tick_time, TimeUnits units_changed)) {
-  (void)tick_units;
   (void)handler;
+  mock_tick_subscribe_count++;
+  mock_tick_units = tick_units;
 }
+int mock_unobstructed_subscribe_count = 0;
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context) {
   (void)handlers;
   (void)context;
-}
-time_t time_start_of_today(void) {
-  return 0;
+  mock_unobstructed_subscribe_count++;
 }
 // Mock wall clock: the health-event throttle is timestamp-based, so tests jump
 // seconds through this offset instead of sleeping.
@@ -424,6 +475,13 @@ time_t time(time_t* t) {
   time_t now = (time_t)ts.tv_sec + mock_time_offset;
   if (t) *t = now;
   return now;
+}
+// Today's midnight on the mock clock, like the SDK — health range queries get
+// a real day boundary instead of the epoch.
+time_t time_start_of_today(void) {
+  time_t now = time(NULL);
+  struct tm* lt = localtime(&now);
+  return now - (time_t)(lt->tm_hour * 3600 + lt->tm_min * 60 + lt->tm_sec);
 }
 int mock_vibes_count = 0;
 void vibes_double_pulse(void) {
@@ -467,6 +525,14 @@ void APP_LOG(uint8_t level, const char* fmt, ...) {
 void mock_reset(void) {
   mock_time_offset = 0;
   mock_quiet_time_active = false;
+  mock_battery_percent = 100;
+  mock_battery_charging = false;
+  mock_bt_connected = true;
+  mock_clock_24h = false;
+  mock_outbox_begin_ok = true;
+  for (int i = 0; i < MOCK_HEALTH_METRIC_COUNT; i++) {
+    mock_health_accessible[i] = HealthServiceAccessibilityMaskAvailable;
+  }
   mock_heart_rate = 0;
   mock_outbox_sends = 0;
   mock_health_accessible_count = 0;
@@ -476,6 +542,17 @@ void mock_reset(void) {
   mock_mark_dirty_count = 0;
   mock_set_text_count = 0;
   mock_set_text_color_count = 0;
+  mock_last_text[0] = '\0';
+  mock_tick_subscribe_count = 0;
+  mock_tick_units = 0;
+  mock_battery_subscribe_count = 0;
+  mock_connection_subscribe_count = 0;
+  mock_health_subscribe_count = 0;
+  mock_unobstructed_subscribe_count = 0;
+  mock_inbox_received_count = 0;
+  mock_inbox_dropped_count = 0;
+  mock_outbox_sent_count = 0;
+  mock_outbox_failed_count = 0;
   mock_wordwrap_calls = 0;
   mock_bar_glyph_calls = 0;
   mock_persist_write_count = 0;

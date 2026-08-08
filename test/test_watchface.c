@@ -2169,6 +2169,24 @@ void test_format_date_string_should_render_every_body(void) {
   TEST_ASSERT_EQUAL_STRING("1970-12-31", buf);
 }
 
+// Reference spellings for the sweep below, spelled out independently of the
+// implementation under test so a typo on either side is caught, not shared.
+static const char* kMonthAbbr[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+static const char* ref_ordinal_suffix(int day) {
+  if (day >= 11 && day <= 13) return "th";
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
 void test_every_date_combination_should_fit_its_window(void) {
   // The centre DATE window is LAYOUT_W wide, less its two 2px borders, so it
   // holds 22 glyph cells. Nothing clips overlong text — vga16_value_rect sizes
@@ -2191,6 +2209,14 @@ void test_every_date_combination_should_fit_its_window(void) {
             char msg[96];
             snprintf(msg, sizeof(msg), "%s = %d cells, over %d", buf, (int)strlen(buf), cap);
             TEST_FAIL_MESSAGE(msg);
+          }
+          // The TEXT body in full, suffix included, against the reference
+          // spelling above — every day of the year, not just samples.
+          if (fmt == DATE_FORMAT_TEXT && dow == DOW_HIDDEN) {
+            char want[64];
+            snprintf(want, sizeof(want), "%s %d%s, %d", kMonthAbbr[t.tm_mon], day,
+                     ref_ordinal_suffix(day), t.tm_year + 1900);
+            TEST_ASSERT_EQUAL_STRING(want, buf);
           }
         }
       }
@@ -3105,6 +3131,204 @@ void test_settings_message_should_not_rewrite_unchanged_keys(void) {
   TEST_ASSERT_EQUAL_INT(writes, mock_persist_write_count);
 }
 
+// init() is safely callable under the mocks: every layer/window handle it
+// touches is a nullable sentinel, and the persist mock starts empty.
+void test_init_should_fetch_weather_when_the_cache_is_stale(void) {
+  // Boot layout shows WEATHER; an absent cache must cost exactly one fetch.
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sends);
+}
+
+void test_init_should_not_fetch_when_the_cache_is_fresh(void) {
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+}
+
+void test_init_should_not_fetch_without_a_weather_slot(void) {
+  // load_settings() reads an empty persist mock, so the layout a test set
+  // beforehand survives init().
+  set_slots(kSlotsNoWeather);
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+}
+
+void test_request_weather_should_drop_quietly_when_the_outbox_is_unavailable(void) {
+  // A NULL outbox iterator loses the race with the JS runtime; the bounded
+  // retry in main.c owns recovery, request_weather itself just returns.
+  mock_outbox_begin_ok = false;
+  request_weather();
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+}
+
+void test_init_should_subscribe_services(void) {
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_tick_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(MINUTE_UNIT, mock_tick_units);
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_connection_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_subscribe_count);
+}
+
+void test_init_should_register_appmessage_handlers(void) {
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_inbox_received_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_inbox_dropped_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sent_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_failed_count);
+}
+
+void test_window_load_should_subscribe_unobstructed_area(void) {
+  main_window_load(NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_unobstructed_subscribe_count);
+}
+
+void test_tuple_get_int_should_parse_every_wire_width(void) {
+  // Clay/AppMessage deliver whichever integer width fits the value; the
+  // parser must honor 1-, 2- and 4-byte arms of both signednesses.
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_SLOT_1, 5, 1);
+  TEST_ASSERT_EQUAL_INT(5, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_SLOT_1, 2000, 2);
+  TEST_ASSERT_EQUAL_INT(2000, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_SLOT_1, 70000, 4);
+  TEST_ASSERT_EQUAL_INT(70000, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  mock_dict_reset();
+  mock_dict_add_uint_width(MESSAGE_KEY_SLOT_1, 200, 1);
+  TEST_ASSERT_EQUAL_INT(200, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  mock_dict_reset();
+  mock_dict_add_uint_width(MESSAGE_KEY_SLOT_1, 600, 2);
+  TEST_ASSERT_EQUAL_INT(600, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SLOT_1, "1234");
+  TEST_ASSERT_EQUAL_INT(1234, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+
+  // A width nobody sends reads as 0, not garbage.
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_SLOT_1, 33, 8);
+  TEST_ASSERT_EQUAL_INT(0, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+}
+
+void test_update_health_info_should_fall_back_to_sentinels_without_permission(void) {
+  // Boot layout keeps STEPS in slot 2 and BPM in slot 3 throughout.
+  mock_health_accessible[HealthMetricStepCount] = HealthServiceAccessibilityMaskNoPermission;
+  s_step_count = 4321;  // stale value: a denied metric must clear it
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(-1, s_step_count);
+
+  mock_health_accessible[HealthMetricSleepSeconds] = HealthServiceAccessibilityMaskNoPermission;
+  s_complication_slots[1].source = DATA_SOURCE_SLEEP;
+  s_sleep_seconds = 7 * 3600;
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(-1, s_sleep_seconds);
+
+  // HR is the instant-read divergence: denied, the code must not even peek.
+  mock_health_accessible[HealthMetricHeartRateBPM] = HealthServiceAccessibilityMaskNoPermission;
+  s_heart_rate = 55;
+  int peeks = mock_health_peek_count;
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(0, s_heart_rate);
+  TEST_ASSERT_EQUAL_INT(peeks, mock_health_peek_count);
+}
+
+void test_clock_should_follow_the_12h_24h_settings(void) {
+  mock_clock_24h = true;
+  update_time();
+  TEST_ASSERT_EQUAL_INT(5, (int)strlen(mock_last_text));
+  TEST_ASSERT_EQUAL_INT(':', mock_last_text[2]);
+
+  // 12-hour form drops the leading zero. Pin the wall clock at 09:05 local
+  // so the strip branch cannot hide: "%I:%M" would give "09:05".
+  mock_clock_24h = false;
+  time_t now = time(NULL);
+  struct tm* lt = localtime(&now);
+  int now_min = lt->tm_hour * 60 + lt->tm_min;
+  int want_min = 9 * 60 + 5;
+  mock_time_offset += (time_t)((want_min - now_min + 24 * 60) % (24 * 60)) * 60 - lt->tm_sec;
+  update_time();
+  TEST_ASSERT_EQUAL_INT(4, (int)strlen(mock_last_text));
+  TEST_ASSERT_EQUAL_INT('9', mock_last_text[0]);
+  TEST_ASSERT_EQUAL_INT(':', mock_last_text[1]);
+}
+
+void test_empty_and_unknown_sources_should_draw_nothing(void) {
+  char buf[16];
+  get_source_data(DATA_SOURCE_EMPTY, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("", buf);
+  get_source_data((ComplicationDataSource)42, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("", buf);
+
+  TEST_ASSERT_NULL(canvas_drawer(DATA_SOURCE_EMPTY));
+  TEST_ASSERT_NULL(canvas_drawer((ComplicationDataSource)42));
+
+  // Canvas level: a vacated bottom-left draws neither frame title nor value —
+  // no text run may land inside its rect.
+  test_apply_theme();
+  s_complication_slots[2].source = DATA_SOURCE_EMPTY;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect vacated = s_complication_slots[2].box_rect;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    GRect b = mock_text_run_boxes[i];
+    bool inside = b.origin.x >= vacated.origin.x &&
+                  b.origin.x + b.size.w <= vacated.origin.x + vacated.size.w &&
+                  b.origin.y >= vacated.origin.y &&
+                  b.origin.y + b.size.h <= vacated.origin.y + vacated.size.h;
+    TEST_ASSERT_FALSE(inside);
+  }
+}
+
+void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
+  // The exact key set weather.js WEATHER_FIELDS emits — including HI/LO
+  // hours — in one message. MOCK_DICT_MAX covers it with headroom precisely
+  // so this shape is stageable; distinct values catch cross-wired rows.
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "RAIN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 42);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 5);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 270);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_SPEED, 12);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 35);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PRECIP_NOW, 25);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, 82);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW, 61);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW_TOMORROW, 55);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, 77);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 15);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, 5);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, 14);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, 4);
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_EQUAL_STRING("RAIN", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
+  TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
+  TEST_ASSERT_EQUAL_INT(12, s_weather_wind_speed);
+  TEST_ASSERT_EQUAL_INT(35, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(25, s_precip_now);
+  TEST_ASSERT_EQUAL_INT(82, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(61, s_temp_low);
+  TEST_ASSERT_EQUAL_INT(55, s_temp_low_tmrw);
+  TEST_ASSERT_EQUAL_INT(77, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(15, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(5, s_lo_hour_today);
+  TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+  TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_render_gate_should_go_silent_when_nothing_changes);
@@ -3231,5 +3455,17 @@ int main(void) {
   RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
   RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
   RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);
+  RUN_TEST(test_init_should_fetch_weather_when_the_cache_is_stale);
+  RUN_TEST(test_init_should_not_fetch_when_the_cache_is_fresh);
+  RUN_TEST(test_init_should_not_fetch_without_a_weather_slot);
+  RUN_TEST(test_request_weather_should_drop_quietly_when_the_outbox_is_unavailable);
+  RUN_TEST(test_init_should_subscribe_services);
+  RUN_TEST(test_init_should_register_appmessage_handlers);
+  RUN_TEST(test_window_load_should_subscribe_unobstructed_area);
+  RUN_TEST(test_tuple_get_int_should_parse_every_wire_width);
+  RUN_TEST(test_update_health_info_should_fall_back_to_sentinels_without_permission);
+  RUN_TEST(test_clock_should_follow_the_12h_24h_settings);
+  RUN_TEST(test_empty_and_unknown_sources_should_draw_nothing);
+  RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
   return UNITY_END();
 }
