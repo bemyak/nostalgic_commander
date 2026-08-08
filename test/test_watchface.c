@@ -23,7 +23,6 @@ void setUp(void) {
   // Every weather-contract reading starts at its sentinel; the messaging
   // table owns the set, so a new field resets itself. (setUp used to leak
   // whichever weather globals it forgot — AQI/UV/humidity among them.)
-  init_message_tables();
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
   }
@@ -2275,7 +2274,6 @@ void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
   // data.c global with the sentinel the JS field table and the formatters'
   // "--" fallbacks agree on. A row pointing at the wrong global or drifting
   // sentinel fails here.
-  init_message_tables();
   const struct {
     int* global;
     int sentinel;

@@ -22,100 +22,73 @@ static void persist_write_string_if_changed(uint32_t key, const char* value) {
   }
 }
 
-// One message-received reading: its MESSAGE_KEY_*, the PERSIST_KEY_* it
-// persists under, the data.c global it lands in, and that global's no-data
-// sentinel — declared here so the wire table and the formatters' fallback
-// value meet on one row (settings have no sentinel; they carry 0).
+// One message-received reading: its MESSAGE_KEY_* by address (taking the
+// address of an extern is a compile-time constant, so these tables stay
+// static const even though the SDK bakes keys as extern variables), the
+// PERSIST_KEY_* it persists under, the data.c global it lands in, and that
+// global's no-data sentinel — declared here so the wire table and the
+// formatters' fallback value meet on one row (settings have no sentinel;
+// they carry 0).
 typedef struct {
-  uint32_t message_key;
+  const uint32_t* message_key;
   uint32_t persist_key;
   int* target;
   int sentinel;
 } MessageField;
 
-// The real SDK build bakes MESSAGE_KEY_* as extern variables, not
-// compile-time constants, so the tables are filled once at first use instead
-// of in their initializers. Three walks share the weather table — inbox
-// parse, cache save, cache load — and two share the settings table (inbox,
-// load_settings), which is what keeps those halves from drifting apart.
-static MessageField s_weather_fields[16];
-static MessageField s_settings_fields[6];
+// Every int reading in a weather payload. Three walks share this table —
+// inbox parse, cache save, cache load — which keeps those halves from
+// drifting apart.
+static const MessageField s_weather_fields[] = {
+    {&MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, -999},
+    {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1},
+    {&MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, -1},
+    {&MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY, &s_weather_humidity, -1},
+    {&MESSAGE_KEY_WEATHER_WIND_DIRECTION, PERSIST_KEY_WEATHER_WIND_DIRECTION,
+     &s_weather_wind_direction, -1},
+    {&MESSAGE_KEY_WEATHER_WIND_SPEED, PERSIST_KEY_WEATHER_WIND_SPEED, &s_weather_wind_speed, -1},
+    {&MESSAGE_KEY_WEATHER_PCP, PERSIST_KEY_WEATHER_PCP, &s_weather_pcp, -1},
+    {&MESSAGE_KEY_WEATHER_PRECIP_NOW, PERSIST_KEY_WEATHER_PRECIP_NOW, &s_precip_now, -1},
+    {&MESSAGE_KEY_WEATHER_HIGH, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, -999},
+    {&MESSAGE_KEY_WEATHER_LOW, PERSIST_KEY_WEATHER_LOW, &s_temp_low, -999},
+    {&MESSAGE_KEY_WEATHER_LOW_TOMORROW, PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw, -999},
+    {&MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, PERSIST_KEY_WEATHER_HIGH_TOMORROW, &s_temp_high_tmrw,
+     -999},
+    {&MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today, -1},
+    {&MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today, -1},
+    {&MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, &s_hi_hour_tmrw,
+     -1},
+    {&MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, &s_lo_hour_tmrw,
+     -1},
+};
+
+// The settings Clay pushes. load_settings() restores from the same rows'
+// persist keys, so the two halves of the settings format meet in one table.
+static const MessageField s_settings_fields[] = {
+    {&MESSAGE_KEY_SETTINGS_THEME, PERSIST_KEY_SETTINGS_THEME, &s_settings_theme, 0},
+    {&MESSAGE_KEY_SETTINGS_UNITS, PERSIST_KEY_SETTINGS_UNITS, &s_settings_units, 0},
+    {&MESSAGE_KEY_SETTINGS_DATE_FORMAT, PERSIST_KEY_SETTINGS_DATE_FORMAT, &s_settings_date_format,
+     0},
+    {&MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT, PERSIST_KEY_SETTINGS_SHORT_DATE,
+     &s_settings_short_date_format, 0},
+    {&MESSAGE_KEY_SETTINGS_DOW_POSITION, PERSIST_KEY_SETTINGS_DOW, &s_settings_dow_position, 0},
+    {&MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE, PERSIST_KEY_SETTINGS_DISCONNECT_VIBE,
+     &s_settings_disconnect_vibe, 0},
+};
+
 // The slot persist keys are deliberately not sequential (SLOT_6 landed after
 // the settings block), so the pairing is tabulated, not computed.
-static MessageField s_slot_keys[NUM_SLOTS];  // target unused; index is the slot
-static bool s_tables_initialized;
-
-static void init_message_tables(void) {
-  if (s_tables_initialized) return;
-  s_tables_initialized = true;
-  unsigned i = 0;
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, -999};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY,
-                                         &s_weather_humidity, -1};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_WIND_DIRECTION, PERSIST_KEY_WEATHER_WIND_DIRECTION,
-                     &s_weather_wind_direction, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_WIND_SPEED,
-                                         PERSIST_KEY_WEATHER_WIND_SPEED, &s_weather_wind_speed, -1};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_PCP, PERSIST_KEY_WEATHER_PCP, &s_weather_pcp, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_PRECIP_NOW,
-                                         PERSIST_KEY_WEATHER_PRECIP_NOW, &s_precip_now, -1};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_HIGH, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, -999};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_LOW, PERSIST_KEY_WEATHER_LOW, &s_temp_low, -999};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_LOW_TOMORROW,
-                                         PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw, -999};
-  s_weather_fields[i++] =
-      (MessageField){MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, PERSIST_KEY_WEATHER_HIGH_TOMORROW,
-                     &s_temp_high_tmrw, -999};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_HI_HOUR_TODAY,
-                                         PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_LO_HOUR_TODAY,
-                                         PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW,
-                                         PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, &s_hi_hour_tmrw, -1};
-  s_weather_fields[i++] = (MessageField){MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW,
-                                         PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, &s_lo_hour_tmrw, -1};
-  // A row added without widening the array overflows silently; trip on it.
-  if (i != sizeof(s_weather_fields) / sizeof(s_weather_fields[0])) {
-    APP_LOG(APP_LOG_LEVEL_ERROR, "weather field table overfilled: %u rows", i);
-  }
-  i = 0;
-  s_settings_fields[i++] =
-      (MessageField){MESSAGE_KEY_SETTINGS_THEME, PERSIST_KEY_SETTINGS_THEME, &s_settings_theme, 0};
-  s_settings_fields[i++] =
-      (MessageField){MESSAGE_KEY_SETTINGS_UNITS, PERSIST_KEY_SETTINGS_UNITS, &s_settings_units, 0};
-  s_settings_fields[i++] =
-      (MessageField){MESSAGE_KEY_SETTINGS_DATE_FORMAT, PERSIST_KEY_SETTINGS_DATE_FORMAT,
-                     &s_settings_date_format, 0};
-  s_settings_fields[i++] =
-      (MessageField){MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT, PERSIST_KEY_SETTINGS_SHORT_DATE,
-                     &s_settings_short_date_format, 0};
-  s_settings_fields[i++] = (MessageField){MESSAGE_KEY_SETTINGS_DOW_POSITION,
-                                          PERSIST_KEY_SETTINGS_DOW, &s_settings_dow_position, 0};
-  s_settings_fields[i++] =
-      (MessageField){MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE, PERSIST_KEY_SETTINGS_DISCONNECT_VIBE,
-                     &s_settings_disconnect_vibe, 0};
-  if (i != sizeof(s_settings_fields) / sizeof(s_settings_fields[0])) {
-    APP_LOG(APP_LOG_LEVEL_ERROR, "settings field table overfilled: %u rows", i);
-  }
-  s_slot_keys[0] = (MessageField){MESSAGE_KEY_SLOT_1, PERSIST_KEY_SLOT_1, NULL, 0};
-  s_slot_keys[1] = (MessageField){MESSAGE_KEY_SLOT_2, PERSIST_KEY_SLOT_2, NULL, 0};
-  s_slot_keys[2] = (MessageField){MESSAGE_KEY_SLOT_3, PERSIST_KEY_SLOT_3, NULL, 0};
-  s_slot_keys[3] = (MessageField){MESSAGE_KEY_SLOT_4, PERSIST_KEY_SLOT_4, NULL, 0};
-  s_slot_keys[4] = (MessageField){MESSAGE_KEY_SLOT_5, PERSIST_KEY_SLOT_5, NULL, 0};
-  s_slot_keys[5] = (MessageField){MESSAGE_KEY_SLOT_6, PERSIST_KEY_SLOT_6, NULL, 0};
-}
+static const MessageField s_slot_keys[NUM_SLOTS] = {
+    // target unused; index is the slot
+    {&MESSAGE_KEY_SLOT_1, PERSIST_KEY_SLOT_1, NULL, 0},
+    {&MESSAGE_KEY_SLOT_2, PERSIST_KEY_SLOT_2, NULL, 0},
+    {&MESSAGE_KEY_SLOT_3, PERSIST_KEY_SLOT_3, NULL, 0},
+    {&MESSAGE_KEY_SLOT_4, PERSIST_KEY_SLOT_4, NULL, 0},
+    {&MESSAGE_KEY_SLOT_5, PERSIST_KEY_SLOT_5, NULL, 0},
+    {&MESSAGE_KEY_SLOT_6, PERSIST_KEY_SLOT_6, NULL, 0},
+};
 
 void save_weather_cache(void) {
-  init_message_tables();
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     persist_write_int_if_changed(s_weather_fields[i].persist_key, *s_weather_fields[i].target);
   }
@@ -126,7 +99,6 @@ void save_weather_cache(void) {
 }
 
 bool load_weather_cache(void) {
-  init_message_tables();
   if (!persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP)) return false;
 
   int32_t saved_at = persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP);
@@ -147,7 +119,6 @@ bool load_weather_cache(void) {
 }
 
 void load_settings(void) {
-  init_message_tables();
   for (unsigned i = 0; i < sizeof(s_settings_fields) / sizeof(s_settings_fields[0]); i++) {
     if (persist_exists(s_settings_fields[i].persist_key)) {
       *s_settings_fields[i].target = persist_read_int(s_settings_fields[i].persist_key);
@@ -170,7 +141,6 @@ void request_weather() {
 }
 
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
-  init_message_tables();
   // WEATHER_TEMP + WEATHER_COND together mark a real weather payload: a
   // settings-only message must not refresh the cache timestamp, so the temp
   // is parsed with the condition word and both stay out of the generic walk.
@@ -182,8 +152,8 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   }
 
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
-    if (s_weather_fields[i].message_key == MESSAGE_KEY_WEATHER_TEMP) continue;
-    Tuple* tuple = dict_find(iterator, s_weather_fields[i].message_key);
+    if (s_weather_fields[i].message_key == &MESSAGE_KEY_WEATHER_TEMP) continue;
+    Tuple* tuple = dict_find(iterator, *s_weather_fields[i].message_key);
     if (tuple) {
       *s_weather_fields[i].target = tuple->value->int32;
     }
@@ -200,7 +170,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   // has to be re-asked in the new unit — so it's flagged on the way past.
   bool units_changed = false;
   for (unsigned i = 0; i < sizeof(s_settings_fields) / sizeof(s_settings_fields[0]); i++) {
-    Tuple* tuple = dict_find(iterator, s_settings_fields[i].message_key);
+    Tuple* tuple = dict_find(iterator, *s_settings_fields[i].message_key);
     if (!tuple) continue;
     int old = *s_settings_fields[i].target;
     *s_settings_fields[i].target = tuple_get_int(tuple);
@@ -217,7 +187,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   bool slots_changed = false;
 
   for (unsigned i = 0; i < sizeof(s_slot_keys) / sizeof(s_slot_keys[0]); i++) {
-    Tuple* tuple = dict_find(iterator, s_slot_keys[i].message_key);
+    Tuple* tuple = dict_find(iterator, *s_slot_keys[i].message_key);
     if (!tuple) continue;
     ComplicationDataSource source = tuple_get_int(tuple);
     if (s_complication_slots[i].source != source) slots_changed = true;
