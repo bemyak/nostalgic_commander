@@ -18,3 +18,8 @@ test/test_watchface
 test/*.dSYM
 
 .clangd
+
+# Agent tooling
+.claude/
+.pi-subagents/
+.superpowers/

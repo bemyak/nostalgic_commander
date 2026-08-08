@@ -21,8 +21,8 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   Implemented 2026-07-30; host tests green, emulator gates pending above.
 - [x] Handle Timeline Quick View (UnobstructedArea API): honest occlusion —
   the face subscribes to `.did_change` and simply omits the covered bottom
-  slot row while a Quick View is up (frames skipped on the canvas, slot
-  text layers hidden), restoring on dismissal. No reflow, by decision.
+  slot row while a Quick View is up (covered slot windows are simply never
+  drawn on the canvas), restoring on dismissal. No reflow, by decision.
   Emulator check pending alongside the perf pass.
 
 ## Deferred

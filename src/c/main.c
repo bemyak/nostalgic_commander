@@ -100,7 +100,7 @@ static const HealthRead s_health_reads[] = {
 };
 #endif
 
-static void update_health_info() {
+static void update_health_info(void) {
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
   time_t now = time(NULL);
@@ -135,7 +135,7 @@ static void update_health_info() {
 #endif
 }
 
-void refresh_state() {
+void refresh_state(void) {
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
 

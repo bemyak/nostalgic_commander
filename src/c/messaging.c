@@ -152,7 +152,7 @@ void load_settings(void) {
   }
 }
 
-void request_weather() {
+void request_weather(void) {
   DictionaryIterator* iter;
   app_message_outbox_begin(&iter);
   if (iter == NULL) return;

@@ -2356,7 +2356,7 @@ void test_short_date_should_stay_short_whatever_the_date_format(void) {
 }
 
 void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
-  // The watch side of the contract: 16 int fields, each pointing at its
+  // The watch side of the contract: 17 int fields, each pointing at its
   // data.c global with the sentinel the JS field table and the formatters'
   // "--" fallbacks agree on. A row pointing at the wrong global or drifting
   // sentinel fails here.
