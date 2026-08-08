@@ -3,16 +3,16 @@
 Work that's been decided on but not yet built. Undecided brainstorm material
 lives in [IDEAS.md](IDEAS.md) until it's approved.
 
-- [ ] Hardware verification remainder of the perf pass. Done since: `make
-  build` runs on every change (mock-vs-SDK drift now caught by tests — the
-  mock matches SDK linkage), and full-face emulator screenshot pairs were
-  AE-clean across the 2026-08-08 refactor stack (TextLayer removal included).
-  Still open: weather logs showing exactly one fetch per request, and the
-  launch-race (exactly one fetch per relaunch with a stale cache). Note:
-  health/battery/BT/time injection IS scriptable via `pebble emu-steps`,
-  `emu-sleep`, `emu-heart-rate`, `emu-set-time`, `emu-bt-connection` — only
-  the Clay config page needs a phone (`emu-app-config` shows but can't
-  submit). Weather payloads may be injectable via `pebble send-app-message`.
+- [ ] Hardware/perf verification remainder. Verified 2026-08-09 on the
+  emulator: one fetch per trigger (pkjs logs), the WMO-code rain path
+  (`9mm` red band via injected dict). Still open: launch-race (one fetch
+  per relaunch with a stale cache) on a real phone.
+  Emulator scripting notes: `pebble send-app-message` drops dicts beyond
+  ~4-5 tuples silently; WEATHER_TEMP only applies paired with WEATHER_COND
+  (the gate pair); every CLI (re)connect makes PKJS resend cached real
+  weather 1-2 s later (screenshot injected state with no sleep). Health/
+  battery/BT/time via `emu-steps/sleep/heart-rate/battery/bt-connection/
+  set-time`. Only the Clay config page still needs a phone.
 - [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
   health reads and weather fetches are slot-gated, event-driven renders are
   snapshot-gated, persistence writes are compare-before-write, bar fills

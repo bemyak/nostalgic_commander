@@ -55,7 +55,8 @@
       "WEATHER_LO_HOUR_TOMORROW",
       "SETTINGS_DISCONNECT_VIBE",
       "WEATHER_WIND_DIRECTION",
-      "WEATHER_WIND_SPEED"
+      "WEATHER_WIND_SPEED",
+      "WEATHER_REQUEST"
     ],
     "resources": {
       "media": [

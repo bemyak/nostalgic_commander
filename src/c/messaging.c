@@ -157,7 +157,7 @@ void request_weather() {
   app_message_outbox_begin(&iter);
   if (iter == NULL) return;
 
-  dict_write_uint8(iter, MESSAGE_KEY_WEATHER_TEMP, 0);  // Trigger fetch
+  dict_write_uint8(iter, MESSAGE_KEY_WEATHER_REQUEST, 0);
   app_message_outbox_send();
 }
 

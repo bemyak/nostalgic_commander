@@ -238,6 +238,7 @@ extern uint32_t MESSAGE_KEY_SETTINGS_SHORT_DATE_FORMAT;
 extern uint32_t MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED;
+extern uint32_t MESSAGE_KEY_WEATHER_REQUEST;
 
 // Handler typedefs and result types, spelled as the SDK umbrella header has
 // them so prototypes below can match the SDK verbatim.
