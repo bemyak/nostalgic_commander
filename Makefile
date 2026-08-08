@@ -23,6 +23,6 @@ test: format-check test-js
 test-js:
 	node --test test/pkjs/*.test.js
 
-# Requires the pebble-env virtualenv to be active.
+# Requires the pebble tool on PATH (SDK auto-resolves under ~/.pebble-sdk).
 build: format-check
 	pebble build

@@ -108,6 +108,7 @@ typedef enum {
   APP_MSG_OUT_OF_MEMORY,
   APP_MSG_CLOSED,
   APP_MSG_INTERNAL_ERROR,
+  APP_MSG_INVALID_STATE,
 } AppMessageResult;
 
 typedef enum {
@@ -238,29 +239,46 @@ extern uint32_t MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED;
 
+// Handler typedefs and result types, spelled as the SDK umbrella header has
+// them so prototypes below can match the SDK verbatim.
+typedef void (*AppMessageInboxReceived)(DictionaryIterator* iterator, void* context);
+typedef void (*AppMessageInboxDropped)(AppMessageResult reason, void* context);
+typedef void (*AppMessageOutboxSent)(DictionaryIterator* iterator, void* context);
+typedef void (*AppMessageOutboxFailed)(DictionaryIterator* iterator, AppMessageResult reason,
+                                       void* context);
+typedef void (*AppTimerCallback)(void* data);
+typedef void (*BatteryStateHandler)(BatteryChargeState charge);
+typedef void (*HealthEventHandler)(HealthEventType event, void* context);
+typedef void (*TickHandler)(struct tm* tick_time, TimeUnits units_changed);
+typedef void (*LayerUpdateProc)(struct Layer* layer, GContext* ctx);
+
+typedef enum { DICT_OK = 0, DICT_NOT_ENOUGH_STORAGE, DICT_INVALID_ARGS } DictionaryResult;
+
+typedef enum { S_SUCCESS = 0, E_ERROR = -1 } StatusCode;
+typedef int32_t status_t;
+
 // --- Function Prototypes ---
 void app_event_loop(void);
-void app_message_open(uint32_t size_inbound, uint32_t size_outbound);
-void app_message_outbox_begin(DictionaryIterator** iterator);
-void app_message_outbox_send(void);
-void app_message_register_inbox_dropped(void (*callback)(AppMessageResult reason, void* context));
-void app_message_register_inbox_received(void (*callback)(DictionaryIterator* iterator,
-                                                          void* context));
-void app_message_register_outbox_sent(void (*callback)(DictionaryIterator* iterator,
-                                                       void* context));
-void app_message_register_outbox_failed(void (*callback)(DictionaryIterator* iterator,
-                                                         AppMessageResult reason, void* context));
-AppTimer* app_timer_register(uint32_t timeout_ms, void (*callback)(void* data), void* data);
+AppMessageResult app_message_open(const uint32_t size_inbound, const uint32_t size_outbound);
+AppMessageResult app_message_outbox_begin(DictionaryIterator** iterator);
+AppMessageResult app_message_outbox_send(void);
+AppMessageInboxDropped app_message_register_inbox_dropped(AppMessageInboxDropped dropped_callback);
+AppMessageInboxReceived app_message_register_inbox_received(
+    AppMessageInboxReceived received_callback);
+AppMessageOutboxSent app_message_register_outbox_sent(AppMessageOutboxSent sent_callback);
+AppMessageOutboxFailed app_message_register_outbox_failed(AppMessageOutboxFailed failed_callback);
+AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void* callback_data);
 bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms);
 void app_timer_cancel(AppTimer* timer);
 BatteryChargeState battery_state_service_peek(void);
-void battery_state_service_subscribe(void (*handler)(BatteryChargeState charge));
+void battery_state_service_subscribe(BatteryStateHandler handler);
 bool clock_is_24h_style(void);
 bool connection_service_peek_pebble_app_connection(void);
 void connection_service_subscribe(ConnectionHandlers handlers);
 bool quiet_time_is_active(void);
-Tuple* dict_find(const DictionaryIterator* iter, uint32_t key);
-void dict_write_uint8(DictionaryIterator* iter, uint32_t key, uint8_t value);
+Tuple* dict_find(const DictionaryIterator* iter, const uint32_t key);
+DictionaryResult dict_write_uint8(DictionaryIterator* iter, const uint32_t key,
+                                  const uint8_t value);
 GFont fonts_get_system_font(const char* font_key);
 ResHandle resource_get_handle(uint32_t resource_id);
 GFont fonts_load_custom_font(ResHandle handle);
@@ -271,31 +289,30 @@ void graphics_context_set_stroke_color(GContext* ctx, GColor color);
 void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width);
 void graphics_context_set_text_color(GContext* ctx, GColor color);
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1);
-void graphics_draw_text(GContext* ctx, const char* text, GFont font, GRect box,
-                        GTextOverflowMode overflow_mode, GTextAlignment alignment,
-                        const GTextAttributes* layout_attributes);
+void graphics_draw_text(GContext* ctx, const char* text, GFont const font, const GRect box,
+                        const GTextOverflowMode overflow_mode, const GTextAlignment alignment,
+                        GTextAttributes* text_attributes);
 void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius, GCornerMask corner_mask);
-void health_service_events_subscribe(void (*handler)(HealthEventType event, void* context),
-                                     void* context);
-void health_service_events_unsubscribe(void);
+bool health_service_events_subscribe(HealthEventHandler handler, void* context);
+bool health_service_events_unsubscribe(void);
 HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric metric,
                                                                 time_t time_start, time_t time_end);
 HealthServiceAccessibilityMask health_service_metric_averaged_accessible(
     HealthMetric metric, time_t time_start, time_t time_end, HealthServiceTimeScope scope);
-int32_t health_service_peek_current_value(HealthMetric metric);
-int32_t health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
-                                    HealthServiceTimeScope scope);
-int32_t health_service_sum_today(HealthMetric metric);
+HealthValue health_service_peek_current_value(HealthMetric metric);
+HealthValue health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
+                                        HealthServiceTimeScope scope);
+HealthValue health_service_sum_today(HealthMetric metric);
 void layer_add_child(Layer* parent, Layer* child);
 Layer* layer_create(GRect frame);
 void layer_destroy(Layer* layer);
-GRect layer_get_bounds(Layer* layer);
-GRect layer_get_unobstructed_bounds(Layer* layer);
+GRect layer_get_bounds(const Layer* layer);
+GRect layer_get_unobstructed_bounds(const Layer* layer);
 void layer_mark_dirty(Layer* layer);
-void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx));
+void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc);
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
-void persist_write_int(const uint32_t key, const int32_t value);
+status_t persist_write_int(const uint32_t key, const int32_t value);
 int persist_write_string(const uint32_t key, const char* cstring);
 int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_size);
 // Test helpers/knobs below are not part of the real SDK
@@ -365,14 +382,13 @@ void text_layer_set_font(TextLayer* text_layer, GFont font);
 void text_layer_set_text(TextLayer* text_layer, const char* text);
 void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment);
 void text_layer_set_text_color(TextLayer* text_layer, GColor color);
-void tick_timer_service_subscribe(TimeUnits tick_units,
-                                  void (*handler)(struct tm* tick_time, TimeUnits units_changed));
+void tick_timer_service_subscribe(TimeUnits tick_units, TickHandler handler);
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context);
 time_t time_start_of_today(void);
 void vibes_double_pulse(void);
 Window* window_create(void);
 void window_destroy(Window* window);
-Layer* window_get_root_layer(Window* window);
+Layer* window_get_root_layer(const Window* window);
 void window_set_background_color(Window* window, GColor background_color);
 void window_set_window_handlers(Window* window, WindowHandlers handlers);
 void window_stack_push(Window* window, bool animated);

@@ -16,3 +16,28 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang-format
       - name: Format check + unit tests
         run: make test
+
+  # The host suite compiles app C against test/pebble.h, not the SDK — this
+  # job is the "still compiles for the real SDK" gate.
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+      - name: Install pebble tool
+        run: pip install pebble-tool
+      - name: Cache Pebble SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.pebble-sdk
+          key: ${{ runner.os }}-pebble-sdk-${{ hashFiles('package.json') }}
+          restore-keys: ${{ runner.os }}-pebble-sdk-
+      - name: Install SDK
+        run: pebble sdk install latest
+      - name: npm dependencies (Clay)
+        run: npm ci
+      - name: pebble build
+        run: pebble build
