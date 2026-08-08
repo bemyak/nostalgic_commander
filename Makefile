@@ -5,6 +5,7 @@ FORMAT_SRCS = $(wildcard src/c/*.c src/c/*.h) \
               src/pkjs/index.js src/pkjs/weather.js src/pkjs/config.js \
               test/pkjs/config.test.js \
               test/pkjs/weather.test.js \
+              test/pkjs/wire-contract.test.js \
               test/test_watchface.c test/pebble_mock.c test/pebble.h
 
 .PHONY: format format-check test test-js build

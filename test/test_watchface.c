@@ -2760,6 +2760,27 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
 }
 
+void test_inbox_should_parse_narrow_width_weather_ints(void) {
+  // The SDK sends 1-, 2- or 4-byte ints; the parse must not depend on the
+  // sender picking the wide form.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_WEATHER_TEMP, -5, 2);   // via the payload gate
+  mock_dict_add_uint_width(MESSAGE_KEY_WEATHER_COND, 61, 1);  // gate's second half
+  mock_dict_add_uint_width(MESSAGE_KEY_WEATHER_AQI, 42, 1);
+  mock_dict_add_uint_width(MESSAGE_KEY_WEATHER_UV, 7, 2);
+  mock_dict_add_int_width(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 270, 2);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-5, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(61, s_weather_cond_code);
+  TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(7, s_weather_uv);
+  TEST_ASSERT_EQUAL_INT(270, s_weather_wind_direction);
+  TEST_ASSERT_TRUE(persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP));
+}
+
 void test_inbox_should_parse_and_persist_tomorrow_low(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -3554,6 +3575,7 @@ int main(void) {
   RUN_TEST(test_handle_bluetooth_should_vibrate_only_on_disconnect_transition);
   RUN_TEST(test_handle_bluetooth_should_stay_silent_on_drops_when_the_buzz_is_disabled);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
+  RUN_TEST(test_inbox_should_parse_narrow_width_weather_ints);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
   RUN_TEST(test_inbox_should_parse_and_persist_wind_direction);
   RUN_TEST(test_inbox_should_parse_and_persist_wind_speed);

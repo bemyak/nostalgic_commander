@@ -17,10 +17,19 @@ static void persist_write_int_if_changed(uint32_t key, int32_t value) {
 }
 
 // Accepts whatever width the wire used, and the strings Clay sends.
+// TUPLE_INT reads the signed members: a negative value keeps its sign at
+// any width.
 int tuple_get_int(Tuple* tuple) {
   if (!tuple) return 0;
   switch (tuple->type) {
     case TUPLE_INT:
+      if (tuple->length == 1)
+        return tuple->value->int8;
+      else if (tuple->length == 2)
+        return tuple->value->int16;
+      else if (tuple->length == 4)
+        return tuple->value->int32;
+      return 0;
     case TUPLE_UINT:
       if (tuple->length == 1)
         return tuple->value->uint8;
@@ -160,14 +169,14 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   Tuple* temp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP);
   Tuple* cond_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_COND);
   if (temp_tuple && cond_tuple) {
-    s_weather_temp = temp_tuple->value->int32;
+    s_weather_temp = tuple_get_int(temp_tuple);
   }
 
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     if (s_weather_fields[i].message_key == &MESSAGE_KEY_WEATHER_TEMP) continue;
     Tuple* tuple = dict_find(iterator, *s_weather_fields[i].message_key);
     if (tuple) {
-      *s_weather_fields[i].target = tuple->value->int32;
+      *s_weather_fields[i].target = tuple_get_int(tuple);
     }
   }
 
