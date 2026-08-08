@@ -902,8 +902,6 @@ void test_get_source_data_should_format_steps(void) {
   char buf[16];
   int percent = 0;
 
-  s_step_goal = 10000;
-
   // No data
   s_step_count = -1;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
@@ -973,7 +971,7 @@ void test_get_source_data_should_format_sleep(void) {
   s_sleep_seconds = (7 * 3600) + (30 * 60);
   get_source_data(DATA_SOURCE_SLEEP, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("7h 30m", buf);
-  TEST_ASSERT_EQUAL_INT((s_sleep_seconds * 100) / 28800, percent);
+  TEST_ASSERT_EQUAL_INT((s_sleep_seconds * 100) / SLEEP_GOAL_S, percent);
 
   // Over goal
   s_sleep_seconds = 10 * 3600;  // 10 hours
@@ -1035,7 +1033,6 @@ void test_progress_bar_sources_should_reuse_their_plain_counterparts(void) {
 
   // The bars render from the plain sources' value and percent, so the percent
   // out-parameter has to stay correct — it is what sizes the fill.
-  s_step_goal = 10000;
   s_step_count = 8200;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_INT(82, percent);
@@ -1064,7 +1061,7 @@ void test_progress_bar_sources_should_reuse_their_plain_counterparts(void) {
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_INT(250, percent);
 
-  s_step_count = 100 * s_step_goal;  // 10000% of goal
+  s_step_count = 100 * STEP_GOAL;  // 10000% of goal
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_INT(10000, percent);
   TEST_ASSERT_TRUE(percent > BAR_VALUE_MAX);  // the bar is what clamps it
@@ -1367,8 +1364,6 @@ void test_bt_qt_window_should_split_captions_only_at_top_width(void) {
 void test_get_source_data_should_format_active_minutes(void) {
   char buf[16];
   int percent = 0;
-
-  s_active_minutes_goal = 30;
 
   s_active_minutes = 15;
   get_source_data(DATA_SOURCE_ACTIVE_MINUTES, buf, sizeof(buf), &percent);

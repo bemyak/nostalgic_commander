@@ -60,7 +60,6 @@ static void update_health_info() {
         health_service_metric_accessible(HealthMetricStepCount, start, end);
     if (step_mask & HealthServiceAccessibilityMaskAvailable) {
       s_step_count = (int)health_service_sum_today(HealthMetricStepCount);
-      s_step_goal = 10000;
     } else {
       s_step_count = -1;
     }

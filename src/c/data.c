@@ -2,14 +2,24 @@
 #include "data.h"
 #include "theme.h"
 
-// Sensor & System Data Cache
+// All state lives here, sectioned. Everything is extern'd via data.h; tests
+// reset to these initials (the weather block via the messaging table).
+
+// System state — what the watch knows about itself.
 int s_battery_level = 100;
 // Charging speaks for itself in green; the level ladder is for draining.
 bool s_battery_charging = false;
-int s_step_count = -1;  // -1 indicates no data
-int s_step_goal = 10000;
-int s_sleep_seconds = -1;   // -1 indicates no data
-int s_heart_rate = 0;       // Default to 0 (displays "--" if no HRM is present)
+bool s_connected = true;
+bool s_quiet_time_active = false;
+
+// Health readings; sentinels mark "no data" (steps/sleep -1, heart rate 0).
+int s_step_count = -1;
+int s_sleep_seconds = -1;
+int s_heart_rate = 0;
+int s_active_minutes = 0;
+
+// Weather readings — pushed by the phone; messaging.c's field table owns the
+// wire contract for every one of them (keys, persistence, sentinels).
 int s_weather_temp = -999;  // -999 indicates no data
 char s_weather_cond[16] = "--";
 int s_weather_aqi = -1;             // -1 indicates no data
@@ -27,16 +37,18 @@ int s_hi_hour_today = -1;           // event hours 0-23; -1 unknown
 int s_lo_hour_today = -1;
 int s_hi_hour_tmrw = -1;
 int s_lo_hour_tmrw = -1;
-int s_wall_hour = 0;  // refreshed in update_time(); drives the rollover
-int s_active_minutes = 0;
-int s_active_minutes_goal = 30;
-bool s_connected = true;
-bool s_quiet_time_active = false;
-bool s_quick_view_active = false;
+
+// Clock-derived state.
+int s_wall_hour = 0;  // refreshed in update_time(); drives the HI/LO rollover
 int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
+
+// UI state.
+bool s_quick_view_active = false;
+
+// Settings — persisted under messaging.h's PERSIST_KEY_SETTINGS_*.
 int s_settings_theme =
     2;  // 0 = Auto, 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton
 int s_settings_units = 0;              // 0 = Imperial, 1 = Metric
@@ -186,7 +198,7 @@ static void fmt_steps(char* buf, int len, int* percent) {
     // True progress, deliberately not clamped to 100: beating the goal is
     // worth seeing. Consumers clamp for their own needs — a progress bar
     // can only fill to its end, but the reading beside it keeps counting.
-    *percent = s_step_count > 0 ? (s_step_count * 100) / s_step_goal : 0;
+    *percent = s_step_count > 0 ? (s_step_count * 100) / STEP_GOAL : 0;
   }
 }
 
@@ -199,7 +211,7 @@ static void fmt_sleep(char* buf, int len, int* percent) {
     snprintf(buf, len, "%dh %dm", hrs, mins);
   }
   if (percent) {
-    *percent = s_sleep_seconds > 0 ? (s_sleep_seconds * 100) / 28800 : 0;  // 8-hour goal
+    *percent = s_sleep_seconds > 0 ? (s_sleep_seconds * 100) / SLEEP_GOAL_S : 0;
     if (*percent > 100) *percent = 100;
   }
 }
@@ -270,7 +282,7 @@ static void fmt_quiet_time(char* buf, int len, int* percent) {
 static void fmt_active_minutes(char* buf, int len, int* percent) {
   snprintf(buf, len, "%dm", s_active_minutes);
   if (percent) {
-    *percent = (s_active_minutes * 100) / s_active_minutes_goal;
+    *percent = (s_active_minutes * 100) / ACTIVE_MINUTES_GOAL;
     if (*percent > 100) *percent = 100;
   }
 }

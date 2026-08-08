@@ -37,12 +37,25 @@ typedef enum {
 #define BATTERY_LOW_PCT 39
 #define BATTERY_CRIT_PCT 19
 
+// Goals are constants, not settings — the face has an opinion (AGENTS.md),
+// and every progress readout shares these.
+#define STEP_GOAL 10000
+#define SLEEP_GOAL_S (8 * 3600)
+#define ACTIVE_MINUTES_GOAL 30
+
+// --- System state ---
 extern int s_battery_level;
 extern bool s_battery_charging;
+extern bool s_connected;
+extern bool s_quiet_time_active;
+
+// --- Health readings (sentinels: steps/sleep -1, heart rate 0) ---
 extern int s_step_count;
-extern int s_step_goal;
 extern int s_sleep_seconds;
 extern int s_heart_rate;
+extern int s_active_minutes;
+
+// --- Weather readings; the wire contract is messaging.c's field table ---
 extern int s_weather_temp;
 extern char s_weather_cond[16];
 extern int s_weather_aqi;
@@ -71,10 +84,6 @@ extern int s_wall_hour;
 // display, not by which global fed it.
 int high_low_displayed_high(void);
 bool high_low_hi_leads(void);
-extern int s_active_minutes;
-extern int s_active_minutes_goal;
-extern bool s_connected;
-extern bool s_quiet_time_active;
 // Timeline Quick View: true while the system overlay covers the bottom slot
 // row. Written only by the UnobstructedArea handler in main.c.
 extern bool s_quick_view_active;
