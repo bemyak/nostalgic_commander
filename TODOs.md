@@ -3,12 +3,14 @@
 Work that's been decided on but not yet built. Undecided brainstorm material
 lives in [IDEAS.md](IDEAS.md) until it's approved.
 
-- [ ] Emulator/SDK verification pass for the perf work below: one `pebble
-  build` (watch for mock-vs-SDK signature drift), crop-compare pixel diffs
-  for Tasks 5–7 per the plan (revert the Task-7 bar fill rect to glyph runs
-  if AE > 0), weather logs showing exactly one fetch per request, and
-  hardware launch-race confirmation (exactly one fetch per relaunch with a
-  stale cache).
+- [ ] Hardware verification remainder of the perf pass. Done since: `make
+  build` runs on every change (mock-vs-SDK drift now caught by tests — the
+  mock matches SDK linkage), and full-face emulator screenshot pairs were
+  AE-clean across the 2026-08-08 refactor stack (TextLayer removal included).
+  Still open, needs a phone: weather logs showing exactly one fetch per
+  request, launch-race (exactly one fetch per relaunch with a stale cache),
+  and a Task-7 bar-fill look with the centre slot set to a progress bar
+  (interactive config, can't be scripted headless).
 - [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
   health reads and weather fetches are slot-gated, event-driven renders are
   snapshot-gated, persistence writes are compare-before-write, bar fills
