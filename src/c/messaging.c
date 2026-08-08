@@ -1,6 +1,7 @@
 #include <pebble.h>
 #include "messaging.h"
 #include "data.h"
+#include "complication.h"
 #include "main.h"
 
 // Data flow, phone → watch: the watch sends a trigger AppMessage (launch

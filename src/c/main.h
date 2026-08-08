@@ -6,4 +6,3 @@ extern Window* s_main_window;
 extern TextLayer* s_time_layer;
 
 void refresh_state(void);
-bool any_slot_needs_weather(void);

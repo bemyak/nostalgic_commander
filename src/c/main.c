@@ -1,6 +1,7 @@
 #include <pebble.h>
 #include "main.h"
 #include "data.h"
+#include "complication.h"
 #include "theme.h"
 #include "drawing.h"
 #include "messaging.h"
@@ -43,14 +44,6 @@ static bool any_slot_is_one_of(const ComplicationDataSource* sources, int count)
     for (int j = 0; j < count; j++) {
       if (s_complication_slots[i].source == sources[j]) return true;
     }
-  }
-  return false;
-}
-
-bool any_slot_needs_weather(void) {
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);
-    if (spec && spec->needs_weather) return true;
   }
   return false;
 }

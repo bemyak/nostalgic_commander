@@ -1,6 +1,7 @@
 #include <pebble.h>
 #include "drawing.h"
 #include "data.h"
+#include "complication.h"
 #include "status.h"
 #include "theme.h"
 
@@ -70,12 +71,13 @@ static GRect status_band_rect(GRect box_rect) {
 //   layout   vga16_value_rect / status_band_rect — where a value sits
 //   runs     draw_run / draw_accented_value / draw_shade_run — one color, or
 //            one span picked out, or a multi-byte glyph repeated
-//   idioms   draw_shortkey_value / draw_plain_value — quiet readings, hint or
-//            none; draw_status_field / draw_banded_value — a severity band
-//            behind the text; draw_progress_bar — goal fill plus reading;
-//            draw_hinted_half — one side of a two-field chip
-// The per-source drawers below compose these; the registry's draw/frame
-// fields in data.c pick among them. canvas_update_proc() paints frames,
+//   idioms   draw_shortkey_complication / draw_plain_complication — quiet
+//            readings, hint or none; draw_status_field / draw_banded_value /
+//            draw_banded_complication — a severity band behind the text;
+//            draw_progress_bar — goal fill plus a reading; draw_hinted_half
+//            — one side of a two-field chip
+// The bespoke painters below compose these; the registry's draw/frame fields
+// in complication.c pick among them. canvas_update_proc() paints frames,
 // captions, then values; request_ui_redraw() at the bottom is the change
 // gate.
 // -------------------------------------------------------------------------
@@ -134,7 +136,7 @@ static bool trailing_unit_span(const char* text, int* at, int* len) {
 // Plain rails: chips with no band of their own. The value's color still
 // shifts with get_source_color (cold temp blues, a hot high reddens), and
 // the trailing unit carries its shortkey accent.
-static void draw_shortkey_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+void draw_shortkey_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   char buf[32];
   get_source_data(source, buf, sizeof(buf), NULL);
   int at = 0, len = 0;
@@ -146,49 +148,14 @@ static void draw_shortkey_value(GContext* ctx, GRect box_rect, ComplicationDataS
 // A plain single-run value: no unit hint to find (the checkbox brackets are
 // not letters, the day number is digits) or none wanted (a lone condition
 // word would hint its whole self). Color still follows get_source_color.
-static void draw_plain_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+void draw_plain_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   char buf[32];
   get_source_data(source, buf, sizeof(buf), NULL);
   draw_run(ctx, vga16_value_rect(box_rect, buf), 0, buf, strlen(buf), get_source_color(source));
 }
 
-void draw_cond_complication(GContext* ctx, GRect box_rect) {
-  draw_plain_value(ctx, box_rect, DATA_SOURCE_WEATHER_COND);
-}
-
-void draw_day_complication(GContext* ctx, GRect box_rect) {
-  draw_plain_value(ctx, box_rect, DATA_SOURCE_DATE);
-}
-
-void draw_bluetooth_complication(GContext* ctx, GRect box_rect) {
-  draw_plain_value(ctx, box_rect, DATA_SOURCE_BLUETOOTH);
-}
-
-void draw_quiet_time_complication(GContext* ctx, GRect box_rect) {
-  draw_plain_value(ctx, box_rect, DATA_SOURCE_QUIET_TIME);
-}
-
-void draw_steps_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_STEPS);
-}
-
-void draw_sleep_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_SLEEP);
-}
-
-void draw_active_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_ACTIVE_MINUTES);
-}
-
-void draw_humidity_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_HUMIDITY);
-}
-
-void draw_high_low_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_TEMP_HIGH_LOW);
-}
-
-void draw_weather_complication(GContext* ctx, GRect box_rect) {
+void draw_weather_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   // The condition word leads, the temperature's unit trails — both wear the
   // theme mark, the value between stays primary. A missing reading stays
   // quiet on the ground.
@@ -208,10 +175,6 @@ void draw_weather_complication(GContext* ctx, GRect box_rect) {
   draw_run(ctx, row, unit_at, buf + unit_at, total - unit_at, s_active_theme->mark);
 }
 
-void draw_weather_temp_complication(GContext* ctx, GRect box_rect) {
-  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_WEATHER_TEMP);
-}
-
 // A date with its weekday picked out. Shared by the DATE window and the
 // year-less slot complication, which order their weekday the same way.
 static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
@@ -222,7 +185,8 @@ static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
                       s_active_theme->text_primary, s_active_theme->mark);
 }
 
-void draw_full_date_complication(GContext* ctx, GRect box_rect) {
+void draw_full_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   draw_date_text(ctx, box_rect, s_date_display);
 }
 
@@ -295,21 +259,24 @@ static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool h
   draw_run(ctx, row, bar_cells + 1, value, strlen(value), s_active_theme->text_primary);
 }
 
-void draw_steps_bar_complication(GContext* ctx, GRect box_rect) {
+void draw_steps_bar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[16];
   int percent = 0;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   draw_progress_bar(ctx, box_rect, percent, s_step_count != -1, s_active_theme->text_primary);
 }
 
-void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
+void draw_battery_bar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[8];
   int percent = 0;
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
   draw_progress_bar(ctx, box_rect, percent, true, get_source_color(DATA_SOURCE_BATTERY_BAR));
 }
 
-void draw_short_date_complication(GContext* ctx, GRect box_rect) {
+void draw_short_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   draw_date_text(ctx, box_rect, s_short_date_display);
 }
 
@@ -357,28 +324,14 @@ static bool reading_commands_attention(ComplicationDataSource source) {
   return !gcolor_equal(get_source_color(source), s_active_theme->text_primary);
 }
 
-// PCP bands like any status chip (WMO rungs on amounts, planning thresholds
-// on probability); a calm reading keeps its unit's shortkey accent. Both
-// idioms ride the shared path.
-void draw_pcp_complication(GContext* ctx, GRect box_rect) {
+// A lone status chip (AQI, UV, PCP): bands when the reading earns an
+// attention color, and both band and thresholds come from get_source_color.
+// A calm reading stays quiet on the ground, unit hint accented.
+void draw_banded_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   char buf[8];
-  get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
-                    get_source_color(DATA_SOURCE_WEATHER_PCP));
-}
-
-void draw_aqi_complication(GContext* ctx, GRect box_rect) {
-  char buf[8];
-  get_source_data(DATA_SOURCE_AQI, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_AQI),
-                    get_source_color(DATA_SOURCE_AQI));
-}
-
-void draw_uv_complication(GContext* ctx, GRect box_rect) {
-  char buf[8];
-  get_source_data(DATA_SOURCE_UV, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_UV),
-                    get_source_color(DATA_SOURCE_UV));
+  get_source_data(source, buf, sizeof(buf), NULL);
+  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(source),
+                    get_source_color(source));
 }
 
 // One half of a two-field chip: banded → fill and ink; quiet → the trailing
@@ -400,7 +353,8 @@ static void draw_hinted_half(GContext* ctx, GRect box_rect, int x, int w, const 
 // Humidity and precipitation side by side, same two-field shape as
 // AQI/UV: both halves carry the quiet-state unit hint; only the PCP half
 // bands.
-void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
+void draw_hum_pcp_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char pcp_str[8];
   const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
   const int gap_px = HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
@@ -420,7 +374,8 @@ void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
 // Both readings side by side, each banding its own half of the cell so a good
 // AQI next to a high UV reads as two fields rather than one blended color. The
 // separator sits on the ground between them.
-void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
+void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char aqi_str[8];
   char uv_str[8];
   get_source_data(DATA_SOURCE_AQI, aqi_str, sizeof(aqi_str), NULL);
@@ -473,7 +428,8 @@ static bool strip_field_is_banded(const FullWeatherField* field) {
   return !gcolor_equal(get_source_color(field->source), s_active_theme->text_primary);
 }
 
-void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
+void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   // Centred strip; the caption label above is the same width, also centred,
   // so its tokens land cell-for-cell on the chips drawn here.
   int x = box_rect.origin.x + (box_rect.size.w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
@@ -628,7 +584,8 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
-void draw_wind_complication(GContext* ctx, GRect box_rect) {
+void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   // Narrow slots drop the unit — the "↗ 12" form; wide ones carry the
   // canonical speed text. The arrow is multi-byte, so the strip is laid out
   // cell-by-cell (the heart drawer's precedent), never by
@@ -672,7 +629,8 @@ void draw_wind_complication(GContext* ctx, GRect box_rect) {
   }
 }
 
-void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
+void draw_bt_qt_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[8];
   // Reads its own combined source — the atomic Bluetooth row has no QT half.
   get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), NULL);
@@ -691,7 +649,8 @@ void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   draw_run(ctx, strip, 4, buf + 3, 3, color);
 }
 
-void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
+void draw_heart_rate_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[8];
   get_source_data(DATA_SOURCE_HEART_RATE, buf, sizeof(buf), NULL);
   if (s_heart_rate <= 0) {
@@ -716,7 +675,8 @@ void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
-void draw_beats_complication(GContext* ctx, GRect box_rect) {
+void draw_beats_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[8];
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
 
@@ -725,7 +685,8 @@ void draw_beats_complication(GContext* ctx, GRect box_rect) {
                       s_active_theme->mark);
 }
 
-void draw_battery_complication(GContext* ctx, GRect box_rect) {
+void draw_battery_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
   char buf[8];
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), NULL);
 
@@ -827,7 +788,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
         // and no value.
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }
-      if (spec && spec->draw) spec->draw(ctx, slot->box_rect);
+      if (spec && spec->draw) spec->draw(ctx, slot->box_rect, slot->source);
     }
   }
 }

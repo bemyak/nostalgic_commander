@@ -3,6 +3,7 @@
 
 // Include the implementation file directly so we can test its static functions
 #include "../src/c/data.c"
+#include "../src/c/complication.c"
 #include "../src/c/theme.c"
 #include "../src/c/status.c"
 #include "../src/c/drawing.c"

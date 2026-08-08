@@ -86,8 +86,15 @@ extern int s_hi_hour_tmrw;
 extern int s_lo_hour_tmrw;
 // Watch-local wall hour 0-23, refreshed in refresh_state(); drives the rollover.
 extern int s_wall_hour;
-// The HI value the slot would draw right now; the theme colors by the value on
-// display, not by which global fed it.
+// Unit-aware temperature spelling (imperial prints the letter and signs
+// negatives only; metric always signs and letters). The registry's temp
+// formatters and format_strip_temp share it.
+void format_temp(char* buf, size_t len, int temp, bool with_unit);
+
+// The HI/LO pair as shown: each cell is the next occurrence of its kind,
+// sooner event left. Colors and the frame stub swap read the same helpers
+// below, so value, color, and captions never disagree.
+void format_high_low(char* buf, size_t len);
 int high_low_displayed_high(void);
 bool high_low_hi_leads(void);
 // Timeline Quick View: true while the system overlay covers the bottom slot
@@ -128,41 +135,8 @@ typedef struct {
 
 extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 
-typedef void (*ComplicationFormatFn)(char* buf, int len, int* percent);
-typedef void (*ComplicationDrawFn)(GContext*, GRect);
-
-// How a slot's window is framed; the renderer per kind lives in drawing.c.
-typedef enum {
-  FRAME_PLAIN,         // solid frame, spec label as title
-  FRAME_FULL_WEATHER,  // captioned four-chip bar
-  FRAME_BT_QT,         // split BT/QT captions at top-slot width, plain title otherwise
-  FRAME_HI_LO,         // HI/LO stub captions following the value's swap
-  FRAME_AQI_UV,        // AQI/UV stubs over the band halves
-  FRAME_HUM_PCP,       // HUM/PCP stubs over the two fields
-} ComplicationFrame;
-
-// What a complication source *is*, one row per source in data.c's
-// s_complication_specs[]: window title, value formatter, the source whose
-// reading backs it (the progress bars mirror their plain counterpart — the
-// render gate's snapshot follows this too), the value drawer and frame kind
-// (renderers in drawing.c), and whether a slot showing it needs the weather
-// feed. Adding a complication: one row here, a color case in status.c if it
-// needs one, a Clay entry in config.js, and wire rows if phone-sourced.
-typedef struct {
-  ComplicationDataSource source;
-  const char* label;
-  ComplicationFormatFn format;  // NULL: format through `backs` (only EMPTY
-                                // legitimately has neither)
-  ComplicationDataSource backs;
-  ComplicationDrawFn draw;  // NULL draws no value (EMPTY)
-  ComplicationFrame frame;
-  bool needs_weather;
-} ComplicationSpec;
-
-const ComplicationSpec* complication_spec(ComplicationDataSource source);
-
-void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
-const char* get_source_label(ComplicationDataSource source);
+// One row per source: the registry lives in complication.c (see
+// complication.h's ComplicationSpec).
 // The single arrow for a wind blowing FROM `deg` (meteo bearing); the face
 // points the way the wind goes. "--" on any negative bearing.
 const char* wind_direction_arrow(int deg);

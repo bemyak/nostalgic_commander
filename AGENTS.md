@@ -84,7 +84,9 @@ The module map:
 | Path | Role |
 |------|------|
 | `src/c/main.c` | Lifecycle: window, layers, service subscriptions, settings load |
-| `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, formatters |
+| `src/c/layout.h` | All face geometry: margins, slot rects, TIME window, clock layer |
+| `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, shared value helpers |
+| `src/c/complication.c`/`.h` | The registry (`ComplicationSpec` table) and its per-source formatters |
 | `src/c/theme.c`/`.h` | DOS/EGA palettes, theme selection |
 | `src/c/status.c`/`.h` | Per-source severity policy (`get_source_color`), sole picker of status colors |
 | `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, slot refresh |
@@ -121,10 +123,11 @@ agent-written code too — follow them.
 
 ## Adding a complication (once approved)
 
-enum value in `data.h` → spec row in `s_complication_specs[]` →
-`get_source_color` case if it needs color logic → Clay options in
-`config.js` → (if phone-sourced) `package.json` message key + `weather.js`
-field row + `messaging.c` table row → unit tests.
+enum value in `data.h` → spec row in `complication.c`'s
+`s_complication_specs[]` (`format` can be one of the generic idioms, `draw`
+one of drawing.c's) → `get_source_color` case if it needs color logic → Clay
+options in `config.js` → (if phone-sourced) `package.json` message key +
+`weather.js` field row + `messaging.c` table row → unit tests.
 
 ## Project tracking
 

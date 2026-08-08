@@ -1,5 +1,6 @@
 #pragma once
 #include <pebble.h>
+#include "data.h"  // ComplicationDataSource for the drawer prototypes
 
 // Frame stroke. Neighbours in a row overlap by this much so their borders
 // coincide into a single shared divider instead of stacking into a double one.
@@ -13,9 +14,6 @@
 // Metrics of the VGA 8x16 bitmap font at size 16.
 #define VGA16_CHAR_W 8
 #define VGA16_CELL_H 16
-
-// The same font baked at size 64: cells are 64px tall. Feeds the clock layer.
-#define VGA64_CELL_H 64
 
 // Where a value sits inside its window, measured from the box origin. Shared
 // by every slot's canvas value run; the big clock row is the lone TextLayer
@@ -57,35 +55,26 @@ extern Layer* s_canvas_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
 
-// Value painters, one per complication source. These exist to populate
-// ComplicationSpec.draw — not general API; the canvas reaches them through
-// the registry.
-void draw_battery_complication(GContext* ctx, GRect box_rect);
-void draw_battery_bar_complication(GContext* ctx, GRect box_rect);
-void draw_steps_complication(GContext* ctx, GRect box_rect);
-void draw_steps_bar_complication(GContext* ctx, GRect box_rect);
-void draw_sleep_complication(GContext* ctx, GRect box_rect);
-void draw_active_complication(GContext* ctx, GRect box_rect);
-void draw_heart_rate_complication(GContext* ctx, GRect box_rect);
-void draw_weather_complication(GContext* ctx, GRect box_rect);
-void draw_weather_temp_complication(GContext* ctx, GRect box_rect);
-void draw_weather_full_complication(GContext* ctx, GRect box_rect);
-void draw_cond_complication(GContext* ctx, GRect box_rect);
-void draw_pcp_complication(GContext* ctx, GRect box_rect);
-void draw_humidity_complication(GContext* ctx, GRect box_rect);
-void draw_hum_pcp_complication(GContext* ctx, GRect box_rect);
-void draw_aqi_complication(GContext* ctx, GRect box_rect);
-void draw_uv_complication(GContext* ctx, GRect box_rect);
-void draw_aqi_uv_complication(GContext* ctx, GRect box_rect);
-void draw_wind_complication(GContext* ctx, GRect box_rect);
-void draw_high_low_complication(GContext* ctx, GRect box_rect);
-void draw_beats_complication(GContext* ctx, GRect box_rect);
-void draw_day_complication(GContext* ctx, GRect box_rect);
-void draw_short_date_complication(GContext* ctx, GRect box_rect);
-void draw_full_date_complication(GContext* ctx, GRect box_rect);
-void draw_bluetooth_complication(GContext* ctx, GRect box_rect);
-void draw_bt_qt_complication(GContext* ctx, GRect box_rect);
-void draw_quiet_time_complication(GContext* ctx, GRect box_rect);
+// Value painters. The three idioms cover the atomic sources; the rest are
+// bespoke per source. These exist to populate ComplicationSpec.draw — not
+// general API; the canvas reaches them through the registry
+// (complication.c), never directly.
+void draw_shortkey_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_plain_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_banded_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_battery_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_battery_bar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_steps_bar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_heart_rate_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_weather_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_hum_pcp_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_bt_qt_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_beats_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_short_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_full_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 
 // Top-row-width slots lay composite windows out wide (split captions, units
 // kept); narrow slots get the tight form. Threshold: BT_QT_SPLIT_MIN_W.

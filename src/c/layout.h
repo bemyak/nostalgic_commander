@@ -1,6 +1,5 @@
 #pragma once
 #include <pebble.h>
-#include "drawing.h"  // VGA64_CELL_H
 
 // All face geometry lives here: the margin columns every frame spans, the
 // six slot rects, the TIME window, and the clock layer inside it. Tuned to
@@ -31,6 +30,11 @@
 #define TIME_WINDOW_W LAYOUT_W
 #define TIME_WINDOW_H 86
 #define TIME_WINDOW_RECT GRect(TIME_WINDOW_X, TIME_WINDOW_Y, TIME_WINDOW_W, TIME_WINDOW_H)
+
+// The VGA 8x16 font baked at size 64: cells are 64px tall. Feeds the clock
+// layer below (and nothing else — the registry-era geometry uses the 16px
+// metrics from drawing.h).
+#define VGA64_CELL_H 64
 
 // The clock TextLayer: one 64pt cell high, inset 4px per side, and a
 // deliberate 1px up-overlap past the window's top edge — the digits' ink
