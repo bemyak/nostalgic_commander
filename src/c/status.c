@@ -6,12 +6,12 @@
 // Hot/cold bands, shared by every temperature reading (temp alone, the
 // combined weather value, and the day's high) so the thresholds live once.
 static GColor temp_band_color(int temp) {
-  if (s_settings_units == 1) {  // Metric (Celsius)
+  if (s_settings_units == 1) {
     if (temp > 29) return s_active_theme->status_red;
-    if (temp < 4) return s_active_theme->accent_cold;  // Blue
-  } else {                                             // Imperial (Fahrenheit)
+    if (temp < 4) return s_active_theme->accent_cold;
+  } else {
     if (temp > 85) return s_active_theme->status_red;
-    if (temp < 40) return s_active_theme->accent_cold;  // Blue
+    if (temp < 40) return s_active_theme->accent_cold;
   }
   return s_active_theme->text_primary;
 }
@@ -60,7 +60,7 @@ GColor get_source_color(ComplicationDataSource source) {
     case DATA_SOURCE_WEATHER:
       return temp_band_color(s_weather_temp);
     // Clean air and mild sun are unremarkable: only a flagged reading
-    // earns a color, and the band follows it. (AQI >50 / >100, UV >=3 / >=6.)
+    // earns a color, and the band follows it.
     case DATA_SOURCE_AQI:
       if (s_weather_aqi == -1) return s_active_theme->text_primary;
       if (s_weather_aqi > 100) return s_active_theme->status_red;

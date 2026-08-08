@@ -832,6 +832,8 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   }
 }
 
+// The output-purity contract: every drawn pixel derives from these fields;
+// visual state this struct can't carry needs a field added here.
 typedef struct {
   const WatchTheme* theme;
   ComplicationDataSource source[NUM_SLOTS];

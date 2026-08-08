@@ -20,26 +20,26 @@ int s_active_minutes = 0;
 
 // Weather readings — pushed by the phone; messaging.c's field table owns the
 // wire contract for every one of them (keys, persistence, sentinels).
-int s_weather_temp = -999;          // -999 indicates no data
-int s_weather_cond_code = -1;       // WMO weather code; -1 indicates no data
-int s_weather_aqi = -1;             // -1 indicates no data
-int s_weather_uv = -1;              // -1 indicates no data
-int s_weather_humidity = -1;        // -1 indicates no data
+int s_weather_temp = -999;
+int s_weather_cond_code = -1;  // WMO weather code; -1 indicates no data
+int s_weather_aqi = -1;
+int s_weather_uv = -1;
+int s_weather_humidity = -1;
 int s_weather_wind_direction = -1;  // meteo bearing, degrees FROM; -1 indicates no data
 int s_weather_wind_speed = -1;      // in the settings unit (mph/m/s); -1 indicates no data
-int s_weather_pcp = -1;             // -1 indicates no data
-int s_precip_now = -1;              // tenths of mm over the past hour; -1 indicates no data
-int s_temp_high = -999;             // -999 indicates no data
-int s_temp_low = -999;              // -999 indicates no data
-int s_temp_high_tmrw = -999;        // -999 indicates no data
-int s_temp_low_tmrw = -999;         // -999 indicates no data
-int s_hi_hour_today = -1;           // event hours 0-23; -1 unknown
+int s_weather_pcp = -1;
+int s_precip_now = -1;  // tenths of mm over the past hour; -1 indicates no data
+int s_temp_high = -999;
+int s_temp_low = -999;
+int s_temp_high_tmrw = -999;
+int s_temp_low_tmrw = -999;
+int s_hi_hour_today = -1;  // event hours 0-23; -1 unknown
 int s_lo_hour_today = -1;
 int s_hi_hour_tmrw = -1;
 int s_lo_hour_tmrw = -1;
 
 // Clock-derived state.
-int s_wall_hour = 0;  // refreshed in refresh_state(); drives the HI/LO rollover
+int s_wall_hour = 0;
 int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
@@ -67,8 +67,7 @@ ComplicationSlot s_complication_slots[NUM_SLOTS] = {
     [SLOT_IDX_BOTTOM_CENTER] = {.box_rect = {{69, 184}, {62, 36}},
                                 .source = DATA_SOURCE_HEART_RATE},
     [SLOT_IDX_BOTTOM_RIGHT] = {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH},
-    // The wide centre row. Indexed last so SLOT_1..5 keep their persisted
-    // positions; its own setting is SLOT_6.
+    // The wide centre row.
     [SLOT_IDX_CENTER] = {.box_rect = {{LAYOUT_X, 142}, {LAYOUT_W, 36}},
                          .source = DATA_SOURCE_FULL_DATE}};
 
@@ -318,7 +317,6 @@ static void fmt_bt_qt(char* buf, int len, int* percent) {
 }
 
 static void fmt_quiet_time(char* buf, int len, int* percent) {
-  // Same checkbox, alone in its own window.
   snprintf(buf, len, "%s", s_quiet_time_active ? "[z]" : "[ ]");
   if (percent) *percent = s_quiet_time_active ? 100 : 0;
 }
@@ -380,8 +378,6 @@ static void fmt_wind(char* buf, int len, int* percent) {
 
 static void fmt_hum_pcp(char* buf, int len, int* percent) {
   (void)percent;
-  // Humidity and precipitation chance side by side; either half missing
-  // shows dashes in place. The stubs above name the halves.
   char hum[8], pcp[8];
   get_source_data(DATA_SOURCE_HUMIDITY, hum, sizeof(hum), NULL);
   get_source_data(DATA_SOURCE_WEATHER_PCP, pcp, sizeof(pcp), NULL);

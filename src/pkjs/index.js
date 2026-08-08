@@ -83,7 +83,6 @@ function getWeather(attempt) {
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
 
-        // Read units from Clay settings
         var settings = {};
         try {
           settings = JSON.parse(localStorage.getItem('clay-settings')) || {};
@@ -100,8 +99,6 @@ function getWeather(attempt) {
             '&longitude=' + lon +
             '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation,wind_direction_10m,wind_speed_10m' +
             '&timezone=auto' +
-            // The unit param belongs to Open-Meteo's own vocabulary: gusts
-            // answer the same wind_speed_unit= knob as speed does.
             '&temperature_unit=' + tempUnit + '&wind_speed_unit=' + windSpeedUnit +
             '&hourly=uv_index,precipitation_probability,temperature_2m&forecast_days=2' +
             '&daily=temperature_2m_max,temperature_2m_min';

@@ -11,6 +11,9 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   request, launch-race (exactly one fetch per relaunch with a stale cache),
   and a Task-7 bar-fill look with the centre slot set to a progress bar
   (interactive config, can't be scripted headless).
+  Also open, needs real rain: the metric precip-amount readout (`Xmm` while
+  precipitating) after the WMO-code wire change — host tests pin the
+  precip-mode switch per code family, the pixel look is unverified.
 - [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
   health reads and weather fetches are slot-gated, event-driven renders are
   snapshot-gated, persistence writes are compare-before-write, bar fills
@@ -22,6 +25,14 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   slot row while a Quick View is up (frames skipped on the canvas, slot
   text layers hidden), restoring on dismissal. No reflow, by decision.
   Emulator check pending alongside the perf pass.
+
+## Deferred
+
+- Accent-span metadata (formatters declaring their accent offsets instead of
+  `trailing_unit_span`'s lexical heuristic) — deferred 2026-08-08: the two
+  existing idioms (trailing-letter heuristic, explicit-position e.g. beats'
+  `@`) cover both accent shapes and the churn bought only unification.
+  Revisit only if a complication needs an accent neither idiom expresses.
 
 ## Done
 
