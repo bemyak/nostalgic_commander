@@ -288,21 +288,8 @@ static void main_window_load(Window* window) {
   text_layer_set_font(s_time_layer, vga_font_64());
   layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
 
-  // Init text layers for slots
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    ComplicationSlot* slot = &s_complication_slots[i];
-    GRect text_rect = GRect(slot->box_rect.origin.x, slot->box_rect.origin.y + VALUE_ROW_DY,
-                            slot->box_rect.size.w, VALUE_ROW_H);
-    slot->layer = text_layer_create(text_rect);
-    text_layer_set_background_color(slot->layer, GColorClear);
-    text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
-    text_layer_set_text_alignment(slot->layer, GTextAlignmentCenter);
-    text_layer_set_font(slot->layer, vga_font_16());
-    layer_add_child(window_layer, text_layer_get_layer(slot->layer));
-  }
-
-  // Fresh layers hold no text yet: the next request_ui_redraw()/update_time()
-  // must apply unconditionally, not match a previous layer tree's snapshot.
+  // Fresh layer tree: the next request_ui_redraw()/update_time() must apply
+  // unconditionally, not match a previous layer tree's snapshot.
   reset_ui_snapshot();
   s_shown_time[0] = '\0';
 
@@ -316,11 +303,6 @@ static void main_window_load(Window* window) {
 static void main_window_unload(Window* window) {
   text_layer_destroy(s_time_layer);
   layer_destroy(s_canvas_layer);
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    if (s_complication_slots[i].layer) {
-      text_layer_destroy(s_complication_slots[i].layer);
-    }
-  }
 }
 
 static void init(void) {

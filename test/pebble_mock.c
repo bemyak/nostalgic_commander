@@ -218,15 +218,6 @@ int mock_mark_dirty_count = 0;
 void layer_mark_dirty(Layer* layer) {
   mock_mark_dirty_count++;
 }
-// Records each call's hidden flag in order; request_ui_redraw applies slots
-// 0..NUM_SLOTS-1 in order, so buffer indices are slot indices within one call of it.
-bool mock_set_hidden_states[MOCK_MAX_SET_HIDDEN];
-int mock_set_hidden_count = 0;
-void layer_set_hidden(Layer* layer, bool hidden) {
-  if (mock_set_hidden_count < MOCK_MAX_SET_HIDDEN) {
-    mock_set_hidden_states[mock_set_hidden_count++] = hidden;
-  }
-}
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx)) {}
 
 char mock_persist_strings[256][64];

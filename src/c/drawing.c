@@ -132,6 +132,31 @@ static void draw_shortkey_value(GContext* ctx, GRect box_rect, ComplicationDataS
                       get_source_color(source), s_active_theme->mark);
 }
 
+// A plain single-run value: no unit hint to find (the checkbox brackets are
+// not letters, the day number is digits) or none wanted (a lone condition
+// word would hint its whole self). Color still follows get_source_color.
+static void draw_plain_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  char buf[32];
+  get_source_data(source, buf, sizeof(buf), NULL);
+  draw_run(ctx, vga16_value_rect(box_rect, buf), 0, buf, strlen(buf), get_source_color(source));
+}
+
+static void draw_cond_complication(GContext* ctx, GRect box_rect) {
+  draw_plain_value(ctx, box_rect, DATA_SOURCE_WEATHER_COND);
+}
+
+static void draw_day_complication(GContext* ctx, GRect box_rect) {
+  draw_plain_value(ctx, box_rect, DATA_SOURCE_DATE);
+}
+
+static void draw_bluetooth_complication(GContext* ctx, GRect box_rect) {
+  draw_plain_value(ctx, box_rect, DATA_SOURCE_BLUETOOTH);
+}
+
+static void draw_quiet_time_complication(GContext* ctx, GRect box_rect) {
+  draw_plain_value(ctx, box_rect, DATA_SOURCE_QUIET_TIME);
+}
+
 static void draw_steps_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_STEPS);
 }
@@ -710,13 +735,18 @@ static void draw_battery_complication(GContext* ctx, GRect box_rect) {
 
 typedef void (*ComplicationDrawFn)(GContext*, GRect);
 
-// Sources that paint their value straight onto the canvas instead of using the
-// slot's TextLayer: AQI/UV so its halves can be coloured independently, BEATS
-// and BATTERY so they land on whole glyph cells. Both canvas_update_proc and
-// request_ui_redraw go through here, so the set is stated exactly once —
-// returning NULL means "this source uses the generic text layer".
+// The value painter per source — every slot value draws on the canvas. EMPTY
+// (and any unrecognized source) returns NULL and draws no value.
 static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   switch (source) {
+    case DATA_SOURCE_WEATHER_COND:
+      return draw_cond_complication;
+    case DATA_SOURCE_DATE:
+      return draw_day_complication;
+    case DATA_SOURCE_BLUETOOTH:
+      return draw_bluetooth_complication;
+    case DATA_SOURCE_QUIET_TIME:
+      return draw_quiet_time_complication;
     case DATA_SOURCE_AQI_UV:
       return draw_aqi_uv_complication;
     case DATA_SOURCE_WEATHER_PCP:
@@ -852,10 +882,6 @@ typedef struct {
 // memsets first so padding and string slack can't poison the memcmp.
 static UiSnapshot s_shown_ui;
 
-// Backing for the slot TextLayers: text_layer_set_text keeps the pointer, so
-// the strings must outlive the call.
-static char s_slot_text[NUM_SLOTS][40];
-
 // Everything on screen is derived from slot contents and the theme: values
 // and bar fills come out of get_source_data's text and percent, bands and
 // accents out of theme colors and the thresholds it reads. A change nothing
@@ -879,7 +905,6 @@ static void build_snapshot(UiSnapshot* s) {
 
 void reset_ui_snapshot(void) {
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
-  memset(s_slot_text, 0, sizeof(s_slot_text));
 }
 
 // Schedules a render only when what the screen shows has changed. The tick's
@@ -890,28 +915,6 @@ void request_ui_redraw(void) {
   UiSnapshot now;
   build_snapshot(&now);
   if (memcmp(&now, &s_shown_ui, sizeof(now)) == 0) return;
-
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    ComplicationSlot* slot = &s_complication_slots[i];
-    if (!slot->layer) continue;
-    bool text_backed = slot->source != DATA_SOURCE_EMPTY && !canvas_drawer(slot->source);
-    // A covered row's text layers hide while Quick View is over them; their
-    // text keeps tracking underneath, so the restore shows current values.
-    bool covered = now.quick_view_active && quick_view_covers_slot(i);
-    layer_set_hidden(text_layer_get_layer(slot->layer), !text_backed || covered);
-    if (!text_backed) continue;
-    if (strcmp(now.text[i], s_slot_text[i]) != 0 || now.source[i] != s_shown_ui.source[i]) {
-      strcpy(s_slot_text[i], now.text[i]);
-      text_layer_set_text(slot->layer, s_slot_text[i]);
-    }
-    // Colors re-apply even when the string is unchanged (theme rollover);
-    // text_layer_set_text_color early-returns when nothing changed.
-#if defined(PBL_COLOR)
-    text_layer_set_text_color(slot->layer, get_source_color(slot->source));
-#else
-    text_layer_set_text_color(slot->layer, s_active_theme->text_primary);
-#endif
-  }
 
   s_shown_ui = now;
   if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);

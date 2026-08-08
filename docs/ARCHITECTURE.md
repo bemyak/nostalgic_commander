@@ -55,10 +55,10 @@ This document explains how the pieces fit together.
 
 | File | Role |
 |------|------|
-| `main.c` | App lifecycle: window setup, service subscriptions (tick, battery, bluetooth, health), settings load from persistent storage, text layer creation. |
+| `main.c` | App lifecycle: window setup, service subscriptions (tick, battery, bluetooth, health), settings load from persistent storage. |
 | `data.c` / `data.h` | Single source of truth for state: sensor/weather caches, settings, the `ComplicationDataSource` enum, slot definitions, and the formatting functions. |
 | `theme.c` / `theme.h` | `WatchTheme` color palettes, theme selection from `SETTINGS_THEME` and the hour (Auto mode), and per-source color logic (battery level, temperature bands, AQI/UV thresholds). |
-| `drawing.c` / `drawing.h` | All custom rendering: the ASCII window frames, the split-color AQI/UV complication, and `request_ui_redraw()` which pushes formatted text into the slot text layers. |
+| `drawing.c` / `drawing.h` | All custom rendering: the ASCII window frames, the per-source value painters, and `request_ui_redraw()`, the snapshot-diffing render gate. |
 | `messaging.c` / `messaging.h` | AppMessage in/out: weather requests, inbox parsing, settings persistence. |
 | `main.h` | Exposes `update_time()` so messaging can trigger a full refresh. |
 
@@ -93,8 +93,8 @@ per-module dispatches:
   every fetch gate (tick cadence, launch, settings change).
 - `get_source_color()` (`theme.c`) — the value's color on color displays
   (e.g. battery yellow/red, green on the charger, AQI/UV bands).
-- `canvas_drawer()` (`drawing.c`) — the custom painter, or NULL for sources
-  the slot's generic TextLayer renders.
+- `canvas_drawer()` (`drawing.c`) — the value painter; NULL for EMPTY or
+  unrecognized sources (nothing drawn).
 
 There are two placement types:
 
@@ -108,18 +108,12 @@ There are two placement types:
    and `DATA_SOURCE_WEATHER_FULL`, which tiles four fixed-width status chips
    (condition, temperature, humidity, precipitation) across the row, captioned
    per chip in the frame title.
-   Each slot has a fixed `box_rect`, a `TextLayer`, and a user-chosen source.
-   The slot's frame and label are drawn on the canvas
-   (`canvas_update_proc`); the value text lives in the slot's text layer,
-   updated by `request_ui_redraw()`. Source `DATA_SOURCE_EMPTY` (20) hides
-   a slot entirely.
-   - Most sources are canvas-drawn instead of using that text layer — anything
-     needing more than one color inside a value (the accent marks, the split
-     AQI/UV, a status band) or a non-text rendering (the progress bars).
-     `canvas_drawer()` in `drawing.c` is the single list of which sources those
-     are, returning a draw function or `NULL`; `request_ui_redraw()`
-     consults the same function to decide whether to hide the text layer, so
-     the two can't disagree about a source.
+   Each slot has a fixed `box_rect` and a user-chosen source. Frame, label
+   and value all draw on the canvas (`canvas_update_proc`); the value's
+   painter comes from `canvas_drawer()` (`drawing.c`), which returns NULL
+   only for `DATA_SOURCE_EMPTY` (20) — the slot is skipped entirely.
+   `request_ui_redraw()` is the render gate: it snapshots everything the
+   values derive from and schedules the one full-tree repaint only on change.
    - `DATA_SOURCE_SHORT_DATE` (22) is offered in the top slots only: it needs
      9 characters and the bottom slots hold 7.
 2. **Fixed element** — the time, drawn by the one remaining `TextLayer` in the
@@ -132,7 +126,7 @@ There are two placement types:
 2. Add a row to `s_complication_specs[]` in `data.c` (label, formatter,
    backing source, `needs_weather`). Add a `get_source_color()` case in
    `theme.c` if it needs color logic, and a drawer plus `canvas_drawer()`
-   case in `drawing.c` if the generic TextLayer path doesn't fit.
+   case in `drawing.c` if a plain centered text run doesn't fit.
 3. Add the option (label + numeric value as a string) to the relevant `SLOT_*`
    selects in `src/pkjs/config.json`. Top slots are wider — wide formats like
    combined Weather belong only there.

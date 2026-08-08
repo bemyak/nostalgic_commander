@@ -39,7 +39,6 @@ void setUp(void) {
   s_quiet_time_active = false;
   s_quick_view_active = false;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
-  mock_set_hidden_count = 0;
   mock_quiet_time_active = false;
   // Isolate the timestamp-based health throttle: zero both the mock clock
   // offset and the last-refresh stamp so no test inherits a window.
@@ -77,7 +76,6 @@ static void test_apply_theme(void) {
 void test_render_gate_should_go_silent_when_nothing_changes(void) {
   main_window_load(NULL);
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
-  memset(s_slot_text, 0, sizeof(s_slot_text));
   mock_mark_dirty_count = 0;
   mock_set_text_count = 0;
 
@@ -148,9 +146,12 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
 
   s_active_theme = &s_theme_shadow;  // e.g. Auto crossing 22:00
   request_ui_redraw();
-  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);    // canvas frames recolor
-  TEST_ASSERT_TRUE(mock_set_text_color_count > 0);    // slots recolor…
-  TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // …but no string changed
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);    // canvas recolors
+  TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // no string changed
+  // The clock row is the lone TextLayer left; update_time recolors it on a
+  // theme swap even when the time string is unchanged.
+  update_time();
+  TEST_ASSERT_TRUE(mock_set_text_color_count > 0);
   test_apply_theme();
 }
 
@@ -194,37 +195,6 @@ void test_canvas_should_skip_the_bottom_row_while_quick_view_is_up(void) {
   for (int i = 0; i < mock_fill_rect_count; i++) {
     TEST_ASSERT_LESS_THAN_INT(184, mock_fill_rects[i].origin.y);
   }
-}
-
-void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
-  main_window_load(NULL);
-  request_ui_redraw();  // baseline: hidden flags recorded for slots 0..NUM_SLOTS-1
-  mock_set_hidden_count = 0;
-
-  mock_unobstructed_bounds = GRect(0, 0, 200, 184);
-  quick_view_did_change(NULL);
-
-  TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
-  // The bottom row hides under the overlay. Slots 0-3 and 5 all paint onto
-  // the canvas now, so their text layers stay hidden either way; only the
-  // Bluetooth slot still has a text layer to cover.
-  TEST_ASSERT_TRUE(mock_set_hidden_states[2]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[4]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[1]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[0]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[5]);
-
-  mock_set_hidden_count = 0;
-  mock_unobstructed_bounds = GRect(0, 0, 200, 228);
-  quick_view_did_change(NULL);
-
-  TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
-  // The Bluetooth slot's text layer returns; the canvas-painted slots
-  // (0-3, 5) keep theirs hidden as always.
-  TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
-  TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
-  TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
 }
 
 // As delivered to the canvas, both checkboxes of the combined window must be
@@ -3232,7 +3202,6 @@ int main(void) {
   RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
   RUN_TEST(test_quick_view_did_change_should_gate_and_restore);
   RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
-  RUN_TEST(test_quick_view_should_hide_and_restore_bottom_row_text_layers);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_hum_pcp_window_should_paint_its_halves);
   RUN_TEST(test_bt_qt_wide_should_draw_both_checkboxes);

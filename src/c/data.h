@@ -105,7 +105,6 @@ extern int s_settings_disconnect_vibe;
 #define NUM_SLOTS 6
 typedef struct {
   GRect box_rect;
-  TextLayer* layer;
   ComplicationDataSource source;
 } ComplicationSlot;
 

@@ -14,9 +14,9 @@
 #define VGA16_CHAR_W 8
 #define VGA16_CELL_H 16
 
-// Where a value sits inside its window, measured from the box origin. Shared by
-// the canvas-drawn complications and the TextLayer path in main.c, so a slot
-// lands in the same place whichever of the two renders it.
+// Where a value sits inside its window, measured from the box origin. Shared
+// by every slot's canvas value run; the big clock row is the lone TextLayer
+// left.
 #define VALUE_ROW_DY 10
 #define VALUE_ROW_H 24
 
@@ -62,9 +62,9 @@ void canvas_update_proc(Layer* layer, GContext* ctx);
 // any event handler; no-ops when nothing visible changed.
 void request_ui_redraw(void);
 
-// Clear the snapshot and layer-text caches. main_window_load calls this:
-// fresh layers hold no text, so the next request_ui_redraw() must apply
-// unconditionally rather than match a previous layer tree's snapshot.
+// Clear the render-gate snapshot. main_window_load calls this: a fresh layer
+// tree must repaint unconditionally, even if it reuses a previous tree's
+// state globals.
 void reset_ui_snapshot(void);
 
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.

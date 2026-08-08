@@ -284,7 +284,6 @@ void layer_destroy(Layer* layer);
 GRect layer_get_bounds(Layer* layer);
 GRect layer_get_unobstructed_bounds(Layer* layer);
 void layer_mark_dirty(Layer* layer);
-void layer_set_hidden(Layer* layer, bool hidden);
 void layer_set_update_proc(Layer* layer, void (*update_proc)(Layer* layer, GContext* ctx));
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
@@ -322,9 +321,6 @@ extern GColor mock_text_run_colors[MOCK_MAX_TEXT_RUNS];
 extern GRect mock_text_run_boxes[MOCK_MAX_TEXT_RUNS];
 extern int mock_text_run_count;
 void mock_text_runs_reset(void);
-#define MOCK_MAX_SET_HIDDEN 32
-extern bool mock_set_hidden_states[MOCK_MAX_SET_HIDDEN];
-extern int mock_set_hidden_count;
 extern GRect mock_unobstructed_bounds;
 void mock_dict_reset(void);
 void mock_dict_add_int(uint32_t key, int32_t value);
