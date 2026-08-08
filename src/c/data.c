@@ -37,9 +37,10 @@ int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
-int s_settings_theme = 2;        // 0 = Auto, 1 = Dialog, 2 = Panel, 3 = Shadow; default is Panel
-int s_settings_units = 0;        // 0 = Imperial, 1 = Metric
-int s_settings_date_format = 0;  // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
+int s_settings_theme =
+    2;  // 0 = Auto, 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton
+int s_settings_units = 0;              // 0 = Imperial, 1 = Metric
+int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default), 0 = silenced

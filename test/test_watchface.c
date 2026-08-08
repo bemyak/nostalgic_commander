@@ -108,12 +108,11 @@ void test_render_gate_should_pass_displayed_changes_through(void) {
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
   request_ui_redraw();
   int marks = mock_mark_dirty_count;
-  int texts = mock_set_text_count;
 
   s_step_count = 4321;  // bottom-left slot shows STEPS by default
   request_ui_redraw();
+  // STEPS paints on the canvas now: the value change marks the canvas layer.
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
-  TEST_ASSERT_TRUE(mock_set_text_count > texts);
   s_step_count = -1;
 }
 
@@ -205,13 +204,13 @@ void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
   quick_view_did_change(NULL);
 
   TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
-  // The bottom row hides under the overlay; the top text slot stays visible.
-  // Slots 0 (WEATHER), 3 (BPM) and 5 (FULL_DATE) paint onto the canvas
-  // instead, so their text layers are hidden either way.
+  // The bottom row hides under the overlay. Slots 0-3 and 5 all paint onto
+  // the canvas now, so their text layers stay hidden either way; only the
+  // Bluetooth slot still has a text layer to cover.
   TEST_ASSERT_TRUE(mock_set_hidden_states[2]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[4]);
-  TEST_ASSERT_FALSE(mock_set_hidden_states[1]);
+  TEST_ASSERT_TRUE(mock_set_hidden_states[1]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[0]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[5]);
 
@@ -220,8 +219,9 @@ void test_quick_view_should_hide_and_restore_bottom_row_text_layers(void) {
   quick_view_did_change(NULL);
 
   TEST_ASSERT_EQUAL_INT(NUM_SLOTS, mock_set_hidden_count);
-  TEST_ASSERT_FALSE(mock_set_hidden_states[2]);
-  // Slot 3's layer never comes back: canvas-drawn, not a restore target.
+  // The Bluetooth slot's text layer returns; the canvas-painted slots
+  // (0-3, 5) keep theirs hidden as always.
+  TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
   TEST_ASSERT_TRUE(mock_set_hidden_states[3]);
   TEST_ASSERT_FALSE(mock_set_hidden_states[4]);
 }
@@ -266,15 +266,23 @@ void test_hum_pcp_window_should_paint_its_halves(void) {
   canvas_update_proc(NULL, NULL);
 
   // The tight strip: an 8-cell block (3+2+3) centred in the 93px box at
-  // x=8 places the fields at 22 and 62; content fills its field exactly.
+  // x=8 places the fields at 22 and 62; content fills its cell-window.
+  // Percent units are symbols, not shortkey letters: plain primary rows.
   bool hum_found = false, pcp_found = false;
+  int value_y = s_complication_slots[0].box_rect.origin.y + VALUE_ROW_DY;
   for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.y == value_y &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      TEST_FAIL_MESSAGE("a % half should never wear the mark");
+    }
     if (strcmp(mock_text_runs[i], "61%") == 0) {
       hum_found = true;
+      TEST_ASSERT_TRUE(gcolor_equal(mock_text_run_colors[i], s_active_theme->text_primary));
       TEST_ASSERT_EQUAL_INT(22, mock_text_run_boxes[i].origin.x);
     }
     if (strcmp(mock_text_runs[i], "12%") == 0) {
       pcp_found = true;
+      TEST_ASSERT_TRUE(gcolor_equal(mock_text_run_colors[i], s_active_theme->text_primary));
       TEST_ASSERT_EQUAL_INT(62, mock_text_run_boxes[i].origin.x);
     }
   }
@@ -502,6 +510,247 @@ void test_pcp_chip_should_band_on_attention_probability(void) {
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
 
   s_complication_slots[3].source = DATA_SOURCE_HEART_RATE;
+}
+
+// A run inside `row` spelled exactly `text` and painted `color` — the generic
+// form of pcp_slot_shows_unit_accent(), for chips that aren't bands.
+static bool row_has_run(GRect row, const char* text, GColor color) {
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.x >= row.origin.x &&
+        mock_text_run_boxes[i].origin.x + mock_text_run_boxes[i].size.w <=
+            row.origin.x + row.size.w &&
+        mock_text_run_boxes[i].origin.y == row.origin.y &&
+        gcolor_equal(mock_text_run_colors[i], color) && strcmp(mock_text_runs[i], text) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void test_weather_strip_should_draw_the_condition_in_mark(void) {
+  // The strip's condition chip is the same hotkey word as the top chip's;
+  // never banded — it carries no thresholds to encode.
+  s_complication_slots[5].source = DATA_SOURCE_WEATHER_FULL;
+  s_weather_temp = 72;
+  strcpy(s_weather_cond, "SUN");
+  s_weather_humidity = 55;
+  s_weather_pcp = 10;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect strip = s_complication_slots[5].box_rect;
+  int strip_y = strip.origin.y + VALUE_ROW_DY;
+  bool cond_marked = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.y == strip_y &&
+        mock_text_run_boxes[i].origin.x >= strip.origin.x &&
+        mock_text_run_boxes[i].origin.x <= strip.origin.x + strip.size.w &&
+        strcmp(mock_text_runs[i], "SUN") == 0 &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      cond_marked = true;
+    }
+  }
+  TEST_ASSERT_TRUE(cond_marked);
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
+}
+
+void test_heart_rate_chip_should_trail_the_heart(void) {
+  // Digits, then the heart: the accent rides the tail like the units do.
+  s_heart_rate = 75;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect slot = s_complication_slots[3].box_rect;
+  int heart_x = -1, digits_x = -1;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    GRect b = mock_text_run_boxes[i];
+    if (b.origin.y < slot.origin.y || b.origin.y > slot.origin.y + slot.size.h) continue;
+    if (strcmp(mock_text_runs[i], "\xE2\x99\xA5") == 0) heart_x = b.origin.x;
+    if (strcmp(mock_text_runs[i], "75") == 0) digits_x = b.origin.x;
+  }
+  TEST_ASSERT_TRUE(heart_x >= 0 && digits_x >= 0);
+  TEST_ASSERT_TRUE(heart_x > digits_x);
+  s_heart_rate = 0;
+}
+
+void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
+  // "CLD 72F": the condition word leads, the unit letter trails — both wear
+  // the theme mark, the value between stays primary. NC menus hint the
+  // shortkey; there is no one-accent-per-chip budget.
+  s_weather_temp = 72;
+  strcpy(s_weather_cond, "CLD");
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "CLD 72F");
+  TEST_ASSERT_TRUE(row_has_run(row, "CLD", s_active_theme->mark));
+  TEST_ASSERT_TRUE(row_has_run(row, " 72", s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(row_has_run(row, "F", s_active_theme->mark));
+
+  // No reading: the sentinel stays quiet on the ground.
+  s_weather_temp = -999;
+  strcpy(s_weather_cond, "--");
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect dash_row = vga16_value_rect(s_complication_slots[0].box_rect, "-- --");
+  TEST_ASSERT_FALSE(row_has_run(dash_row, "--", s_active_theme->mark));
+}
+
+void test_sleep_chip_should_hint_only_the_trailing_unit(void) {
+  // "7h 30m": the hint is the string's tail letters — the mid-string "h"
+  // stays plain; the rail is the right edge.
+  s_sleep_seconds = 7 * 3600 + 30 * 60;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[1].box_rect, "7h 30m");
+  TEST_ASSERT_TRUE(row_has_run(row, "m", s_active_theme->mark));
+  TEST_ASSERT_TRUE(row_has_run(row, "7h 30", s_active_theme->text_primary));
+  TEST_ASSERT_FALSE(row_has_run(row, "h", s_active_theme->mark));
+}
+
+void test_steps_chip_should_hint_the_k(void) {
+  s_complication_slots[1].source = DATA_SOURCE_STEPS;
+  s_step_count = 12500;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[1].box_rect, "12.5k");
+  TEST_ASSERT_TRUE(row_has_run(row, "k", s_active_theme->mark));
+  TEST_ASSERT_TRUE(row_has_run(row, "12.5", s_active_theme->text_primary));
+}
+
+void test_battery_chip_should_band_without_hinting_the_percent(void) {
+  // "%" is a symbol, not a shortkey letter: no hint — the battery speaks
+  // through its band alone.
+  s_complication_slots[3].source = DATA_SOURCE_BATTERY;
+  s_battery_charging = false;
+  s_battery_level = 87;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[3].box_rect, "87%");
+  TEST_ASSERT_TRUE(row_has_run(row, "87%", s_active_theme->text_primary));
+  TEST_ASSERT_FALSE(row_has_run(row, "%", s_active_theme->mark));
+
+  s_battery_charging = true;  // on the band everything plays in ink
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  TEST_ASSERT_FALSE(row_has_run(row, "%", s_active_theme->mark));
+  s_battery_charging = false;
+  s_battery_level = 100;
+}
+
+void test_humidity_chip_should_stay_plain(void) {
+  s_complication_slots[3].source = DATA_SOURCE_HUMIDITY;
+  s_weather_humidity = 62;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[3].box_rect, "62%");
+  TEST_ASSERT_TRUE(row_has_run(row, "62%", s_active_theme->text_primary));
+  TEST_ASSERT_FALSE(row_has_run(row, "%", s_active_theme->mark));
+}
+
+void test_active_chip_should_hint_minutes(void) {
+  s_complication_slots[3].source = DATA_SOURCE_ACTIVE_MINUTES;
+  s_active_minutes = 115;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[3].box_rect, "115m");
+  TEST_ASSERT_TRUE(row_has_run(row, "m", s_active_theme->mark));
+}
+
+void test_temp_chip_should_color_shift_and_hint_the_unit(void) {
+  // The solo temp reading color-shifts with the band (blue when cold, red
+  // when hot) and its unit letter carries the shortkey accent on top.
+  s_complication_slots[3].source = DATA_SOURCE_WEATHER_TEMP;
+  s_settings_units = 1;
+  s_weather_temp = -2;  // metric cold
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[3].box_rect, "-2C");
+  TEST_ASSERT_TRUE(row_has_run(row, "-2", s_active_theme->accent_cold));
+  TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
+  s_settings_units = 0;
+}
+
+void test_high_low_chip_should_hint_the_trailing_unit(void) {
+  s_complication_slots[0].source = DATA_SOURCE_TEMP_HIGH_LOW;
+  s_settings_units = 1;
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;
+  s_lo_hour_today = 5;
+  s_hi_hour_today = 15;
+  s_lo_hour_tmrw = 5;
+  s_hi_hour_tmrw = 15;
+  s_wall_hour = 4;  // nothing passed: "+11C +20C", LO leads
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "+11C +20C");
+  TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
+  TEST_ASSERT_TRUE(row_has_run(row, "+11C +20", s_active_theme->text_primary));
+  s_wall_hour = 12;
+  s_settings_units = 0;
+}
+
+void test_wind_chip_should_hint_the_unit_until_gale(void) {
+  // Wide form "↗ 12 mph": unit hinted, arrow and digits plain; at Bf 8 the
+  // band inks everything.
+  s_complication_slots[0].source = DATA_SOURCE_WIND;
+  s_weather_wind_speed = 12;
+  s_weather_wind_direction = 216;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  bool mph_marked = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], "mph") == 0 &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      mph_marked = true;
+    }
+  }
+  TEST_ASSERT_TRUE(mph_marked);
+
+  s_weather_wind_speed = 45;  // gale: no hint survives the band
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  mph_marked = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], "mph") == 0 &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      mph_marked = true;
+    }
+  }
+  TEST_ASSERT_FALSE(mph_marked);
+  s_weather_wind_speed = -1;
+  s_weather_wind_direction = -1;
+}
+
+void test_weather_strip_should_hint_quiet_units(void) {
+  // The same rail under the strip: TMP's unit letter, HUM's "%".
+  s_complication_slots[5].source = DATA_SOURCE_WEATHER_FULL;
+  s_weather_temp = 72;
+  strcpy(s_weather_cond, "SUN");
+  s_weather_humidity = 55;
+  s_weather_pcp = 10;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect strip = s_complication_slots[5].box_rect;
+  int strip_y = strip.origin.y + VALUE_ROW_DY;
+  bool f_marked = false, pct_marked = false;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.y != strip_y ||
+        mock_text_run_boxes[i].origin.x < strip.origin.x ||
+        mock_text_run_boxes[i].origin.x > strip.origin.x + strip.size.w) {
+      continue;
+    }
+    if (strcmp(mock_text_runs[i], "F") == 0 &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      f_marked = true;
+    }
+    if (strcmp(mock_text_runs[i], "%") == 0 &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      pct_marked = true;
+    }
+  }
+  TEST_ASSERT_TRUE(f_marked);
+  TEST_ASSERT_FALSE(pct_marked);
+  s_complication_slots[5].source = DATA_SOURCE_FULL_DATE;
 }
 
 void test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm(void) {
@@ -1110,7 +1359,8 @@ void test_get_source_data_should_format_active_minutes(void) {
 
 // Every theme, so a new one cannot be added without inheriting the guarantees
 // asserted below.
-static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_theme_dialog};
+static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_theme_dialog,
+                                         &s_theme_navigator};
 #define NUM_THEMES (sizeof(all_themes) / sizeof(all_themes[0]))
 
 void test_determine_theme_should_handle_all_configurations(void) {
@@ -1119,6 +1369,7 @@ void test_determine_theme_should_handle_all_configurations(void) {
     TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(1, hour));
     TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(2, hour));
     TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(3, hour));
+    TEST_ASSERT_EQUAL_PTR(&s_theme_navigator, determine_theme(4, hour));
   }
 
   // Auto: three 8-hour shifts, brightest first. Boundaries are the whole point.
@@ -1168,9 +1419,9 @@ void test_themes_should_keep_text_readable_on_their_ground(void) {
     TEST_ASSERT_NOT_EQUAL(t->center_bg, t->accent_cold);
     TEST_ASSERT_NOT_EQUAL(t->center_bg, t->mark);
 
-    // Titles must stay distinguishable from the frame they sit in, or the
-    // window label disappears into its own border.
-    TEST_ASSERT_NOT_EQUAL(t->frame, t->text_secondary);
+    // Titles render in the top border's gap, on the ground itself — so the
+    // label needs contrast with the ground, not with the frame.
+    TEST_ASSERT_NOT_EQUAL(t->center_bg, t->text_secondary);
 
     // Status values are drawn as text on the ground too — this is what forces
     // the light theme to use the low-intensity variants.
@@ -2926,6 +3177,18 @@ int main(void) {
   RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
   RUN_TEST(test_aqi_chip_should_band_only_on_an_attention_reading);
   RUN_TEST(test_battery_complications_should_wear_green_while_charging);
+  RUN_TEST(test_weather_chip_should_hotkey_the_condition_and_the_unit);
+  RUN_TEST(test_sleep_chip_should_hint_only_the_trailing_unit);
+  RUN_TEST(test_steps_chip_should_hint_the_k);
+  RUN_TEST(test_battery_chip_should_band_without_hinting_the_percent);
+  RUN_TEST(test_humidity_chip_should_stay_plain);
+  RUN_TEST(test_active_chip_should_hint_minutes);
+  RUN_TEST(test_temp_chip_should_color_shift_and_hint_the_unit);
+  RUN_TEST(test_high_low_chip_should_hint_the_trailing_unit);
+  RUN_TEST(test_wind_chip_should_hint_the_unit_until_gale);
+  RUN_TEST(test_weather_strip_should_hint_quiet_units);
+  RUN_TEST(test_weather_strip_should_draw_the_condition_in_mark);
+  RUN_TEST(test_heart_rate_chip_should_trail_the_heart);
   RUN_TEST(test_pcp_chip_should_band_on_attention_probability);
   RUN_TEST(test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);

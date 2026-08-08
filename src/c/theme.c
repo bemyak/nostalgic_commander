@@ -39,14 +39,29 @@ const WatchTheme s_theme_shadow = {.center_bg = GColorBlack,             // #000
 // far too faint to read on a watch, so marks take the dark yellow instead.
 const WatchTheme s_theme_dialog = {.center_bg = GColorLightGray,            // #AAAAAA
                                    .accent_cold = GColorDukeBlue,           // #0000AA
-                                   .frame = GColorDukeBlue,                 // #0000AA
+                                   .frame = GColorDarkGray,                 // #0000AA
                                    .text_primary = GColorBlack,             // #000000
                                    .text_secondary = GColorDarkGray,        // #555555
-                                   .mark = GColorWindsorTan,                // #AA5500
+                                   .mark = GColorDarkCandyAppleRed,         // #AA5500
                                    .status_ink = GColorWhite,               // #FFFFFF
                                    .status_green = GColorIslamicGreen,      // #00AA00
                                    .status_yellow = GColorWindsorTan,       // #AA5500
                                    .status_red = GColorDarkCandyAppleRed};  // #AA0000
+
+// DOS Navigator's default screen as it actually renders: dark grey ground,
+// light text and chrome, dim grey secondary readouts, yellow hotkey marks.
+// Status stays on the bright variants to clear the grey, ink flips to black
+// on fills.
+const WatchTheme s_theme_navigator = {.center_bg = GColorDarkGray,          // #555555
+                                      .accent_cold = GColorElectricBlue,    // #55FFFF
+                                      .frame = GColorWhite,                 // #FFFFFF
+                                      .text_primary = GColorWhite,          // #FFFFFF
+                                      .text_secondary = GColorLightGray,    // #AAAAAA
+                                      .mark = GColorIcterine,               // #FFFF55
+                                      .status_ink = GColorBlack,            // #000000
+                                      .status_green = GColorScreaminGreen,  // #55FF55
+                                      .status_yellow = GColorIcterine,      // #FFFF55
+                                      .status_red = GColorSunsetOrange};    // #FF5555
 
 // Auto walks the three themes on 8-hour shifts, brightest first: the light
 // dialog through the morning, the blue panel through the afternoon, and the
@@ -65,6 +80,8 @@ const WatchTheme* determine_theme(int theme_setting, int current_hour) {
       return &s_theme_panel;
     case 3:
       return &s_theme_shadow;
+    case 4:
+      return &s_theme_navigator;
     default:  // 0 = Auto, and anything unrecognized
       return theme_for_hour(current_hour);
   }

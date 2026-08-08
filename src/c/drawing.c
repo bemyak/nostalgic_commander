@@ -101,23 +101,79 @@ static void draw_accented_value(GContext* ctx, GRect row, const char* text, int 
   draw_run(ctx, row, at + len, text + at + len, total - at - len, base);
 }
 
-// Temperature readouts end in the unit letter; pick it out like the beats "@".
-static void draw_unit_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
-  char buf[40];
-  get_source_data(source, buf, sizeof(buf), NULL);
+// The trailing unit run of a reading — C/F, mm, mph, k, the final m of
+// "7h 30m". NC menus dress a word's shortkey letter; "%" is a symbol, not a
+// letter, so percent chips stay plain. Ends in a digit or bracket → no hint,
+// sentinels like "--" included.
+static bool trailing_unit_span(const char* text, int* at, int* len) {
+  int total = strlen(text);
+  int i = total;
+  while (i > 0) {
+    char c = text[i - 1];
+    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) break;
+    i--;
+  }
+  if (i == total) return false;
+  *at = i;
+  *len = total - i;
+  return true;
+}
 
-  int len = strlen(buf);
-  int at = (len > 0 && (buf[len - 1] == 'C' || buf[len - 1] == 'F')) ? len - 1 : -1;
-  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, at, 1,
-                      s_active_theme->text_primary, s_active_theme->mark);
+// Plain rails: chips with no band of their own. The value's color still
+// shifts with get_source_color (cold temp blues, a hot high reddens — the
+// TextLayer idiom these chips used to render through), and the trailing unit
+// carries its shortkey accent.
+static void draw_shortkey_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  char buf[32];
+  get_source_data(source, buf, sizeof(buf), NULL);
+  int at = 0, len = 0;
+  bool has_unit = trailing_unit_span(buf, &at, &len);
+  draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, has_unit ? at : -1, len,
+                      get_source_color(source), s_active_theme->mark);
+}
+
+static void draw_steps_complication(GContext* ctx, GRect box_rect) {
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_STEPS);
+}
+
+static void draw_sleep_complication(GContext* ctx, GRect box_rect) {
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_SLEEP);
+}
+
+static void draw_active_complication(GContext* ctx, GRect box_rect) {
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_ACTIVE_MINUTES);
+}
+
+static void draw_humidity_complication(GContext* ctx, GRect box_rect) {
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_HUMIDITY);
+}
+
+static void draw_high_low_complication(GContext* ctx, GRect box_rect) {
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_TEMP_HIGH_LOW);
 }
 
 static void draw_weather_complication(GContext* ctx, GRect box_rect) {
-  draw_unit_value(ctx, box_rect, DATA_SOURCE_WEATHER);
+  // The condition word leads, the temperature's unit trails — both wear the
+  // theme mark, the value between stays primary. A missing reading stays
+  // quiet on the ground.
+  char buf[40];
+  get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
+
+  int total = strlen(buf);
+  bool has_reading = s_weather_temp != -999;
+  const char* space = strchr(buf, ' ');
+  int cond_len = (has_reading && space) ? (int)(space - buf) : 0;
+  int unit_at = total, unit_len = 0;
+  if (has_reading) trailing_unit_span(buf, &unit_at, &unit_len);
+
+  GRect row = vga16_value_rect(box_rect, buf);
+  draw_run(ctx, row, 0, buf, cond_len, s_active_theme->mark);
+  draw_run(ctx, row, cond_len, buf + cond_len, unit_at - cond_len, s_active_theme->text_primary);
+  draw_run(ctx, row, unit_at, buf + unit_at, total - unit_at, s_active_theme->mark);
 }
 
 static void draw_weather_temp_complication(GContext* ctx, GRect box_rect) {
-  draw_unit_value(ctx, box_rect, DATA_SOURCE_WEATHER_TEMP);
+  draw_shortkey_value(ctx, box_rect, DATA_SOURCE_WEATHER_TEMP);
 }
 
 // A date with its weekday picked out. Shared by the DATE window and the
@@ -246,6 +302,14 @@ static void draw_status_field(GContext* ctx, GRect box_rect, int x, int w, const
 // centring in the box, since the band is itself centred.
 static void draw_banded_value(GContext* ctx, GRect box_rect, const char* text, bool banded,
                               GColor band) {
+  // Quiet on the ground: the trailing unit keeps its shortkey accent. On a
+  // band everything is ink — a mark run on its own fill is mud.
+  int at = 0, len = 0;
+  if (!banded && trailing_unit_span(text, &at, &len)) {
+    draw_accented_value(ctx, vga16_value_rect(box_rect, text), text, at, len,
+                        s_active_theme->text_primary, s_active_theme->mark);
+    return;
+  }
   GRect b = status_band_rect(box_rect);
   draw_status_field(ctx, box_rect, b.origin.x, b.size.w, text, banded, band);
 }
@@ -257,20 +321,14 @@ static bool reading_commands_attention(ComplicationDataSource source) {
   return !gcolor_equal(get_source_color(source), s_active_theme->text_primary);
 }
 
-// PCP obeys the same rule as the strip chip: attention states band. A calm
-// amount keeps its "mm" unit accent like C/F and the weekday get; on a fill
-// the accent would drown, so ink takes over, as in the strip.
+// PCP bands like any status chip (WMO rungs on amounts, planning thresholds
+// on probability); a calm reading keeps its unit's shortkey accent. Both
+// idioms ride the shared path.
 static void draw_pcp_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
-  bool banded = reading_commands_attention(DATA_SOURCE_WEATHER_PCP);
-  if (weather_shows_precip_amount() && !banded) {
-    int len = strlen(buf);
-    draw_accented_value(ctx, vga16_value_rect(box_rect, buf), buf, len - 2, 2,
-                        s_active_theme->text_primary, s_active_theme->mark);
-  } else {
-    draw_banded_value(ctx, box_rect, buf, banded, get_source_color(DATA_SOURCE_WEATHER_PCP));
-  }
+  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
+                    get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
 
 static void draw_aqi_complication(GContext* ctx, GRect box_rect) {
@@ -287,12 +345,28 @@ static void draw_uv_complication(GContext* ctx, GRect box_rect) {
                     get_source_color(DATA_SOURCE_UV));
 }
 
+// One half of a two-field chip: banded → fill and ink; quiet → the trailing
+// unit's shortkey accent, the same rail as the solo chips.
+static void draw_hinted_half(GContext* ctx, GRect box_rect, int x, int w, const char* text,
+                             bool banded, GColor band) {
+  int at = 0, ulen = 0;
+  if (!banded && trailing_unit_span(text, &at, &ulen)) {
+    int len = strlen(text);
+    GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
+                      len * VGA16_CHAR_W, VALUE_ROW_H);
+    draw_accented_value(ctx, row, text, at, ulen, s_active_theme->text_primary,
+                        s_active_theme->mark);
+    return;
+  }
+  draw_status_field(ctx, box_rect, x, w, text, banded, band);
+}
+
 // Both readings side by side, each banding its own half of the cell so a good
 // AQI next to a high UV reads as two fields rather than one blended color. The
 // separator sits on the ground between them.
 // Humidity and precipitation side by side, same two-field shape as
-// AQI/UV: the PCP half keeps its calm-amount "mm" accent (the strip chip
-// rule); the humidity half never bands.
+// AQI/UV: both halves carry the quiet-state unit hint; only the PCP half
+// bands.
 static void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
   char pcp_str[8];
   const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
@@ -302,20 +376,12 @@ static void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
 
   char hum_str[8];
   get_source_data(DATA_SOURCE_HUMIDITY, hum_str, sizeof(hum_str), NULL);
-  draw_status_field(ctx, box_rect, left_x, field_px, hum_str, false, GColorClear);
+  draw_hinted_half(ctx, box_rect, left_x, field_px, hum_str, false, GColorClear);
 
   get_source_data(DATA_SOURCE_WEATHER_PCP, pcp_str, sizeof(pcp_str), NULL);
-  bool pcp_banded = reading_commands_attention(DATA_SOURCE_WEATHER_PCP);
-  if (weather_shows_precip_amount() && !pcp_banded) {
-    int len = strlen(pcp_str);
-    int cx = right_x + (field_px - len * VGA16_CHAR_W) / 2;
-    draw_accented_value(
-        ctx, GRect(cx, box_rect.origin.y + VALUE_ROW_DY, len * VGA16_CHAR_W, VALUE_ROW_H), pcp_str,
-        len - 2, 2, s_active_theme->text_primary, s_active_theme->mark);
-  } else {
-    draw_status_field(ctx, box_rect, right_x, field_px, pcp_str, pcp_banded,
-                      get_source_color(DATA_SOURCE_WEATHER_PCP));
-  }
+  draw_hinted_half(ctx, box_rect, right_x, field_px, pcp_str,
+                   reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
+                   get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
 
 static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
@@ -386,18 +452,28 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
     } else {
       get_source_data(field->source, buf, sizeof(buf), NULL);
     }
-    if (field->source == DATA_SOURCE_WEATHER_PCP && weather_shows_precip_amount() &&
-        !strip_field_is_banded(field)) {
-      // Light rain is calm enough to keep the unit accent; an intensity band
-      // plays everything in ink (a yellow run on a yellow fill is no run).
+    if (field->source == DATA_SOURCE_WEATHER_COND) {
+      // The strip's hotkey word, like the top chip's: the theme mark, never
+      // a band — draw_status_field's color is fill-only, so the chip draws
+      // its run directly. A missing reading stays quiet on the ground.
       int len = strlen(buf);
       GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
                         len * VGA16_CHAR_W, VALUE_ROW_H);
-      draw_accented_value(ctx, row, buf, len - 2, 2, s_active_theme->text_primary,
-                          s_active_theme->mark);
+      draw_run(
+          ctx, row, 0, buf, len,
+          *field->reading != field->sentinel ? s_active_theme->mark : s_active_theme->text_primary);
+    } else if (strip_field_is_banded(field)) {
+      draw_status_field(ctx, box_rect, x, w, buf, true, get_source_color(field->source));
     } else {
-      draw_status_field(ctx, box_rect, x, w, buf, strip_field_is_banded(field),
-                        get_source_color(field->source));
+      // A calm chip keeps its trailing unit's shortkey accent over the same
+      // ground row.
+      int len = strlen(buf);
+      GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
+                        len * VGA16_CHAR_W, VALUE_ROW_H);
+      int unit_at = 0, unit_len = 0;
+      bool has_unit = trailing_unit_span(buf, &unit_at, &unit_len);
+      draw_accented_value(ctx, row, buf, has_unit ? unit_at : -1, unit_len,
+                          s_active_theme->text_primary, s_active_theme->mark);
     }
     x += w + VGA16_CHAR_W;
   }
@@ -556,7 +632,15 @@ static void draw_wind_complication(GContext* ctx, GRect box_rect) {
   graphics_draw_text(ctx, arrow, vga_font_16(),
                      GRect(row.origin.x, row.origin.y, VGA16_CHAR_W, row.size.h),
                      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  if (speed[0]) draw_run(ctx, row, 2, speed, strlen(speed), ink);
+  if (speed[0]) {
+    int at = 0, len = 0;
+    if (!banded && trailing_unit_span(speed, &at, &len)) {
+      draw_run(ctx, row, 2, speed, at, ink);
+      draw_run(ctx, row, 2 + at, speed + at, len, s_active_theme->mark);
+    } else {
+      draw_run(ctx, row, 2, speed, strlen(speed), ink);
+    }
+  }
 }
 
 static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
@@ -589,10 +673,10 @@ static void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
              get_source_color(DATA_SOURCE_HEART_RATE));
     return;
   }
-  // A yellow heart cell fused to the right of the digits, a marquee accent
-  // like the beats window's "@": chrome in the theme mark, value in primary.
-  // The heart is multi-byte, so — like the bar's shade runs — it takes an
-  // explicit one-cell span instead of draw_run.
+  // A mark heart cell fused to the right of the digits — the accent rides
+  // the tail like the units do; only words lead. The heart is multi-byte,
+  // so — like the bar's shade runs — it takes an explicit one-cell span
+  // instead of draw_run.
   int cells = (int)strlen(buf) + 1;
   GRect row = GRect(box_rect.origin.x + (box_rect.size.w - cells * VGA16_CHAR_W) / 2,
                     box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
@@ -600,7 +684,7 @@ static void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
   graphics_context_set_text_color(ctx, s_active_theme->mark);
   graphics_draw_text(
       ctx, "\xE2\x99\xA5" /* U+2665 BLACK HEART SUIT */, vga_font_16(),
-      GRect(row.origin.x + strlen(buf) * VGA16_CHAR_W, row.origin.y, VGA16_CHAR_W, row.size.h),
+      GRect(row.origin.x + (int)strlen(buf) * VGA16_CHAR_W, row.origin.y, VGA16_CHAR_W, row.size.h),
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
@@ -667,6 +751,16 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
       return draw_steps_bar_complication;
     case DATA_SOURCE_BATTERY_BAR:
       return draw_battery_bar_complication;
+    case DATA_SOURCE_STEPS:
+      return draw_steps_complication;
+    case DATA_SOURCE_SLEEP:
+      return draw_sleep_complication;
+    case DATA_SOURCE_ACTIVE_MINUTES:
+      return draw_active_complication;
+    case DATA_SOURCE_HUMIDITY:
+      return draw_humidity_complication;
+    case DATA_SOURCE_TEMP_HIGH_LOW:
+      return draw_high_low_complication;
     default:
       return NULL;
   }

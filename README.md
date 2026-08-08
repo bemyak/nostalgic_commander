@@ -19,9 +19,9 @@ pipeline, test harness, much of the runtime — is upstream's work. See
 
 ## Gallery
 
-| Commander Panel | Dialog | Shadowed Panel |
+| Norton | Turbo Vision | Dark |
 |---|---|---|
-| ![Commander Panel](screenshots/01_theme_ega.png) | ![Dialog](screenshots/02_theme_dialog.png) | ![Shadowed Panel](screenshots/03_theme_shadow.png) |
+| ![Norton](screenshots/01_theme_ega.png) | ![Turbo Vision](screenshots/02_theme_dialog.png) | ![Dark](screenshots/03_theme_shadow.png) |
 
 | Complication combo | | Minimal layout |
 |---|---|---|
@@ -33,7 +33,8 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   of date formats (`1970-12-31`, `31-12-1970`, `DEC 31st, 1970`, or the
   year-less short form), and the weekday before, after, or hidden.
 - **Six complication slots** (two wide on top, three below, one wide in the
-  middle) you can fill from: weather (condition + temperature), humidity,
+  middle) you can fill from: weather (condition + temperature), temperature
+  alone (bottom slots only), humidity,
   precipitation probability (peak over the next 12 hours; shows the live
   rate in mm while it actually rains, metric only), the day's
   high/low temperatures (rolling to tomorrow's as each extreme passes),
@@ -46,12 +47,14 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   current temp, humidity and precipitation as captioned status chips), or a
   DOS progress bar for steps or battery — `█` blocks against a `░` track,
   with the percentage after it.
-- **Four DOS/EGA themes, Commander Panel by default.** Auto cycles the other three on
-  8-hour shifts, brightest to darkest as the day goes on: Dialog (Turbo
-  Vision dialog box, blue frames, black text on light grey) 06:00–14:00,
-  Commander Panel (Norton Commander panel, cyan frames, white entries over
-  EGA blue) 14:00–22:00, Shadowed Panel (the same panel dimmed to grey
-  chrome on black, the way Turbo Vision faked it) 22:00–06:00. Pick a theme
+- **Four DOS/EGA themes, Norton by default.** Auto cycles three of them on
+  8-hour shifts, brightest to darkest as the day goes on: Turbo Vision (the
+  dialog box, black frames, blue captions, black text on light grey) 06:00–14:00,
+  Norton (Commander panel, cyan frames, white entries over
+  EGA blue) 14:00–22:00, Dark (the same panel dimmed to grey
+  chrome on black, the way Turbo Vision faked it) 22:00–06:00. Navigator
+  (dark grey ground, white chrome, yellow hotkey marks) sits outside the
+  rotation. Pick a theme
   directly to lock it in. Exact EGA colors, since Pebble's display uses the
   same channel steps.
 - **Colors only when something needs attention**: temperature runs
@@ -68,7 +71,7 @@ deliberately few:
 
 | Setting | Options |
 |---------|---------|
-| Theme | Auto, Dialog, Commander Panel, Shadowed Panel |
+| Theme | Auto, Turbo Vision, Norton, Dark, Navigator |
 | Units | Imperial, Metric |
 | Date format | ISO, DOS, full text, short |
 | Short date format | Month-Day, Day-Month |

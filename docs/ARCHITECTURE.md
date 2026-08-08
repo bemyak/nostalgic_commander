@@ -133,11 +133,12 @@ There are two placement types:
 
 ## Theming
 
-Three `WatchTheme` palettes (`theme.c`), all DOS/EGA:
+Four `WatchTheme` palettes (`theme.c`), all DOS/EGA:
 
 | Theme | Ground | Look |
 |-------|--------|------|
-| `s_theme_dialog` | `#AAAAAA` light grey | Turbo Vision/NC dialog box, attribute `0x70` (black on light grey); blue frames, dark-grey titles, black values |
+| `s_theme_dialog` | `#AAAAAA` light grey | Turbo Vision/NC dialog box, attribute `0x70` (black on light grey); EGA-blue captions, black frames and values |
+| `s_theme_navigator` | `#555555` dark grey | DOS Navigator's default screen — white text and chrome, dim-grey titles, yellow hotkey marks |
 | `s_theme_panel` | `#0000AA` EGA blue | Norton Commander panel, cyan frames, white entries |
 | `s_theme_shadow` | `#000000` black | the same panel in shadow — Turbo Vision faked a dimmed panel as grey-on-black, so dark-grey frames, light-grey titles, white entries |
 
@@ -148,11 +149,10 @@ needed.
 Auto (`SETTINGS_THEME` 0) cycles these three on an 8-hour
 schedule, brightest to darkest as the day goes on: `s_theme_dialog`
 06:00–14:00, `s_theme_panel` 14:00–22:00, `s_theme_shadow` 22:00–06:00.
-The default is Commander Panel (2); Auto is opt-in.
+The default is Norton (2); Navigator and Auto are opt-in.
 `determine_theme(int theme_setting, int current_hour)` maps setting +
 hour to a `WatchTheme` pointer: Auto (0) checks `current_hour` against
-that schedule; 1–3 pick `s_theme_dialog`/`s_theme_panel`/`s_theme_shadow`
-directly. Unrecognized settings fall back to Auto. `apply_theme()` reads
+that schedule; 1–4 pick their theme directly. Unrecognized settings fall back to Auto. `apply_theme()` reads
 the clock and re-runs this; since `update_time()` calls `apply_theme()`
 every minute, Auto's theme is re-evaluated every minute. All drawing code
 reads colors from `s_active_theme`, never hardcoded colors.
@@ -160,10 +160,14 @@ reads colors from `s_active_theme`, never hardcoded colors.
 `WatchTheme` carries ten colors. `frame` is the ASCII window border stroke,
 kept separate from `text_primary` so the panel themes can draw cyan frames
 around white text. `mark` is the accent highlight (unit letter, date
-weekday, `.beat` `@`) — Turbo Vision's `0x7E` hotkey color. It shares
-`status_yellow`'s hue in every palette, but stays a separate field so the
-two can part ways without touching call sites. `status_ink` is the text color drawn over
-a status-colored fill (the battery chip): black on the two dark themes,
+weekday, `.beat` `@`) — Turbo Vision's `0x7E` hotkey color. It hints shortkeys rather
+than shouting: the trailing unit of every reading (`C/F`, `mm`, `mph`, `k`;
+`k`), the condition word leading the weather chips, the date weekday, the
+beats `@`, the bpm heart. On a status band everything turns `status_ink`
+— a hint under its own fill reads as mud. The field stays separate from
+`status_yellow` so the two can part ways — the dialog already does: its
+marks take the bright 0x7E yellow, its warnings keep the darker yellow. `status_ink` is the text color drawn over
+a status-colored fill (the battery chip): black on the three dark-ground themes,
 white on the light dialog theme.
 
 ## Rendering
@@ -185,7 +189,7 @@ platforms would require deriving these from `layer_get_bounds()`.
 
 | Key | Values | Where used |
 |-----|--------|-----------|
-| `SETTINGS_THEME` | 0 Auto, 1 Dialog, 2 Commander Panel, 3 Shadowed Panel | `determine_theme()` |
+| `SETTINGS_THEME` | 0 Auto, 1 Turbo Vision, 2 Norton, 3 Dark, 4 Navigator | `determine_theme()` |
 | `SETTINGS_UNITS` | 0 Imperial, 1 Metric | Temp formatting/colors; JS picks the API unit, and a unit change triggers an immediate re-fetch |
 | `SETTINGS_DATE_FORMAT` | 0 ISO (`1970-12-31`), 1 DOS (`31-12-1970`), 2 full text (`DEC 31st, 1970`), 3 short (per `SETTINGS_SHORT_DATE_FORMAT`) | `format_date_string()` |
 | `SETTINGS_SHORT_DATE_FORMAT` | 0 Month-Day (`12-31`), 1 Day-Month (`31-12`) | `DATA_SOURCE_SHORT_DATE` slot rendering; also the short choice (3) of `SETTINGS_DATE_FORMAT` |

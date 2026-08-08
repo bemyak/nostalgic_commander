@@ -17,16 +17,20 @@
             "value": "0"
           },
           {
-            "label": "Dialog (light grey)",
+            "label": "Turbo Vision (light grey)",
             "value": "1"
           },
           {
-            "label": "Commander Panel (EGA blue)",
+            "label": "Norton (EGA blue)",
             "value": "2"
           },
           {
-            "label": "Shadowed Panel (black)",
+            "label": "Dark (black)",
             "value": "3"
+          },
+          {
+            "label": "Navigator (dark grey)",
+            "value": "4"
           }
         ]
       },
@@ -330,6 +334,10 @@
             "value": "10"
           },
           {
+            "label": "Temperature",
+            "value": "3"
+          },
+          {
             "label": "Precipitation (next 12h max)",
             "value": "28"
           },
@@ -394,6 +402,10 @@
             "value": "10"
           },
           {
+            "label": "Temperature",
+            "value": "3"
+          },
+          {
             "label": "Precipitation (next 12h max)",
             "value": "28"
           },
@@ -456,6 +468,10 @@
           {
             "label": "Active Minutes",
             "value": "10"
+          },
+          {
+            "label": "Temperature",
+            "value": "3"
           },
           {
             "label": "Precipitation (next 12h max)",
