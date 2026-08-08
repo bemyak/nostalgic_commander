@@ -55,63 +55,84 @@ bool any_slot_needs_weather(void) {
   return false;
 }
 
+#if defined(PBL_HEALTH)
+typedef enum {
+  HEALTH_READ_RANGE_SUM,    // accessible + sum_today over [start of day, now]
+  HEALTH_READ_INSTANT_PEEK  // HR is only accessible at an instant: the
+                            // day-range form reports it unavailable and BPM
+                            // never shows
+} HealthReadMode;
+
+// One row per health metric: the slots that make its syscall worthwhile, how
+// it is read, and what stands in for no data — the divergences as data.
+typedef struct {
+  ComplicationDataSource watched[2];
+  int watched_count;
+  HealthMetric metric;
+  int* target;
+  int empty_value;
+  HealthReadMode mode;
+  int divisor;  // seconds → display unit (active minutes)
+} HealthRead;
+
+static const HealthRead s_health_reads[] = {
+    {.watched = {DATA_SOURCE_STEPS, DATA_SOURCE_STEPS_BAR},
+     .watched_count = 2,
+     .metric = HealthMetricStepCount,
+     .target = &s_step_count,
+     .empty_value = -1,
+     .mode = HEALTH_READ_RANGE_SUM,
+     .divisor = 1},
+    {.watched = {DATA_SOURCE_SLEEP},
+     .watched_count = 1,
+     .metric = HealthMetricSleepSeconds,
+     .target = &s_sleep_seconds,
+     .empty_value = -1,
+     .mode = HEALTH_READ_RANGE_SUM,
+     .divisor = 1},
+    {.watched = {DATA_SOURCE_ACTIVE_MINUTES},
+     .watched_count = 1,
+     .metric = HealthMetricActiveSeconds,
+     .target = &s_active_minutes,
+     .empty_value = 0,
+     .mode = HEALTH_READ_RANGE_SUM,
+     .divisor = 60},
+    {.watched = {DATA_SOURCE_HEART_RATE},
+     .watched_count = 1,
+     .metric = HealthMetricHeartRateBPM,
+     .target = &s_heart_rate,
+     .empty_value = 0,
+     .mode = HEALTH_READ_INSTANT_PEEK,
+     .divisor = 1},
+};
+#endif
+
 static void update_health_info() {
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
-  time_t end = time(NULL);
+  time_t now = time(NULL);
 
   // Each read is a real syscall; skip metrics nothing displays. Values fall
   // back to their sentinels so a later slot assignment never shows stale
   // data — the tick that follows the settings push refills them.
-  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_STEPS, DATA_SOURCE_STEPS_BAR}, 2)) {
-    HealthServiceAccessibilityMask step_mask =
-        health_service_metric_accessible(HealthMetricStepCount, start, end);
-    if (step_mask & HealthServiceAccessibilityMaskAvailable) {
-      s_step_count = (int)health_service_sum_today(HealthMetricStepCount);
-    } else {
-      s_step_count = -1;
+  for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
+    const HealthRead* read = &s_health_reads[i];
+    if (!any_slot_is_one_of(read->watched, read->watched_count)) {
+      *read->target = read->empty_value;
+      continue;
     }
-  } else {
-    s_step_count = -1;
-  }
-
-  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_SLEEP}, 1)) {
-    HealthServiceAccessibilityMask sleep_mask =
-        health_service_metric_accessible(HealthMetricSleepSeconds, start, end);
-    if (sleep_mask & HealthServiceAccessibilityMaskAvailable) {
-      s_sleep_seconds = (int)health_service_sum_today(HealthMetricSleepSeconds);
-    } else {
-      s_sleep_seconds = -1;
+    HealthServiceAccessibilityMask mask =
+        read->mode == HEALTH_READ_INSTANT_PEEK
+            ? health_service_metric_accessible(read->metric, now, now)
+            : health_service_metric_accessible(read->metric, start, now);
+    if (!(mask & HealthServiceAccessibilityMaskAvailable)) {
+      *read->target = read->empty_value;
+      continue;
     }
-  } else {
-    s_sleep_seconds = -1;
-  }
-
-  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_ACTIVE_MINUTES}, 1)) {
-    HealthServiceAccessibilityMask active_mask =
-        health_service_metric_accessible(HealthMetricActiveSeconds, start, end);
-    if (active_mask & HealthServiceAccessibilityMaskAvailable) {
-      s_active_minutes = (int)(health_service_sum_today(HealthMetricActiveSeconds) / 60);
-    } else {
-      s_active_minutes = 0;
-    }
-  } else {
-    s_active_minutes = 0;
-  }
-
-  // Heart rate accessibility must be checked at an instant, not over a day
-  // range — the range form reports the metric unavailable and BPM never shows.
-  if (any_slot_is_one_of((ComplicationDataSource[]){DATA_SOURCE_HEART_RATE}, 1)) {
-    HealthServiceAccessibilityMask hr_mask =
-        health_service_metric_accessible(HealthMetricHeartRateBPM, end, end);
-    if (hr_mask & HealthServiceAccessibilityMaskAvailable) {
-      HealthValue hr = health_service_peek_current_value(HealthMetricHeartRateBPM);
-      s_heart_rate = (int)hr;
-    } else {
-      s_heart_rate = 0;
-    }
-  } else {
-    s_heart_rate = 0;
+    int32_t value = read->mode == HEALTH_READ_INSTANT_PEEK
+                        ? health_service_peek_current_value(read->metric)
+                        : health_service_sum_today(read->metric);
+    *read->target = (int)(value / read->divisor);
   }
 #else
   s_step_count = -1;
@@ -154,7 +175,6 @@ void refresh_state() {
     text_layer_set_text(s_time_layer, time_str);
   }
 
-  // The date cache corresponds one-to-one with what the string shows.
   if (tick_time->tm_yday != s_fmt_yday || s_settings_date_format != s_fmt_format ||
       s_settings_short_date_format != s_fmt_short || s_settings_dow_position != s_fmt_dow) {
     format_date_string(s_settings_date_format, s_settings_short_date_format,

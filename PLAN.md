@@ -124,7 +124,7 @@ sweep over the rest. Phase estimate excludes 3.7.
 - [x] 3.1 Rename `bt_qt_split_captions` → `is_wide_slot` (wind uses it too).
 - [x] 3.2 Wind dedup: one shared assembly in `data.c` owns the 999-clamp and
       unit label; `draw_wind_complication` stops re-deriving.
-- [ ] 3.3 `update_health_info` → one loop over a local table
+- [x] 3.3 `update_health_info` → one loop over a local table
       `{watched sources, metric, target, empty_value, read_mode, divisor}`.
       `read_mode ∈ {RANGE_SUM, INSTANT_PEEK}` carries the HR instant-vs-range
       divergence as data, not a hidden special case; `divisor` carries

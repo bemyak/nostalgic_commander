@@ -2563,6 +2563,33 @@ void test_settings_persistence_is_decoupled_from_message_key_ids(void) {
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_AQI, s_complication_slots[0].source);
 }
 
+void test_health_read_table_should_pin_each_metric_mode_and_sentinel(void) {
+  const struct {
+    int* global;
+    HealthMetric metric;
+    HealthReadMode mode;
+  } want[] = {
+      {&s_step_count, HealthMetricStepCount, HEALTH_READ_RANGE_SUM},
+      {&s_sleep_seconds, HealthMetricSleepSeconds, HEALTH_READ_RANGE_SUM},
+      {&s_active_minutes, HealthMetricActiveSeconds, HEALTH_READ_RANGE_SUM},
+      {&s_heart_rate, HealthMetricHeartRateBPM, HEALTH_READ_INSTANT_PEEK},
+  };
+  const unsigned rows = sizeof(s_health_reads) / sizeof(s_health_reads[0]);
+  TEST_ASSERT_EQUAL_UINT(sizeof(want) / sizeof(want[0]), rows);
+  for (unsigned w = 0; w < sizeof(want) / sizeof(want[0]); w++) {
+    bool found = false;
+    for (unsigned j = 0; j < rows; j++) {
+      if (s_health_reads[j].target == want[w].global) {
+        TEST_ASSERT_FALSE(found);  // one row per global, no shadows
+        found = true;
+        TEST_ASSERT_EQUAL_INT(want[w].metric, s_health_reads[j].metric);
+        TEST_ASSERT_EQUAL_INT(want[w].mode, s_health_reads[j].mode);
+      }
+    }
+    TEST_ASSERT_TRUE(found);
+  }
+}
+
 void test_update_health_info_should_read_heart_rate(void) {
   // The mock reports HR inaccessible for range queries (like real firmware),
   // so this passing proves update_health_info uses an instant query.
@@ -3485,6 +3512,7 @@ int main(void) {
   RUN_TEST(test_weather_cache_without_cond_code_should_degrade_to_dashes);
   RUN_TEST(test_settings_should_round_trip_through_persistence);
   RUN_TEST(test_settings_persistence_is_decoupled_from_message_key_ids);
+  RUN_TEST(test_health_read_table_should_pin_each_metric_mode_and_sentinel);
   RUN_TEST(test_update_health_info_should_read_heart_rate);
   RUN_TEST(test_update_health_info_should_do_nothing_with_no_health_slots);
   RUN_TEST(test_update_health_info_should_read_only_displayed_metrics);
