@@ -21,8 +21,7 @@ void setUp(void) {
   s_sleep_seconds = -1;
   s_heart_rate = 0;
   // Every weather-contract reading starts at its sentinel; the messaging
-  // table owns the set, so a new field resets itself. (setUp used to leak
-  // whichever weather globals it forgot — AQI/UV/humidity among them.)
+  // table owns the set, so a new field resets itself.
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
   }

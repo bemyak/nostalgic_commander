@@ -506,7 +506,7 @@ void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, 
   if (!spec) return;
   ComplicationFormatFn format = spec->format;
   if (!format) {
-    // An unresolvable `backs` yields no data, like the old switch's default.
+    // An unresolvable `backs` reads as no data.
     const ComplicationSpec* backing = complication_spec(spec->backs);
     if (backing) format = backing->format;
   }

@@ -175,9 +175,9 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
 }
 
 // A weather request that loses the race with the phone's JS runtime is
-// dropped silently, and after Task 11 nothing on the phone side fetches on
-// its own. Bounded retry, reset on the first successful send. The outbox only
-// ever carries the weather trigger, so no message discrimination is needed.
+// dropped silently, and nothing on the phone side fetches on its own. Bounded
+// retry, reset on the first successful send. The outbox only ever carries the
+// weather trigger, so no message discrimination is needed.
 #define WEATHER_REQUEST_RETRY_MS 5000
 #define WEATHER_REQUEST_MAX_RETRIES 2
 

@@ -120,9 +120,8 @@ static bool trailing_unit_span(const char* text, int* at, int* len) {
 }
 
 // Plain rails: chips with no band of their own. The value's color still
-// shifts with get_source_color (cold temp blues, a hot high reddens — the
-// TextLayer idiom these chips used to render through), and the trailing unit
-// carries its shortkey accent.
+// shifts with get_source_color (cold temp blues, a hot high reddens), and
+// the trailing unit carries its shortkey accent.
 static void draw_shortkey_value(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   char buf[32];
   get_source_data(source, buf, sizeof(buf), NULL);
@@ -676,7 +675,7 @@ static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   GRect row = vga16_value_rect(box_rect, buf);
   GColor color = get_source_color(DATA_SOURCE_BLUETOOTH);
   if (!bt_qt_split_captions(box_rect.size.w)) {
-    // Narrow: the same centred pair the TextLayer path would have drawn.
+    // Narrow: the centred pair, both boxes tight together.
     draw_run(ctx, row, 0, buf, strlen(buf), color);
     return;
   }

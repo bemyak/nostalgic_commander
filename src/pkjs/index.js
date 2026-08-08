@@ -64,9 +64,9 @@ Pebble.addEventListener('ready', function(e) {
   }
   // Nothing fresh cached: don't fetch proactively. The watch requests on
   // launch when its own cache is stale and a weather slot exists, retries a
-  // dropped request (Step 4), and the appmessage listener always answers — the
-  // watch holds the authoritative slot state, so mirroring it here would only
-  // duplicate the request.
+  // dropped request on its side, and the appmessage listener always answers —
+  // the watch holds the authoritative slot state, so mirroring it here would
+  // only duplicate the request.
 });
 
 Pebble.addEventListener('appmessage', function(e) {
