@@ -121,15 +121,15 @@ emulator screenshot A/B pixel-identical (excluding clock digits). Comment
 cull rides each touched file (scope: Phase 0 checkbox), then one final
 sweep over the rest. Phase estimate excludes 3.7.
 
-- [ ] 3.1 Rename `bt_qt_split_captions` → `is_wide_slot` (wind uses it too).
-- [ ] 3.2 Wind dedup: one shared assembly in `data.c` owns the 999-clamp and
+- [x] 3.1 Rename `bt_qt_split_captions` → `is_wide_slot` (wind uses it too).
+- [x] 3.2 Wind dedup: one shared assembly in `data.c` owns the 999-clamp and
       unit label; `draw_wind_complication` stops re-deriving.
 - [ ] 3.3 `update_health_info` → one loop over a local table
       `{watched sources, metric, target, empty_value, read_mode, divisor}`.
       `read_mode ∈ {RANGE_SUM, INSTANT_PEEK}` carries the HR instant-vs-range
       divergence as data, not a hidden special case; `divisor` carries
       active-minutes' `/60`. Merge the two any-slot-need mechanisms.
-- [ ] 3.4 `tuple_get_int` → `messaging.c` (declaration `data.h` →
+- [x] 3.4 `tuple_get_int` → `messaging.c` (declaration `data.h` →
       `messaging.h`); `update_time` → `refresh_state`; named slot indexes
       replace hardcoded 2–4 in `quick_view_covers_slot`.
 - [ ] 3.5 Registry fold: `ComplicationSpec` gains `draw` fn + `frame` enum

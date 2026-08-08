@@ -15,7 +15,7 @@ typedef enum {
   DATA_SOURCE_AQI = 16,
   DATA_SOURCE_UV = 17,
   DATA_SOURCE_AQI_UV = 18,
-  DATA_SOURCE_BEATS = 21,  // 19 is retired (UTC_OFFSET), 20 is EMPTY
+  DATA_SOURCE_BEATS = 21,
   DATA_SOURCE_SHORT_DATE = 22,
   DATA_SOURCE_FULL_DATE = 23,
   DATA_SOURCE_STEPS_BAR = 24,
@@ -23,11 +23,12 @@ typedef enum {
   DATA_SOURCE_HUMIDITY = 26,
   DATA_SOURCE_WEATHER_FULL = 27,
   DATA_SOURCE_WEATHER_PCP = 28,
-  DATA_SOURCE_TEMP_HIGH_LOW = 30,  // 29 is retired (SUN_TIMES), see 19
+  DATA_SOURCE_TEMP_HIGH_LOW = 30,
   DATA_SOURCE_QUIET_TIME = 31,
-  DATA_SOURCE_BT_QT = 32,  // 19 and 29 are retired, 20 is EMPTY
-  DATA_SOURCE_WIND = 34,   // 33 is retired (ARROWS font test)
+  DATA_SOURCE_BT_QT = 32,
+  DATA_SOURCE_WIND = 34,
   DATA_SOURCE_HUM_PCP = 35,
+  // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES), 33 (ARROWS font test).
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -82,7 +83,7 @@ extern int s_hi_hour_today;
 extern int s_lo_hour_today;
 extern int s_hi_hour_tmrw;
 extern int s_lo_hour_tmrw;
-// Watch-local wall hour 0-23, refreshed in update_time(); drives the rollover.
+// Watch-local wall hour 0-23, refreshed in refresh_state(); drives the rollover.
 extern int s_wall_hour;
 // The HI value the slot would draw right now; the theme colors by the value on
 // display, not by which global fed it.
@@ -95,7 +96,7 @@ extern bool s_quick_view_active;
 extern int s_date_day;
 extern int s_beats;
 
-// The date as last formatted by update_time(); drawn on the canvas so the
+// The date as last formatted by refresh_state(); drawn on the canvas so the
 // weekday can carry its own color. The short form drops the year so it fits a
 // top slot, and is the value behind DATA_SOURCE_SHORT_DATE.
 extern char s_date_display[64];
@@ -116,6 +117,13 @@ extern int s_settings_disconnect_vibe;
 #define LAYOUT_W 184
 
 #define NUM_SLOTS 6
+// Slot positions double as the persisted SLOT_* identities; never reorder.
+#define SLOT_IDX_TOP_LEFT 0
+#define SLOT_IDX_TOP_RIGHT 1
+#define SLOT_IDX_BOTTOM_LEFT 2
+#define SLOT_IDX_BOTTOM_CENTER 3
+#define SLOT_IDX_BOTTOM_RIGHT 4
+#define SLOT_IDX_CENTER 5
 typedef struct {
   GRect box_rect;
   ComplicationDataSource source;
@@ -130,7 +138,7 @@ typedef void (*ComplicationFormatFn)(char* buf, int len, int* percent);
 // reading backs it (the progress bars mirror their plain counterpart — the
 // render gate's snapshot follows this too), and whether a slot showing it
 // needs the weather feed. Adding a complication starts here; recipe in
-// docs/ARCHITECTURE.md.
+// AGENTS.md.
 typedef struct {
   ComplicationDataSource source;
   const char* label;
@@ -151,6 +159,9 @@ const char* wind_direction_arrow(int deg);
 // with_unit=false and drop the unit. Either half may be absent; "--" when
 // neither exists.
 void format_wind(char* buf, size_t len, bool with_unit);
+// Speed portion alone: "N", "N m/s", or "N mph"; "" when there is no
+// reading. Owns the display clamp and the unit label for every consumer.
+void format_wind_speed(char* buf, size_t len, bool with_unit);
 // One of the four DateFormat bodies with the weekday attached per
 // `dow_position`. `short_format` only matters for DATE_FORMAT_SHORT.
 void format_date_string(int format, int short_format, int dow_position, struct tm* tick_time,
@@ -196,4 +207,3 @@ typedef enum {
 int date_dow_offset(int dow_position, const char* formatted);
 int compute_beats(time_t utc);
 void to_upper_str(char* str);
-int tuple_get_int(Tuple* tuple);

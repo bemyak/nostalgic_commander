@@ -16,6 +16,26 @@ static void persist_write_int_if_changed(uint32_t key, int32_t value) {
   }
 }
 
+// Accepts whatever width the wire used, and the strings Clay sends.
+int tuple_get_int(Tuple* tuple) {
+  if (!tuple) return 0;
+  switch (tuple->type) {
+    case TUPLE_INT:
+    case TUPLE_UINT:
+      if (tuple->length == 1)
+        return tuple->value->uint8;
+      else if (tuple->length == 2)
+        return tuple->value->uint16;
+      else if (tuple->length == 4)
+        return tuple->value->uint32;
+      return 0;
+    case TUPLE_CSTRING:
+      return atoi(tuple->value->cstring);
+    default:
+      return 0;
+  }
+}
+
 // One message-received reading: its MESSAGE_KEY_* by address (taking the
 // address of an extern is a compile-time constant, so these tables stay
 // static const even though the SDK bakes keys as extern variables), the
@@ -72,9 +92,9 @@ static const MessageField s_settings_fields[] = {
 };
 
 // The slot persist keys are deliberately not sequential (SLOT_6 landed after
-// the settings block), so the pairing is tabulated, not computed.
+// the settings block), so the pairing is tabulated, not computed. Row i pairs
+// SLOT_{i+1}'s keys; index is the slot (SLOT_IDX_*), target unused.
 static const MessageField s_slot_keys[NUM_SLOTS] = {
-    // target unused; index is the slot
     {&MESSAGE_KEY_SLOT_1, PERSIST_KEY_SLOT_1, NULL, 0},
     {&MESSAGE_KEY_SLOT_2, PERSIST_KEY_SLOT_2, NULL, 0},
     {&MESSAGE_KEY_SLOT_3, PERSIST_KEY_SLOT_3, NULL, 0},
@@ -194,8 +214,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     request_weather();
   }
 
-  // Redraw UI with new settings/weather
-  update_time();
+  refresh_state();
 }
 
 void inbox_dropped_callback(AppMessageResult reason, void* context) {

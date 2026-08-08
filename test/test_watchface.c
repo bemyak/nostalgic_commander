@@ -164,9 +164,9 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
   request_ui_redraw();
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);    // canvas recolors
   TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // no string changed
-  // The clock row is the lone TextLayer left; update_time recolors it on a
+  // The clock row is the lone TextLayer left; refresh_state recolors it on a
   // theme swap even when the time string is unchanged.
-  update_time();
+  refresh_state();
   TEST_ASSERT_TRUE(mock_set_text_color_count > 0);
 }
 
@@ -1343,10 +1343,10 @@ void test_bt_qt_window_should_split_captions_only_at_top_width(void) {
   // caption stub per checkbox (with an air cell joining the boxes) only once
   // the window is top-slot wide. The pixels are screenshot-gated; the width
   // switch is not.
-  TEST_ASSERT_FALSE(bt_qt_split_captions(62));  // Bottom Center
-  TEST_ASSERT_FALSE(bt_qt_split_captions(63));  // Bottom Left/Right
-  TEST_ASSERT_TRUE(bt_qt_split_captions(93));   // Top row
-  TEST_ASSERT_TRUE(bt_qt_split_captions(184));  // Centre row
+  TEST_ASSERT_FALSE(is_wide_slot(62));  // Bottom Center
+  TEST_ASSERT_FALSE(is_wide_slot(63));  // Bottom Left/Right
+  TEST_ASSERT_TRUE(is_wide_slot(93));   // Top row
+  TEST_ASSERT_TRUE(is_wide_slot(184));  // Centre row
 }
 
 void test_get_source_data_should_format_active_minutes(void) {
@@ -3008,46 +3008,46 @@ void test_inbox_units_change_should_trigger_weather_refetch(void) {
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
 }
 
-void test_update_time_should_never_request_weather(void) {
+void test_refresh_state_should_never_request_weather(void) {
   // Regression for the :00/:30 feedback loop: every weather reply ends in
-  // update_time(); when the fetch trigger lived there, each reply re-armed
+  // refresh_state(); when the fetch trigger lived there, each reply re-armed
   // the request until the minute flipped — 20-60 fetches, twice an hour.
   int before = mock_outbox_sends;
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
 }
 
-void test_update_time_should_refresh_the_hi_lo_phase_hour(void) {
-  // The HI/LO rollover reads this global; update_time is its only writer.
+void test_refresh_state_should_refresh_the_hi_lo_phase_hour(void) {
+  // The HI/LO rollover reads this global; refresh_state is its only writer.
   time_t now = time(NULL);
   int expected = localtime(&now)->tm_hour;
   s_wall_hour = (expected + 7) % 24;
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_INT(expected, s_wall_hour);
 }
 
-void test_update_time_should_reformat_the_date_when_settings_change(void) {
+void test_refresh_state_should_reformat_the_date_when_settings_change(void) {
   s_settings_dow_position = DOW_BEFORE;
-  update_time();  // primes the format cache for (today, these settings)
+  refresh_state();  // primes the format cache for (today, these settings)
   char with_dow[64];
   strcpy(with_dow, s_date_display);
 
   s_settings_dow_position = DOW_HIDDEN;
-  update_time();
+  refresh_state();
   TEST_ASSERT_TRUE(strcmp(with_dow, s_date_display) != 0);
 
   s_settings_dow_position = DOW_BEFORE;
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_STRING(with_dow, s_date_display);
 }
 
-void test_update_time_should_keep_date_output_when_nothing_changes(void) {
-  update_time();
+void test_refresh_state_should_keep_date_output_when_nothing_changes(void) {
+  refresh_state();
   char once[64];
   char once_short[16];
   strcpy(once, s_date_display);
   strcpy(once_short, s_short_date_display);
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_STRING(once, s_date_display);
   TEST_ASSERT_EQUAL_STRING(once_short, s_short_date_display);
 }
@@ -3303,7 +3303,7 @@ void test_update_health_info_should_fall_back_to_sentinels_without_permission(vo
 
 void test_clock_should_follow_the_12h_24h_settings(void) {
   mock_clock_24h = true;
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_INT(5, (int)strlen(mock_last_text));
   TEST_ASSERT_EQUAL_INT(':', mock_last_text[2]);
 
@@ -3315,7 +3315,7 @@ void test_clock_should_follow_the_12h_24h_settings(void) {
   int now_min = lt->tm_hour * 60 + lt->tm_min;
   int want_min = 9 * 60 + 5;
   mock_time_offset += (time_t)((want_min - now_min + 24 * 60) % (24 * 60)) * 60 - lt->tm_sec;
-  update_time();
+  refresh_state();
   TEST_ASSERT_EQUAL_INT(4, (int)strlen(mock_last_text));
   TEST_ASSERT_EQUAL_INT('9', mock_last_text[0]);
   TEST_ASSERT_EQUAL_INT(':', mock_last_text[1]);
@@ -3508,10 +3508,10 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_should_parse_and_persist_disconnect_vibe_setting);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
-  RUN_TEST(test_update_time_should_never_request_weather);
-  RUN_TEST(test_update_time_should_refresh_the_hi_lo_phase_hour);
-  RUN_TEST(test_update_time_should_reformat_the_date_when_settings_change);
-  RUN_TEST(test_update_time_should_keep_date_output_when_nothing_changes);
+  RUN_TEST(test_refresh_state_should_never_request_weather);
+  RUN_TEST(test_refresh_state_should_refresh_the_hi_lo_phase_hour);
+  RUN_TEST(test_refresh_state_should_reformat_the_date_when_settings_change);
+  RUN_TEST(test_refresh_state_should_keep_date_output_when_nothing_changes);
   RUN_TEST(test_tick_handler_should_refresh_quiet_time_state);
   RUN_TEST(test_tick_handler_should_request_weather_on_the_half_hour_edge);
   RUN_TEST(test_tick_handler_should_skip_weather_with_no_weather_slots);

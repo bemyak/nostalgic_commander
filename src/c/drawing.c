@@ -580,14 +580,13 @@ static void draw_captioned_bar(GContext* ctx, GRect rect) {
   }
 }
 
-bool bt_qt_split_captions(int width) {
+bool is_wide_slot(int width) {
   return width >= BT_QT_SPLIT_MIN_W;
 }
 
 // Two-stub frame: one caption straddling the top line per value half, each
 // ink-centred over an anchor offset (px from the box's left edge); the runs
-// before, between, and after carry the frame itself. Stub math lifted from
-// draw_captioned_bar.
+// before, between, and after carry the frame itself.
 static void draw_split_caption_window(GContext* ctx, GRect rect, const char* left, int left_cx,
                                       const char* right, int right_cx) {
   int x = rect.origin.x;
@@ -628,22 +627,15 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
 }
 
 static void draw_wind_complication(GContext* ctx, GRect box_rect) {
-  // Bottom windows drop the unit — the "↗ 12" form; top slots keep the
-  // canonical string out of format_wind. The arrow is multi-byte, so the
-  // strip is laid out cell-by-cell (the heart drawer's precedent), never by
+  // Narrow slots drop the unit — the "↗ 12" form; wide ones carry the
+  // canonical speed text. The arrow is multi-byte, so the strip is laid out
+  // cell-by-cell (the heart drawer's precedent), never by
   // strlen-centred text.
-  bool wide = bt_qt_split_captions(box_rect.size.w);
+  bool wide = is_wide_slot(box_rect.size.w);
   const char* arrow =
       s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
-  char speed[16] = "";
-  if (s_weather_wind_speed >= 0) {
-    int s = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
-    if (wide) {
-      snprintf(speed, sizeof(speed), "%d %s", s, s_settings_units == 1 ? "m/s" : "mph");
-    } else {
-      snprintf(speed, sizeof(speed), "%d", s);
-    }
-  }
+  char speed[16];
+  format_wind_speed(speed, sizeof(speed), wide);
   // Extreme wind takes the status band: severity color fill, ink flips — the
   // lone-reading convention from draw_status_field. rungs live in
   // get_source_color, so nothing here compares speeds.
@@ -680,12 +672,11 @@ static void draw_wind_complication(GContext* ctx, GRect box_rect) {
 
 static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
-  // Reads its own combined source — not the atomic Bluetooth one, or the QT
-  // half comes out empty (the rename 9→32 once left this pointing at BT).
+  // Reads its own combined source — the atomic Bluetooth row has no QT half.
   get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), NULL);
   GRect row = vga16_value_rect(box_rect, buf);
   GColor color = get_source_color(DATA_SOURCE_BLUETOOTH);
-  if (!bt_qt_split_captions(box_rect.size.w)) {
+  if (!is_wide_slot(box_rect.size.w)) {
     // Narrow: the centred pair, both boxes tight together.
     draw_run(ctx, row, 0, buf, strlen(buf), color);
     return;
@@ -806,11 +797,10 @@ static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
   }
 }
 
-// The bottom slot row (indexes 2-4, y=184 and down) is what Timeline Quick
-// View covers; while it is up these slots simply stop drawing — honest
-// occlusion, no reflow.
+// The bottom slot row is what Timeline Quick View covers; while it is up
+// these slots simply stop drawing — honest occlusion, no reflow.
 static bool quick_view_covers_slot(int index) {
-  return index >= 2 && index <= 4;
+  return index >= SLOT_IDX_BOTTOM_LEFT && index <= SLOT_IDX_BOTTOM_RIGHT;
 }
 
 void canvas_update_proc(Layer* layer, GContext* ctx) {
@@ -830,7 +820,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
     if (slot->source != DATA_SOURCE_EMPTY) {
       if (slot->source == DATA_SOURCE_WEATHER_FULL) {
         draw_captioned_bar(ctx, slot->box_rect);
-      } else if (slot->source == DATA_SOURCE_BT_QT && bt_qt_split_captions(slot->box_rect.size.w)) {
+      } else if (slot->source == DATA_SOURCE_BT_QT && is_wide_slot(slot->box_rect.size.w)) {
         // Captions centre over the 3-cell boxes at strip cells 0 and 4.
         int strip_x = slot->box_rect.origin.x +
                       (slot->box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;

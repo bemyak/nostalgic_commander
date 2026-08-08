@@ -121,7 +121,7 @@ static void update_health_info() {
 #endif
 }
 
-void update_time() {
+void refresh_state() {
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
 
@@ -175,8 +175,8 @@ void update_time() {
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   (void)units_changed;
   s_quiet_time_active = quiet_time_is_active();
-  update_time();
-  // Fetch on the tick edge only. update_time() also runs from
+  refresh_state();
+  // Fetch on the tick edge only. refresh_state() also runs from
   // inbox_received_callback; triggering there too re-armed the fetch on
   // every reply for the whole of minutes :00/:30.
   if (tick_time->tm_min % 30 == 0 && any_slot_needs_weather()) {
@@ -305,7 +305,7 @@ static void main_window_load(Window* window) {
   text_layer_set_font(s_time_layer, vga_font_64());
   layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
 
-  // Fresh layer tree: the next request_ui_redraw()/update_time() must apply
+  // Fresh layer tree: the next request_ui_redraw()/refresh_state() must apply
   // unconditionally, not match a previous layer tree's snapshot.
   reset_ui_snapshot();
   s_shown_time[0] = '\0';
@@ -324,7 +324,6 @@ static void main_window_unload(Window* window) {
 }
 
 static void init(void) {
-  // Load settings from persistent storage
   load_settings();
 
   s_vga_16 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_16));
@@ -340,7 +339,6 @@ static void init(void) {
                                             });
   window_stack_push(s_main_window, true);
 
-  // Subscriptions
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   battery_state_service_subscribe(battery_callback);
   connection_service_subscribe(
@@ -349,12 +347,12 @@ static void init(void) {
   health_service_events_subscribe(health_handler, NULL);
 #endif
 
-  // Initial states (seed connection state directly — no vibe on launch)
+  // Peek the initial states — seeding through battery_callback is fine, but
+  // handle_bluetooth on launch would buzz while the phone is merely away.
   battery_callback(battery_state_service_peek());
   s_connected = connection_service_peek_pebble_app_connection();
   s_quiet_time_active = quiet_time_is_active();
 
-  // AppMessage setup
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_sent(outbox_sent_callback);
@@ -367,7 +365,7 @@ static void init(void) {
   if (!load_weather_cache() && any_slot_needs_weather()) {
     request_weather();
   }
-  update_time();
+  refresh_state();
 }
 
 static void deinit(void) {

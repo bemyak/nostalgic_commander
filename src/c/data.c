@@ -38,7 +38,7 @@ int s_hi_hour_tmrw = -1;
 int s_lo_hour_tmrw = -1;
 
 // Clock-derived state.
-int s_wall_hour = 0;  // refreshed in update_time(); drives the HI/LO rollover
+int s_wall_hour = 0;  // refreshed in refresh_state(); drives the HI/LO rollover
 int s_date_day = 10;
 int s_beats = 0;
 char s_date_display[64] = "";
@@ -60,14 +60,16 @@ int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default)
 // 2 columns — the frame border width — so their borders coincide into a single
 // shared divider rather than stacking into a double-width one.
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
-    {.box_rect = {{LAYOUT_X, 8}, {93, 36}}, .source = DATA_SOURCE_WEATHER},  // Top Left
-    {.box_rect = {{99, 8}, {93, 36}}, .source = DATA_SOURCE_SLEEP},          // Top Right
-    {.box_rect = {{LAYOUT_X, 184}, {63, 36}}, .source = DATA_SOURCE_STEPS},  // Bottom Left
-    {.box_rect = {{69, 184}, {62, 36}}, .source = DATA_SOURCE_HEART_RATE},   // Bottom Center
-    {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH},   // Bottom Right
+    [SLOT_IDX_TOP_LEFT] = {.box_rect = {{LAYOUT_X, 8}, {93, 36}}, .source = DATA_SOURCE_WEATHER},
+    [SLOT_IDX_TOP_RIGHT] = {.box_rect = {{99, 8}, {93, 36}}, .source = DATA_SOURCE_SLEEP},
+    [SLOT_IDX_BOTTOM_LEFT] = {.box_rect = {{LAYOUT_X, 184}, {63, 36}}, .source = DATA_SOURCE_STEPS},
+    [SLOT_IDX_BOTTOM_CENTER] = {.box_rect = {{69, 184}, {62, 36}},
+                                .source = DATA_SOURCE_HEART_RATE},
+    [SLOT_IDX_BOTTOM_RIGHT] = {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH},
     // The wide centre row. Indexed last so SLOT_1..5 keep their persisted
     // positions; its own setting is SLOT_6.
-    {.box_rect = {{LAYOUT_X, 142}, {LAYOUT_W, 36}}, .source = DATA_SOURCE_FULL_DATE}};
+    [SLOT_IDX_CENTER] = {.box_rect = {{LAYOUT_X, 142}, {LAYOUT_W, 36}},
+                         .source = DATA_SOURCE_FULL_DATE}};
 
 // The face's temperature spelling, unit-aware by policy: imperial prints the
 // unit letter and signs negatives only, metric always signs and letters
@@ -134,18 +136,27 @@ const char* wind_direction_arrow(int deg) {
   return s_wind_arrows[(toward + 22) / 45 % 8];
 }
 
+void format_wind_speed(char* buf, size_t len, bool with_unit) {
+  if (s_weather_wind_speed < 0) {
+    buf[0] = '\0';
+    return;
+  }
+  int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
+  if (with_unit) {
+    snprintf(buf, len, "%d %s", speed, s_settings_units == 1 ? "m/s" : "mph");
+  } else {
+    snprintf(buf, len, "%d", speed);
+  }
+}
+
 // Canonical wind readout: arrow, air, speed, air, unit. Narrow windows drop
 // the unit (with_unit=false); the arrow alone, the number alone, and "--"
 // for nothing are all legal.
 void format_wind(char* buf, size_t len, bool with_unit) {
   const char* arrow =
       s_weather_wind_direction < 0 ? NULL : wind_direction_arrow(s_weather_wind_direction);
-  char speed_buf[16] = "";
-  if (s_weather_wind_speed >= 0) {
-    int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
-    snprintf(speed_buf, sizeof(speed_buf), "%d%s", speed,
-             with_unit ? (s_settings_units == 1 ? " m/s" : " mph") : "");
-  }
+  char speed_buf[16];
+  format_wind_speed(speed_buf, sizeof(speed_buf), with_unit);
   if (arrow && speed_buf[0]) {
     snprintf(buf, len, "%s %s", arrow, speed_buf);
   } else if (arrow || speed_buf[0]) {
@@ -493,7 +504,6 @@ static const ComplicationSpec s_complication_specs[] = {
      .format = fmt_humidity,
      .backs = DATA_SOURCE_HUMIDITY,
      .needs_weather = true},
-    // Caption tokens live in drawing.c's field table, centred per chip.
     {.source = DATA_SOURCE_WEATHER_FULL,
      .label = "",
      .format = fmt_weather_full,
@@ -566,31 +576,11 @@ int compute_beats(time_t utc) {
   return (bmt_seconds * 1000) / 86400;
 }
 
-// Helper Functions
 void to_upper_str(char* str) {
   for (int i = 0; str[i]; i++) {
     if (str[i] >= 'a' && str[i] <= 'z') {
       str[i] -= 32;
     }
-  }
-}
-
-int tuple_get_int(Tuple* tuple) {
-  if (!tuple) return 0;
-  switch (tuple->type) {
-    case TUPLE_INT:
-    case TUPLE_UINT:
-      if (tuple->length == 1)
-        return tuple->value->uint8;
-      else if (tuple->length == 2)
-        return tuple->value->uint16;
-      else if (tuple->length == 4)
-        return tuple->value->uint32;
-      return 0;
-    case TUPLE_CSTRING:
-      return atoi(tuple->value->cstring);
-    default:
-      return 0;
   }
 }
 

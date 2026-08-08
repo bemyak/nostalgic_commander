@@ -54,8 +54,9 @@ extern Layer* s_canvas_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
 
-// Width switch for the combined BT/QT window (see BT_QT_SPLIT_MIN_W).
-bool bt_qt_split_captions(int width);
+// Top-row-width slots lay composite windows out wide (split captions, units
+// kept); narrow slots get the tight form. Threshold: BT_QT_SPLIT_MIN_W.
+bool is_wide_slot(int width);
 void canvas_update_proc(Layer* layer, GContext* ctx);
 // Build a snapshot of all displayed state and schedule the one full-tree
 // render iff it differs from what the last render drew. Safe to call from

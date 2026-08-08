@@ -51,5 +51,6 @@ bool load_weather_cache(void);
 void load_settings(void);
 
 void request_weather();
+int tuple_get_int(Tuple* tuple);
 void inbox_received_callback(DictionaryIterator* iterator, void* context);
 void inbox_dropped_callback(AppMessageResult reason, void* context);
