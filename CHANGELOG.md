@@ -4,6 +4,8 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
+## [Unreleased]
+
 ## [1.4.1] - 2026-08-06
 
 ### Fixed
@@ -49,15 +51,28 @@ Quiet time, wind, and a caption grammar for two-field windows.
   (`+22C`), chip widened to fit it.
 - Rename some settings to improve readability.
 
+## [1.3.1] - 2026-08-05
+
+### Changed
+
+- **Disconnect-buzz setting reads plainly** — `On`/`Off` options, with the
+  battery-optimization warning moved to an explanatory note below the select.
+- HI/LO swap logic simplified internally; same behavior, fewer moving parts.
+
+## [1.3.0] - 2026-08-04
+
+### Added
+
+- **"Enable vibration on phone disconnect"** setting — a consent select that can
+  silence the disconnect buzz (it doubles as the dead-phone detector; the default
+  keeps it on, and "No" spells out what you'll lose).
+
 ## [1.2.0] - 2026-08-03
 
 Color policy pass: the face only speaks up when something needs attention.
 
 ### Changed
 
-- **"Enable vibration on phone disconnect"** setting — a consent select that can
-  silence the disconnect buzz (it doubles as the dead-phone detector; the default
-  keeps it on, and "No" spells out what you'll lose).
 - **High/low slot is now "next extremes"**: each cell rolls to the next day's
   value one hour after the day's own extreme passes, always ordered
   chronologically; the caption flips `HI/LO`/`LO/HI` to match the layout.
@@ -142,6 +157,11 @@ A full battery pass — the face:
 
 - Old tuiface store thumbnail — `screenshots/` covers store imagery.
 
+[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/bemyak/nostalgic_commander/compare/c205236a...v1.0.0

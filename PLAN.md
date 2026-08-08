@@ -36,16 +36,16 @@ and persist keys are stable formats; `make test` green after every step).
 
 ## Phase 0 — docs/repo de-rot (~30 min; no code risk)
 
-- [ ] AGENTS.md: `config.json` → `config.js`; enum rule reworded ("new ids =
+- [x] AGENTS.md: `config.json` → `config.js`; enum rule reworded ("new ids =
       new numbers; `DATA_SOURCE_EMPTY` is pinned at 20; never renumber");
       format-scope list matches Makefile; one commands block.
-- [ ] README.md: feature list → pointer to `config.js OPTION_LABELS`; test
+- [x] README.md: feature list → pointer to `config.js OPTION_LABELS`; test
       command is top-level `make test` only.
-- [ ] Delete `docs/ARCHITECTURE.md` (D2). Point-of-use residue:
+- [x] Delete `docs/ARCHITECTURE.md` (D2). Point-of-use residue:
       phone→watch dataflow header in `messaging.c`, theme-schedule rationale
       at `theme_for_hour`. AGENTS.md gains only the principle bullets. Slim
       CONTRIBUTING.md to deltas.
-- [ ] Duties as AGENTS.md bullets (not comments): extend the SDK mock when
+- [x] Duties as AGENTS.md bullets (not comments): extend the SDK mock when
       adding SDK calls; new glyphs need `package.json` characterRegex;
       `pebble clean` after `messageKeys` edits. (setUp duty becomes
       `data_reset()` in Phase 1.)
@@ -54,7 +54,7 @@ and persist keys are stable formats; `make test` green after every step).
       constraints (HR instant-vs-range, fill-rects-not-draw_line AA,
       cache-after-parse ordering), sentinel meanings, deliberate-acceptance
       notes that invite wrong fixes.
-- [ ] CHANGELOG.md: retro-fill 1.3.0/1.3.1, add `[Unreleased]`, fix compare
+- [x] CHANGELOG.md: retro-fill 1.3.0/1.3.1, add `[Unreleased]`, fix compare
       links. Delete `resources/icon.png~`.
 
 Verify: `make test` green; no `config.json` references outside CHANGELOG.

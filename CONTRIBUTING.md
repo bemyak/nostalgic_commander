@@ -33,9 +33,9 @@ pebble build
 pebble install --emulator emery
 ```
 
-Before opening a PR, run `make format` and make sure `make test` passes (CI
-checks both). Two things will silently corrupt saved data or collide installs
-if you get them wrong:
+Before opening a PR, make sure `make test` passes (CI runs it; it includes
+the format check). Two things will silently corrupt saved data or collide
+installs if you get them wrong:
 
 - Don't renumber `ComplicationDataSource` values or reuse a `PERSIST_KEY_*`
   constant — both are on-disk identifiers.
@@ -44,18 +44,20 @@ if you get them wrong:
 
 ## Conventions
 
-- State lives in `s_`-prefixed globals declared in `data.h`, defined in
-  `data.c`. There's no accessor layer — that's idiomatic for Pebble C.
-- "No data" sentinels: `-1` (steps, sleep, AQI, UV), `-999` (temperature),
-  `0` (heart rate). Formatters render these as `--`.
+- State globals are `s_`-prefixed; most live in `data.c` (declared in
+  `data.h`), with `theme.c` owning `s_active_theme` and `main.c` owning the
+  window/layer handles. No accessor layer — that's idiomatic for Pebble C.
+- "No data" sentinels vary by type and are declared where they're consumed:
+  the weather wire fields in `messaging.c`'s field table, the rest beside
+  their definitions in `data.c`. Formatters render them as `--`.
 - Never hardcode colors in drawing code; read them from `s_active_theme`.
-- State changes call `request_ui_redraw()` and mark the canvas dirty
-  rather than drawing directly.
-- Layout constants are hardcoded for emery (200×228), the only current target
+- State changes call `request_ui_redraw()`; the canvas redraws only when
+  displayed state actually changed.
+- Layout constants are hardcoded for emery (200×228), the only target
   platform.
 - Tests `#include` the C sources directly (with `TEST_ENV` defined) so static
   functions are reachable. Add tests to `test/test_watchface.c` and register
   them with `RUN_TEST(...)`.
 
-The [README](README.md#philosophy) covers the project's values, and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is a full tour of how it works.
+The [README](README.md#philosophy) covers the project's values;
+[AGENTS.md](AGENTS.md) holds the hard rules and the module map.

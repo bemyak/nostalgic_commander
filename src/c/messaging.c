@@ -3,6 +3,13 @@
 #include "data.h"
 #include "main.h"
 
+// Data flow, phone → watch: the watch sends a trigger AppMessage (launch
+// with a stale cache, the :00/:30 tick, a settings push that newly needs
+// weather); PKJS fetches Open-Meteo (forecast and AQI, joined) and replies
+// with one dictionary; inbox_received_callback lands values in data.c
+// globals, persists the weather cache (30-minute TTL), and redraws. Settings
+// from the Clay page travel the same path and persist as PERSIST_KEY_SETTINGS_*.
+
 static void persist_write_int_if_changed(uint32_t key, int32_t value) {
   if (!persist_exists(key) || persist_read_int(key) != value) {
     persist_write_int(key, value);

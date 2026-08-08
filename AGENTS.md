@@ -38,6 +38,11 @@ the change is wrong.
 - **Utility over approachability.** When the two conflict, pick the version
   that's more useful to a committed user, even if it's less friendly at first
   glance.
+- **Phone fetches and reduces; watch interprets and presents.** Values sent
+  in the watch's configured units are the phone executing watch settings, not
+  phone presentation. Wire vocabulary is API-native (WMO codes), never
+  display strings. Bandwidth-forced reduction (AppMessage is small) stays
+  phone-side.
 
 ## Build, run, test
 
@@ -45,39 +50,36 @@ The Pebble CLI lives in the project-local virtualenv:
 
 ```sh
 source pebble-env/bin/activate
-pebble build                          # build for all targetPlatforms
-pebble install --emulator emery       # run on the emery emulator
-pebble install --phone <ip>           # install to a paired phone
+pebble build            # build for all targetPlatforms
+pebble install --emulator emery
+pebble install --phone <ip>
+make test               # format check + host unit tests, no SDK needed
+make format             # apply clang-format to C and JS sources
 ```
 
 The README screenshot (`screenshot_current.png`) is a real capture, not a
-mockup — regenerate it whenever the face's appearance changes:
-
-```sh
-pebble install --emulator emery       # get the current build running
-pebble screenshot --emulator emery screenshot_current.png
-```
-
-(`--phone <ip>` works in place of `--emulator emery` to capture from real
-hardware, which is what the README should ideally show.)
-
-Unit tests run on the host — no SDK or emulator needed:
-
-```sh
-make test            # format check + unit tests (top-level Makefile)
-make format          # apply clang-format to C and JS sources
-```
+mockup — regenerate it whenever the face's appearance changes with
+`pebble screenshot --emulator emery screenshot_current.png` (`--phone <ip>`
+captures from real hardware, which is what the README should ideally show).
 
 Formatting is enforced: `.clang-format` at the repo root, applied to `src/c/`,
-`src/pkjs/index.js`, and the test sources (not the unity submodule). CI
-(`.github/workflows/ci.yml`) runs the format check and the test suite on every
-push and PR. Run `make test` after any change to `src/c/`. The emulator has no real health
-data (steps/sleep/HR) and no phone weather unless the JS side runs, so logic
-verification happens in the unit tests, visual verification in the emulator.
+`src/pkjs/*.js`, and the hand-written test sources in `test/` (not the unity
+submodule). CI (`.github/workflows/ci.yml`) runs the format check and the
+test suite on every push and PR. Run `make test` after any change to `src/c/`.
+The emulator has no real health data (steps/sleep/HR) and no phone weather
+unless the JS side runs, so logic verification happens in the unit tests,
+visual verification in the emulator.
+
+When extending:
+- Adding an SDK call? Extend `test/pebble_mock.c` to match.
+- New glyph? Add it to the font's `characterRegex` in `package.json` or it
+  won't render.
+- After `messageKeys` edits, `pebble clean` — a stale `message_keys.auto.h`
+  survives incremental builds.
 
 ## Architecture
 
-Full tour: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The short version:
+The module map:
 
 | Path | Role |
 |------|------|
@@ -88,7 +90,7 @@ Full tour: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The short version:
 | `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, slot refresh |
 | `src/c/messaging.c`/`.h` | AppMessage: weather requests, inbox parsing, persistence |
 | `src/pkjs/index.js` | Phone side: Clay config, geolocation, Open-Meteo fetches |
-| `src/pkjs/config.json` | Clay settings page definition |
+| `src/pkjs/config.js` | Clay settings page, as code (pinned by `test/pkjs/config.test.js`) |
 | `test/` | Unity-based host tests with a hand-written Pebble SDK mock |
 
 Data flows phone → watch over AppMessage: the watch sends a trigger message,
@@ -105,9 +107,9 @@ agent-written code too — follow them.
 ## Hard rules
 
 - **`ComplicationDataSource` enum values are stable identifiers.** They are
-  persisted and referenced as string values in `src/pkjs/config.json`. Append
-  new sources before `DATA_SOURCE_EMPTY` only by adding new numbers; never
-  renumber.
+  persisted and referenced as option values in `src/pkjs/config.js`.
+  `DATA_SOURCE_EMPTY` is pinned at 20 (declared last in the enum); new
+  sources get new numbers anywhere; never renumber or reuse.
 - **Persistence keys are a stable on-disk format.** Settings and the weather
   cache are stored under the hand-assigned `PERSIST_KEY_*` constants in
   `src/c/messaging.h`, deliberately decoupled from the auto-numbered
@@ -119,10 +121,10 @@ agent-written code too — follow them.
 
 ## Adding a complication (once approved)
 
-The step-by-step recipe is in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#adding-a-new-complication-source):
-enum value → label/data/color cases → Clay options → (if phone-sourced)
-message key + JS fetch + inbox parsing → unit tests.
+enum value in `data.h` → spec row in `s_complication_specs[]` →
+`get_source_color` case if it needs color logic → Clay options in
+`config.js` → (if phone-sourced) `package.json` message key + `weather.js`
+field row + `messaging.c` table row → unit tests.
 
 ## Project tracking
 

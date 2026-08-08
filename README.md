@@ -33,23 +33,17 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   of date formats (`1970-12-31`, `31-12-1970`, `DEC 31st, 1970`, or the
   year-less short form), and the weekday before, after, or hidden.
 - **Six complication slots** (two wide on top, three below, one wide in the
-  middle) you can fill from: weather (condition + temperature), temperature
-  alone (bottom slots only), humidity,
-  precipitation probability (peak over the next 12 hours; shows the live
-  rate in mm while it actually rains, metric only), the day's
-  high/low temperatures (rolling to tomorrow's as each extreme passes),
-  steps, sleep, heart rate, active minutes, Bluetooth
-  status, air quality (US AQI), UV index (the peak over the next 12 hours —
-  what's coming, not what already happened), a combined AQI/UV view, a short
-  date (`THU 12-31`, top slots only), or .beat (Swatch Internet Time) — or
-  leave empty.
+  middle), each filled from the curated complication set or left empty. The
+  set is maintained in one place — `OPTION_LABELS` in `src/pkjs/config.js` —
+  so the settings page and this file can't drift apart.
 - **The middle slot** holds the date, a full-weather strip (condition,
   current temp, humidity and precipitation as captioned status chips), or a
   DOS progress bar for steps or battery — `█` blocks against a `░` track,
   with the percentage after it.
 - **Four DOS/EGA themes, Norton by default.** Auto cycles three of them on
   8-hour shifts, brightest to darkest as the day goes on: Turbo Vision (the
-  dialog box, black frames, blue captions, black text on light grey) 06:00–14:00,
+  dialog box, dark grey frames and captions, black text on light
+  grey) 06:00–14:00,
   Norton (Commander panel, cyan frames, white entries over
   EGA blue) 14:00–22:00, Dark (the same panel dimmed to grey
   chrome on black, the way Turbo Vision faked it) 22:00–06:00. Navigator
@@ -114,13 +108,11 @@ pebble install --phone <ip>           # install to a paired phone
 Run the unit tests (host-only, no SDK needed):
 
 ```sh
-cd test && make test
+make test
 ```
 
 ## Development
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how it all works: data flow,
-  modules, the complication system, theming, testing
 - [AGENTS.md](AGENTS.md) / [CONTRIBUTING.md](CONTRIBUTING.md) — upstream's
   notes for agents and contributors; conventions here also apply
 - [ISSUES.md](ISSUES.md) — known bugs · [TODOs.md](TODOs.md) — planned work ·
