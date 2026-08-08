@@ -64,7 +64,8 @@ This document explains how the pieces fit together.
 |------|------|
 | `main.c` | App lifecycle: window setup, service subscriptions (tick, battery, bluetooth, health), settings load from persistent storage. |
 | `data.c` / `data.h` | Single source of truth for state: sensor/weather caches, settings, the `ComplicationDataSource` enum, slot definitions, and the formatting functions. |
-| `theme.c` / `theme.h` | `WatchTheme` color palettes, theme selection from `SETTINGS_THEME` and the hour (Auto mode), and per-source color logic (battery level, temperature bands, AQI/UV thresholds). |
+| `theme.c` / `theme.h` | `WatchTheme` color palettes and theme selection from `SETTINGS_THEME` and the hour (Auto mode). |
+| `status.c` / `status.h` | Severity policy, the only picker of status colors: which reading earns a band right now (battery ladder, temperature bands, AQI/UV rungs, Beaufort wind, WMO rain rates). Chips, bars, and bands all ask `get_source_color()`, so one reading never wears two colors. |
 | `drawing.c` / `drawing.h` | All custom rendering: the ASCII window frames, the per-source value painters, and `request_ui_redraw()`, the snapshot-diffing render gate. |
 | `messaging.c` / `messaging.h` | AppMessage in/out: weather requests, inbox parsing, settings persistence. |
 | `main.h` | Exposes `update_time()` so messaging can trigger a full refresh. |
@@ -98,7 +99,7 @@ per-module dispatches:
   through `backs`: the two progress bars mirror their plain counterpart,
   which is also how the render gate snapshots them. `needs_weather` feeds
   every fetch gate (tick cadence, launch, settings change).
-- `get_source_color()` (`theme.c`) — the value's color on color displays
+- `get_source_color()` (`status.c`) — the value's color on color displays
   (e.g. battery yellow/red, green on the charger, AQI/UV bands).
 - `canvas_drawer()` (`drawing.c`) — the value painter; NULL for EMPTY or
   unrecognized sources (nothing drawn).
@@ -132,7 +133,7 @@ There are two placement types:
    values stable — they are persisted and used in `config.json`).
 2. Add a row to `s_complication_specs[]` in `data.c` (label, formatter,
    backing source, `needs_weather`). Add a `get_source_color()` case in
-   `theme.c` if it needs color logic, and a drawer plus `canvas_drawer()`
+   `status.c` if it needs color logic, and a drawer plus `canvas_drawer()`
    case in `drawing.c` if a plain centered text run doesn't fit.
 3. Add the option (label + numeric value as a string) to the relevant `SLOT_*`
    selects in `src/pkjs/config.json`. Top slots are wider — wide formats like

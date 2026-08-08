@@ -1,6 +1,5 @@
 #include <pebble.h>
 #include "data.h"
-#include "theme.h"
 
 // All state lives here, sectioned. Everything is extern'd via data.h; tests
 // reset to these initials (the weather block via the messaging table).

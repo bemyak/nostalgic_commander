@@ -1,6 +1,7 @@
 #include <pebble.h>
 #include "drawing.h"
 #include "data.h"
+#include "status.h"
 #include "theme.h"
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {

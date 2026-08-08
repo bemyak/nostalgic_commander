@@ -24,7 +24,8 @@ extern const WatchTheme s_theme_shadow;     // the same panel, in shadow
 extern const WatchTheme s_theme_dialog;     // the Turbo Vision dialog box
 extern const WatchTheme s_theme_navigator;  // DOS Navigator's default screen
 
-// Setting 0 is Auto, which picks by the hour; 1-3 pin one theme.
+// Setting 0 is Auto, which picks by the hour; 1-4 pin one theme.
 const WatchTheme* determine_theme(int theme_setting, int current_hour);
 void apply_theme(struct tm* tick_time);
-GColor get_source_color(ComplicationDataSource source);
+
+// Which reading earns which status color lives over in status.c/h.

@@ -83,7 +83,8 @@ Full tour: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The short version:
 |------|------|
 | `src/c/main.c` | Lifecycle: window, layers, service subscriptions, settings load |
 | `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, formatters |
-| `src/c/theme.c`/`.h` | DOS/EGA palettes, theme selection, per-source colors |
+| `src/c/theme.c`/`.h` | DOS/EGA palettes, theme selection |
+| `src/c/status.c`/`.h` | Per-source severity policy (`get_source_color`), sole picker of status colors |
 | `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, slot refresh |
 | `src/c/messaging.c`/`.h` | AppMessage: weather requests, inbox parsing, persistence |
 | `src/pkjs/index.js` | Phone side: Clay config, geolocation, Open-Meteo fetches |
