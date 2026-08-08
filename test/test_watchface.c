@@ -828,6 +828,15 @@ void test_registry_rows_should_be_unique_and_resolve(void) {
     TEST_ASSERT_NOT_NULL(backing);
     ComplicationFormatFn format = row->format ? row->format : backing->format;
     if (row->source != DATA_SOURCE_EMPTY) TEST_ASSERT_NOT_NULL(format);
+    TEST_ASSERT_GREATER_OR_EQUAL(FRAME_PLAIN, row->frame);
+    TEST_ASSERT_LESS_OR_EQUAL(FRAME_HUM_PCP, row->frame);
+    // EMPTY is the one source allowed to draw nothing at all. Everything
+    // else resolves a drawer directly off the row.
+    if (row->source == DATA_SOURCE_EMPTY) {
+      TEST_ASSERT_NULL(row->draw);
+    } else {
+      TEST_ASSERT_NOT_NULL(row->draw);
+    }
   }
 }
 
@@ -1671,7 +1680,7 @@ void test_get_source_data_should_format_pcp(void) {
   int percent = -1;
 
   // The unit accent needs canvas rendering; a text layer could not draw it
-  TEST_ASSERT_NOT_NULL(canvas_drawer(DATA_SOURCE_WEATHER_PCP));
+  TEST_ASSERT_NOT_NULL(complication_spec(DATA_SOURCE_WEATHER_PCP)->draw);
 
   s_weather_pcp = -1;
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
@@ -3355,8 +3364,8 @@ void test_empty_and_unknown_sources_should_draw_nothing(void) {
   get_source_data((ComplicationDataSource)42, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("", buf);
 
-  TEST_ASSERT_NULL(canvas_drawer(DATA_SOURCE_EMPTY));
-  TEST_ASSERT_NULL(canvas_drawer((ComplicationDataSource)42));
+  TEST_ASSERT_NULL(complication_spec(DATA_SOURCE_EMPTY)->draw);
+  TEST_ASSERT_NULL(complication_spec((ComplicationDataSource)42));
 
   // Canvas level: a vacated bottom-left draws neither frame title nor value —
   // no text run may land inside its rect.
@@ -3373,6 +3382,27 @@ void test_empty_and_unknown_sources_should_draw_nothing(void) {
                   b.origin.y + b.size.h <= vacated.origin.y + vacated.size.h;
     TEST_ASSERT_FALSE(inside);
   }
+}
+
+void test_unknown_source_should_render_only_the_placeholder_frame(void) {
+  // A persisted id this build doesn't know (downgrade, retired slot) still
+  // gets its frame titled "???" — and nothing else: no value runs land in
+  // its rect.
+  test_apply_theme();
+  s_complication_slots[2].source = (ComplicationDataSource)42;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  GRect box = s_complication_slots[2].box_rect;
+  int overlapping = 0;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    GRect b = mock_text_run_boxes[i];
+    bool touches = b.origin.x < box.origin.x + box.size.w && b.origin.x + b.size.w > box.origin.x &&
+                   b.origin.y < box.origin.y + box.size.h && b.origin.y + b.size.h > box.origin.y;
+    if (!touches) continue;
+    TEST_ASSERT_EQUAL_STRING("???", mock_text_runs[i]);
+    overlapping++;
+  }
+  TEST_ASSERT_EQUAL_INT(1, overlapping);
 }
 
 void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
@@ -3560,6 +3590,7 @@ int main(void) {
   RUN_TEST(test_update_health_info_should_fall_back_to_sentinels_without_permission);
   RUN_TEST(test_clock_should_follow_the_12h_24h_settings);
   RUN_TEST(test_empty_and_unknown_sources_should_draw_nothing);
+  RUN_TEST(test_unknown_source_should_render_only_the_placeholder_frame);
   RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
   return UNITY_END();
 }

@@ -74,9 +74,10 @@ static GRect status_band_rect(GRect box_rect) {
 //            none; draw_status_field / draw_banded_value — a severity band
 //            behind the text; draw_progress_bar — goal fill plus reading;
 //            draw_hinted_half — one side of a two-field chip
-// The per-source drawers below compose these. canvas_drawer() maps source to
-// drawer; canvas_update_proc() paints frames, captions, then values through
-// it; request_ui_redraw() at the bottom is the change gate.
+// The per-source drawers below compose these; the registry's draw/frame
+// fields in data.c pick among them. canvas_update_proc() paints frames,
+// captions, then values; request_ui_redraw() at the bottom is the change
+// gate.
 // -------------------------------------------------------------------------
 
 // Draws `len` characters of `text` starting `cell` glyph cells into `row`.
@@ -151,43 +152,43 @@ static void draw_plain_value(GContext* ctx, GRect box_rect, ComplicationDataSour
   draw_run(ctx, vga16_value_rect(box_rect, buf), 0, buf, strlen(buf), get_source_color(source));
 }
 
-static void draw_cond_complication(GContext* ctx, GRect box_rect) {
+void draw_cond_complication(GContext* ctx, GRect box_rect) {
   draw_plain_value(ctx, box_rect, DATA_SOURCE_WEATHER_COND);
 }
 
-static void draw_day_complication(GContext* ctx, GRect box_rect) {
+void draw_day_complication(GContext* ctx, GRect box_rect) {
   draw_plain_value(ctx, box_rect, DATA_SOURCE_DATE);
 }
 
-static void draw_bluetooth_complication(GContext* ctx, GRect box_rect) {
+void draw_bluetooth_complication(GContext* ctx, GRect box_rect) {
   draw_plain_value(ctx, box_rect, DATA_SOURCE_BLUETOOTH);
 }
 
-static void draw_quiet_time_complication(GContext* ctx, GRect box_rect) {
+void draw_quiet_time_complication(GContext* ctx, GRect box_rect) {
   draw_plain_value(ctx, box_rect, DATA_SOURCE_QUIET_TIME);
 }
 
-static void draw_steps_complication(GContext* ctx, GRect box_rect) {
+void draw_steps_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_STEPS);
 }
 
-static void draw_sleep_complication(GContext* ctx, GRect box_rect) {
+void draw_sleep_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_SLEEP);
 }
 
-static void draw_active_complication(GContext* ctx, GRect box_rect) {
+void draw_active_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_ACTIVE_MINUTES);
 }
 
-static void draw_humidity_complication(GContext* ctx, GRect box_rect) {
+void draw_humidity_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_HUMIDITY);
 }
 
-static void draw_high_low_complication(GContext* ctx, GRect box_rect) {
+void draw_high_low_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_TEMP_HIGH_LOW);
 }
 
-static void draw_weather_complication(GContext* ctx, GRect box_rect) {
+void draw_weather_complication(GContext* ctx, GRect box_rect) {
   // The condition word leads, the temperature's unit trails — both wear the
   // theme mark, the value between stays primary. A missing reading stays
   // quiet on the ground.
@@ -207,7 +208,7 @@ static void draw_weather_complication(GContext* ctx, GRect box_rect) {
   draw_run(ctx, row, unit_at, buf + unit_at, total - unit_at, s_active_theme->mark);
 }
 
-static void draw_weather_temp_complication(GContext* ctx, GRect box_rect) {
+void draw_weather_temp_complication(GContext* ctx, GRect box_rect) {
   draw_shortkey_value(ctx, box_rect, DATA_SOURCE_WEATHER_TEMP);
 }
 
@@ -221,7 +222,7 @@ static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
                       s_active_theme->text_primary, s_active_theme->mark);
 }
 
-static void draw_full_date_complication(GContext* ctx, GRect box_rect) {
+void draw_full_date_complication(GContext* ctx, GRect box_rect) {
   draw_date_text(ctx, box_rect, s_date_display);
 }
 
@@ -294,21 +295,21 @@ static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool h
   draw_run(ctx, row, bar_cells + 1, value, strlen(value), s_active_theme->text_primary);
 }
 
-static void draw_steps_bar_complication(GContext* ctx, GRect box_rect) {
+void draw_steps_bar_complication(GContext* ctx, GRect box_rect) {
   char buf[16];
   int percent = 0;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   draw_progress_bar(ctx, box_rect, percent, s_step_count != -1, s_active_theme->text_primary);
 }
 
-static void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
+void draw_battery_bar_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   int percent = 0;
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
   draw_progress_bar(ctx, box_rect, percent, true, get_source_color(DATA_SOURCE_BATTERY_BAR));
 }
 
-static void draw_short_date_complication(GContext* ctx, GRect box_rect) {
+void draw_short_date_complication(GContext* ctx, GRect box_rect) {
   draw_date_text(ctx, box_rect, s_short_date_display);
 }
 
@@ -359,21 +360,21 @@ static bool reading_commands_attention(ComplicationDataSource source) {
 // PCP bands like any status chip (WMO rungs on amounts, planning thresholds
 // on probability); a calm reading keeps its unit's shortkey accent. Both
 // idioms ride the shared path.
-static void draw_pcp_complication(GContext* ctx, GRect box_rect) {
+void draw_pcp_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
   draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
                     get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
 
-static void draw_aqi_complication(GContext* ctx, GRect box_rect) {
+void draw_aqi_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_AQI, buf, sizeof(buf), NULL);
   draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_AQI),
                     get_source_color(DATA_SOURCE_AQI));
 }
 
-static void draw_uv_complication(GContext* ctx, GRect box_rect) {
+void draw_uv_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_UV, buf, sizeof(buf), NULL);
   draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_UV),
@@ -396,13 +397,10 @@ static void draw_hinted_half(GContext* ctx, GRect box_rect, int x, int w, const 
   draw_status_field(ctx, box_rect, x, w, text, banded, band);
 }
 
-// Both readings side by side, each banding its own half of the cell so a good
-// AQI next to a high UV reads as two fields rather than one blended color. The
-// separator sits on the ground between them.
 // Humidity and precipitation side by side, same two-field shape as
 // AQI/UV: both halves carry the quiet-state unit hint; only the PCP half
 // bands.
-static void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
+void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
   char pcp_str[8];
   const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
   const int gap_px = HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
@@ -419,7 +417,10 @@ static void draw_hum_pcp_complication(GContext* ctx, GRect box_rect) {
                    get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
 
-static void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
+// Both readings side by side, each banding its own half of the cell so a good
+// AQI next to a high UV reads as two fields rather than one blended color. The
+// separator sits on the ground between them.
+void draw_aqi_uv_complication(GContext* ctx, GRect box_rect) {
   char aqi_str[8];
   char uv_str[8];
   get_source_data(DATA_SOURCE_AQI, aqi_str, sizeof(aqi_str), NULL);
@@ -472,7 +473,7 @@ static bool strip_field_is_banded(const FullWeatherField* field) {
   return !gcolor_equal(get_source_color(field->source), s_active_theme->text_primary);
 }
 
-static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
+void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
   // Centred strip; the caption label above is the same width, also centred,
   // so its tokens land cell-for-cell on the chips drawn here.
   int x = box_rect.origin.x + (box_rect.size.w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
@@ -517,7 +518,8 @@ static void draw_weather_full_complication(GContext* ctx, GRect box_rect) {
 // The full-weather bar: a complete frame whose top line is mostly the
 // per-chip captions — corner stubs, then short continuations in the
 // inter-caption gaps, so the row reads as a window whose title is the header.
-static void draw_captioned_bar(GContext* ctx, GRect rect) {
+static void draw_captioned_bar(GContext* ctx, GRect rect, ComplicationDataSource source) {
+  (void)source;
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
@@ -626,7 +628,7 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
-static void draw_wind_complication(GContext* ctx, GRect box_rect) {
+void draw_wind_complication(GContext* ctx, GRect box_rect) {
   // Narrow slots drop the unit — the "↗ 12" form; wide ones carry the
   // canonical speed text. The arrow is multi-byte, so the strip is laid out
   // cell-by-cell (the heart drawer's precedent), never by
@@ -670,7 +672,7 @@ static void draw_wind_complication(GContext* ctx, GRect box_rect) {
   }
 }
 
-static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
+void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   // Reads its own combined source — the atomic Bluetooth row has no QT half.
   get_source_data(DATA_SOURCE_BT_QT, buf, sizeof(buf), NULL);
@@ -689,7 +691,7 @@ static void draw_bt_qt_complication(GContext* ctx, GRect box_rect) {
   draw_run(ctx, strip, 4, buf + 3, 3, color);
 }
 
-static void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
+void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_HEART_RATE, buf, sizeof(buf), NULL);
   if (s_heart_rate <= 0) {
@@ -714,7 +716,7 @@ static void draw_heart_rate_complication(GContext* ctx, GRect box_rect) {
       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
-static void draw_beats_complication(GContext* ctx, GRect box_rect) {
+void draw_beats_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
 
@@ -723,7 +725,7 @@ static void draw_beats_complication(GContext* ctx, GRect box_rect) {
                       s_active_theme->mark);
 }
 
-static void draw_battery_complication(GContext* ctx, GRect box_rect) {
+void draw_battery_complication(GContext* ctx, GRect box_rect) {
   char buf[8];
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), NULL);
 
@@ -734,67 +736,65 @@ static void draw_battery_complication(GContext* ctx, GRect box_rect) {
                     get_source_color(DATA_SOURCE_BATTERY));
 }
 
-typedef void (*ComplicationDrawFn)(GContext*, GRect);
-
-// The value painter per source — every slot value draws on the canvas. EMPTY
-// (and any unrecognized source) returns NULL and draws no value.
-static ComplicationDrawFn canvas_drawer(ComplicationDataSource source) {
-  switch (source) {
-    case DATA_SOURCE_WEATHER_COND:
-      return draw_cond_complication;
-    case DATA_SOURCE_DATE:
-      return draw_day_complication;
-    case DATA_SOURCE_BLUETOOTH:
-      return draw_bluetooth_complication;
-    case DATA_SOURCE_QUIET_TIME:
-      return draw_quiet_time_complication;
-    case DATA_SOURCE_AQI_UV:
-      return draw_aqi_uv_complication;
-    case DATA_SOURCE_WEATHER_PCP:
-      return draw_pcp_complication;
-    case DATA_SOURCE_WEATHER_FULL:
-      return draw_weather_full_complication;
-    case DATA_SOURCE_BEATS:
-      return draw_beats_complication;
-    case DATA_SOURCE_HEART_RATE:
-      return draw_heart_rate_complication;
-    case DATA_SOURCE_BT_QT:
-      return draw_bt_qt_complication;
-    case DATA_SOURCE_WIND:
-      return draw_wind_complication;
-    case DATA_SOURCE_HUM_PCP:
-      return draw_hum_pcp_complication;
-    case DATA_SOURCE_BATTERY:
-      return draw_battery_complication;
-    case DATA_SOURCE_WEATHER:
-      return draw_weather_complication;
-    case DATA_SOURCE_WEATHER_TEMP:
-      return draw_weather_temp_complication;
-    case DATA_SOURCE_AQI:
-      return draw_aqi_complication;
-    case DATA_SOURCE_UV:
-      return draw_uv_complication;
-    case DATA_SOURCE_SHORT_DATE:
-      return draw_short_date_complication;
-    case DATA_SOURCE_FULL_DATE:
-      return draw_full_date_complication;
-    case DATA_SOURCE_STEPS_BAR:
-      return draw_steps_bar_complication;
-    case DATA_SOURCE_BATTERY_BAR:
-      return draw_battery_bar_complication;
-    case DATA_SOURCE_STEPS:
-      return draw_steps_complication;
-    case DATA_SOURCE_SLEEP:
-      return draw_sleep_complication;
-    case DATA_SOURCE_ACTIVE_MINUTES:
-      return draw_active_complication;
-    case DATA_SOURCE_HUMIDITY:
-      return draw_humidity_complication;
-    case DATA_SOURCE_TEMP_HIGH_LOW:
-      return draw_high_low_complication;
-    default:
-      return NULL;
+// The frame renderer per kind; the per-source caption anchors live here, in
+// the renderer, next to the split-window primitive they feed.
+static void render_bt_qt_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
+  if (!is_wide_slot(rect.size.w)) {
+    draw_ascii_window(ctx, rect, get_source_label(source));
+    return;
   }
+  // Captions centre over the 3-cell boxes at strip cells 0 and 4.
+  int strip_x = rect.origin.x + (rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  draw_split_caption_window(ctx, rect, "BT", strip_x + 12 - rect.origin.x, "QT",
+                            strip_x + 44 - rect.origin.x);
+}
+
+// Never a plain-title window: the settings offer HI/LO for top slots only,
+// but even off-list it gets its structured frame rather than a clipped
+// title. Stubs name the current round and follow the same swap the value
+// performs.
+static void render_hi_lo_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
+  (void)source;
+  bool hi_leads = high_low_hi_leads();
+  int strip_x = rect.origin.x + (rect.size.w - HI_LO_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  draw_split_caption_window(ctx, rect, hi_leads ? "HI" : "LO", strip_x + 16 - rect.origin.x,
+                            hi_leads ? "LO" : "HI", strip_x + 56 - rect.origin.x);
+}
+
+// Two-field windows: captions centre over the fields the value drawers paint
+// below — band halves for AQI/UV, the tight strip for HUM/PCP.
+static void render_aqi_uv_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
+  (void)source;
+  GRect band = status_band_rect(rect);
+  int half = (band.size.w - VGA16_CHAR_W) / 2;
+  draw_split_caption_window(ctx, rect, "AQI", band.origin.x + half / 2 - rect.origin.x, "UV",
+                            band.origin.x + band.size.w - half / 2 - rect.origin.x);
+}
+
+static void render_hum_pcp_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
+  (void)source;
+  const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
+  int strip_px = 2 * field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
+  int left_x = (rect.size.w - strip_px) / 2;
+  draw_split_caption_window(ctx, rect, "HUM", left_x + field_px / 2, "PCP",
+                            left_x + field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W + field_px / 2);
+}
+
+typedef void (*FrameRenderFn)(GContext*, GRect, ComplicationDataSource);
+static const struct {
+  ComplicationFrame frame;
+  FrameRenderFn render;
+} s_frame_renderers[] = {
+    {FRAME_FULL_WEATHER, draw_captioned_bar}, {FRAME_BT_QT, render_bt_qt_frame},
+    {FRAME_HI_LO, render_hi_lo_frame},        {FRAME_AQI_UV, render_aqi_uv_frame},
+    {FRAME_HUM_PCP, render_hum_pcp_frame},
+};
+
+static FrameRenderFn frame_renderer(ComplicationFrame frame) {
+  for (unsigned i = 0; i < sizeof(s_frame_renderers) / sizeof(s_frame_renderers[0]); i++) {
+    if (s_frame_renderers[i].frame == frame) return s_frame_renderers[i].render;
+  }
+  return NULL;
 }
 
 // The bottom slot row is what Timeline Quick View covers; while it is up
@@ -818,49 +818,16 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
     ComplicationSlot* slot = &s_complication_slots[i];
     if (s_quick_view_active && quick_view_covers_slot(i)) continue;
     if (slot->source != DATA_SOURCE_EMPTY) {
-      if (slot->source == DATA_SOURCE_WEATHER_FULL) {
-        draw_captioned_bar(ctx, slot->box_rect);
-      } else if (slot->source == DATA_SOURCE_BT_QT && is_wide_slot(slot->box_rect.size.w)) {
-        // Captions centre over the 3-cell boxes at strip cells 0 and 4.
-        int strip_x = slot->box_rect.origin.x +
-                      (slot->box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
-        draw_split_caption_window(ctx, slot->box_rect, "BT", strip_x + 12 - slot->box_rect.origin.x,
-                                  "QT", strip_x + 44 - slot->box_rect.origin.x);
-      } else if (slot->source == DATA_SOURCE_TEMP_HIGH_LOW) {
-        // Never a plain-title window: the settings offer this source for top
-        // slots only, but even off-list it gets its structured frame rather
-        // than a clipped title. Stubs name the current round and follow the
-        // same swap the value performs.
-        bool hi_leads = high_low_hi_leads();
-        int strip_x = slot->box_rect.origin.x +
-                      (slot->box_rect.size.w - HI_LO_STRIP_CELLS * VGA16_CHAR_W) / 2;
-        draw_split_caption_window(ctx, slot->box_rect, hi_leads ? "HI" : "LO",
-                                  strip_x + 16 - slot->box_rect.origin.x, hi_leads ? "LO" : "HI",
-                                  strip_x + 56 - slot->box_rect.origin.x);
-      } else if (slot->source == DATA_SOURCE_AQI_UV || slot->source == DATA_SOURCE_HUM_PCP) {
-        // Two-field windows: captions centre over the fields the drawers
-        // paint below (band halves for AQI/UV, tight strip for HUM/PCP).
-        bool aqi_uv = slot->source == DATA_SOURCE_AQI_UV;
-        int left_cx, right_cx;
-        if (aqi_uv) {
-          GRect band = status_band_rect(slot->box_rect);
-          int half = (band.size.w - VGA16_CHAR_W) / 2;
-          left_cx = band.origin.x + half / 2 - slot->box_rect.origin.x;
-          right_cx = band.origin.x + band.size.w - half / 2 - slot->box_rect.origin.x;
-        } else {
-          const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
-          int strip_px = 2 * field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
-          int left_x = (slot->box_rect.size.w - strip_px) / 2;
-          left_cx = left_x + field_px / 2;
-          right_cx = left_x + field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W + field_px / 2;
-        }
-        draw_split_caption_window(ctx, slot->box_rect, aqi_uv ? "AQI" : "HUM", left_cx,
-                                  aqi_uv ? "UV" : "PCP", right_cx);
+      const ComplicationSpec* spec = complication_spec(slot->source);
+      FrameRenderFn frame = spec ? frame_renderer(spec->frame) : NULL;
+      if (frame) {
+        frame(ctx, slot->box_rect, slot->source);
       } else {
+        // A spec-less source (stale persisted id) gets the "???" title frame
+        // and no value.
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }
-      ComplicationDrawFn draw = canvas_drawer(slot->source);
-      if (draw) draw(ctx, slot->box_rect);
+      if (spec && spec->draw) spec->draw(ctx, slot->box_rect);
     }
   }
 }

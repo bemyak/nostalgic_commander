@@ -132,8 +132,8 @@ sweep over the rest. Phase estimate excludes 3.7.
 - [x] 3.4 `tuple_get_int` → `messaging.c` (declaration `data.h` →
       `messaging.h`); `update_time` → `refresh_state`; named slot indexes
       replace hardcoded 2–4 in `quick_view_covers_slot`.
-- [ ] 3.5 Registry fold: `ComplicationSpec` gains `draw` fn + `frame` enum
-      (`PLAIN`, `SPLIT_AQI_UV`, `SPLIT_HUM_PCP`, `FULL_WEATHER`, `HI_LO`,
+- [x] 3.5 Registry fold: `ComplicationSpec` gains `draw` fn + `frame` enum
+      (`FRAME_PLAIN`, `FRAME_AQI_UV`, `FRAME_HUM_PCP`, `FRAME_FULL_WEATHER`, `FRAME_HI_LO`,
       `BT_QT`). Named boundary crossing: the ~26 static drawers are exported
       through `drawing.h` so the table in `data.c` can reference them
       (vtable idiom; rejected alternative — parallel draw-table in drawing.c

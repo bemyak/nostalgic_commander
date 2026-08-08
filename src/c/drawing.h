@@ -54,6 +54,36 @@ extern Layer* s_canvas_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
 
+// Value painters, one per complication source. These exist to populate
+// ComplicationSpec.draw — not general API; the canvas reaches them through
+// the registry.
+void draw_battery_complication(GContext* ctx, GRect box_rect);
+void draw_battery_bar_complication(GContext* ctx, GRect box_rect);
+void draw_steps_complication(GContext* ctx, GRect box_rect);
+void draw_steps_bar_complication(GContext* ctx, GRect box_rect);
+void draw_sleep_complication(GContext* ctx, GRect box_rect);
+void draw_active_complication(GContext* ctx, GRect box_rect);
+void draw_heart_rate_complication(GContext* ctx, GRect box_rect);
+void draw_weather_complication(GContext* ctx, GRect box_rect);
+void draw_weather_temp_complication(GContext* ctx, GRect box_rect);
+void draw_weather_full_complication(GContext* ctx, GRect box_rect);
+void draw_cond_complication(GContext* ctx, GRect box_rect);
+void draw_pcp_complication(GContext* ctx, GRect box_rect);
+void draw_humidity_complication(GContext* ctx, GRect box_rect);
+void draw_hum_pcp_complication(GContext* ctx, GRect box_rect);
+void draw_aqi_complication(GContext* ctx, GRect box_rect);
+void draw_uv_complication(GContext* ctx, GRect box_rect);
+void draw_aqi_uv_complication(GContext* ctx, GRect box_rect);
+void draw_wind_complication(GContext* ctx, GRect box_rect);
+void draw_high_low_complication(GContext* ctx, GRect box_rect);
+void draw_beats_complication(GContext* ctx, GRect box_rect);
+void draw_day_complication(GContext* ctx, GRect box_rect);
+void draw_short_date_complication(GContext* ctx, GRect box_rect);
+void draw_full_date_complication(GContext* ctx, GRect box_rect);
+void draw_bluetooth_complication(GContext* ctx, GRect box_rect);
+void draw_bt_qt_complication(GContext* ctx, GRect box_rect);
+void draw_quiet_time_complication(GContext* ctx, GRect box_rect);
+
 // Top-row-width slots lay composite windows out wide (split captions, units
 // kept); narrow slots get the tight form. Threshold: BT_QT_SPLIT_MIN_W.
 bool is_wide_slot(int width);
