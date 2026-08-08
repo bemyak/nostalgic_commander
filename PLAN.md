@@ -94,20 +94,20 @@ ordinal → confirm red → revert.
 
 ## Phase 2 — condition code on the wire (~2–3 h)
 
-- [ ] `WEATHER_COND` cstring → raw WMO `weather_code` int. `WMO_COND` table
+- [x] `WEATHER_COND` cstring → raw WMO `weather_code` int. `WMO_COND` table
       moves `weather.js` → `data.c`, one row per range with both facets:
       display word + is-precipitating.
-- [ ] `weather_shows_precip_amount()` becomes a table lookup; strcmp of
+- [x] `weather_shows_precip_amount()` becomes a table lookup; strcmp of
       display words dies. Drizzle `<1mm` behavior preserved exactly.
-- [ ] Unknown/absent code → `--` (was invented `CLD`). Sole intentional
+- [x] Unknown/absent code → `--` (was invented `CLD`). Sole intentional
       behavior change.
-- [ ] Persist: `PERSIST_KEY_WEATHER_COND` (1001, string) retired (1007-1008
+- [x] Persist: `PERSIST_KEY_WEATHER_COND` (1001, string) retired (1007-1008
       precedent); `PERSIST_KEY_WEATHER_COND_CODE` added at the next free id.
       Old caches lack the key → existing optional-field load path degrades to
       `--` until next fetch; no version key needed.
-- [ ] `inbox_received_callback`: pair-gate works with cond-as-int; cond joins
+- [x] `inbox_received_callback`: pair-gate works with cond-as-int; cond joins
       `s_weather_fields`, its special-case `continue` dies.
-- [ ] Stays phone-side: units conversion, dual unit ladders in `status.c`,
+- [x] Stays phone-side: units conversion, dual unit ladders in `status.c`,
       `units_changed` refetch, extremes/UV/PCP reduction, precip mm×10.
 
 Verify: JS suite (code passthrough, no WMO table); C tests per code family

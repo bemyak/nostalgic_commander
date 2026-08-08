@@ -6,7 +6,9 @@
 // `messageKeys` array in package.json can never scramble saved data. Treat
 // these numbers as a stable on-disk format: never reuse or renumber them.
 #define PERSIST_KEY_WEATHER_TEMP 1000
-#define PERSIST_KEY_WEATHER_COND 1001
+// 1001 is retired (WEATHER_COND as a display string) — written to some
+// watches already, never reused. The code form lives at
+// PERSIST_KEY_WEATHER_COND_CODE.
 #define PERSIST_KEY_WEATHER_AQI 1002
 #define PERSIST_KEY_WEATHER_UV 1003
 #define PERSIST_KEY_WEATHER_TIMESTAMP 1004
@@ -27,6 +29,7 @@
 #define PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW 1028
 #define PERSIST_KEY_WEATHER_WIND_DIRECTION 1030
 #define PERSIST_KEY_WEATHER_WIND_SPEED 1031
+#define PERSIST_KEY_WEATHER_COND_CODE 1032
 
 #define PERSIST_KEY_SETTINGS_THEME 1010
 #define PERSIST_KEY_SETTINGS_UNITS 1011

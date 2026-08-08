@@ -12,7 +12,7 @@ var UV_WINDOW_HOURS = 12;
 // from the second (air-quality) response, not the forecast JSON.
 var WEATHER_FIELDS = [
   {key: 'WEATHER_TEMP', sentinel: -999},
-  {key: 'WEATHER_COND', sentinel: '--'},
+  {key: 'WEATHER_COND', sentinel: -1},  // raw WMO weather code
   {key: 'WEATHER_AQI', sentinel: -1},
   {key: 'WEATHER_UV', sentinel: -1},
   {key: 'WEATHER_HUMIDITY', sentinel: -1},
@@ -51,28 +51,6 @@ function isCompleteWeatherPayload(payload) {
 // here instead of becoming a bogus reading.)
 function num(value) { return typeof value === 'number' && isFinite(value) ? value : undefined; }
 
-// WMO weather codes → the face's condition words. First matching range wins;
-// anything unmapped (including a missing code) reads CLD.
-var WMO_COND = [
-  [0, 0, 'SUN'],
-  [1, 3, 'CLD'],
-  [45, 48, 'FOG'],
-  [51, 55, 'RAIN'],
-  [61, 65, 'RAIN'],
-  [80, 82, 'RAIN'],
-  [71, 77, 'SNOW'],
-  [85, 86, 'SNOW'],
-  [95, 99, 'TSTM'],
-];
-
-function wmoCondition(code) {
-  if (num(code) === undefined) return 'CLD';
-  for (var i = 0; i < WMO_COND.length; i++) {
-    if (code >= WMO_COND[i][0] && code <= WMO_COND[i][1]) return WMO_COND[i][2];
-  }
-  return 'CLD';
-}
-
 // Parse one Open-Meteo forecast response into a complete payload: every
 // WEATHER_FIELDS key present, unparsable values at their sentinel. `nowMs`
 // pins "now" for the UV/PCP window (tests pass a fixed instant).
@@ -82,7 +60,9 @@ function parseForecast(json, nowMs) {
 
   var v = num(current.temperature_2m);
   if (v !== undefined) out.WEATHER_TEMP = Math.round(v);
-  out.WEATHER_COND = wmoCondition(current.weather_code);
+  // The raw WMO code; the watch owns the word and precipitating facets.
+  v = num(current.weather_code);
+  if (v !== undefined) out.WEATHER_COND = Math.round(v);
   v = num(current.relative_humidity_2m);
   if (v !== undefined) out.WEATHER_HUMIDITY = Math.round(v);
   // Meteo FROM bearing, whole degrees; the watch flips it to the direction
@@ -187,7 +167,6 @@ module.exports = {
   UV_WINDOW_HOURS : UV_WINDOW_HOURS,
   sentinelPayload : sentinelPayload,
   isCompleteWeatherPayload : isCompleteWeatherPayload,
-  wmoCondition : wmoCondition,
   parseForecast : parseForecast,
   parseAqi : parseAqi,
 };

@@ -6,6 +6,12 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Weather wire contract**: the condition now travels as the raw WMO weather
+  code and the watch maps codes to its display words itself; a code outside
+  the known ranges shows `--` instead of an invented `CLD`.
+
 ## [1.4.1] - 2026-08-06
 
 ### Fixed

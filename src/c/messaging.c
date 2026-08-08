@@ -16,18 +16,6 @@ static void persist_write_int_if_changed(uint32_t key, int32_t value) {
   }
 }
 
-static void persist_write_string_if_changed(uint32_t key, const char* value) {
-  if (!persist_exists(key)) {
-    persist_write_string(key, value);
-    return;
-  }
-  char current[16];
-  persist_read_string(key, current, sizeof(current));
-  if (strcmp(current, value) != 0) {
-    persist_write_string(key, value);
-  }
-}
-
 // One message-received reading: its MESSAGE_KEY_* by address (taking the
 // address of an extern is a compile-time constant, so these tables stay
 // static const even though the SDK bakes keys as extern variables), the
@@ -47,6 +35,7 @@ typedef struct {
 // drifting apart.
 static const MessageField s_weather_fields[] = {
     {&MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, -999},
+    {&MESSAGE_KEY_WEATHER_COND, PERSIST_KEY_WEATHER_COND_CODE, &s_weather_cond_code, -1},
     {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1},
     {&MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, -1},
     {&MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY, &s_weather_humidity, -1},
@@ -98,7 +87,6 @@ void save_weather_cache(void) {
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     persist_write_int_if_changed(s_weather_fields[i].persist_key, *s_weather_fields[i].target);
   }
-  persist_write_string_if_changed(PERSIST_KEY_WEATHER_COND, s_weather_cond);
   // Always: the timestamp is the freshness marker; skipping it would age the
   // cache and cost a network fetch on next launch.
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
@@ -117,9 +105,6 @@ bool load_weather_cache(void) {
     if (persist_exists(s_weather_fields[i].persist_key)) {
       *s_weather_fields[i].target = persist_read_int(s_weather_fields[i].persist_key);
     }
-  }
-  if (persist_exists(PERSIST_KEY_WEATHER_COND)) {
-    persist_read_string(PERSIST_KEY_WEATHER_COND, s_weather_cond, sizeof(s_weather_cond));
   }
   return true;
 }
@@ -149,13 +134,13 @@ void request_weather() {
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   (void)context;
   // WEATHER_TEMP + WEATHER_COND together mark a real weather payload: a
-  // settings-only message must not refresh the cache timestamp, so the temp
-  // is parsed with the condition word and both stay out of the generic walk.
+  // settings-only message must not refresh the cache timestamp. Temp alone
+  // lands here (the walk below skips it); cond rides the table like every
+  // other reading.
   Tuple* temp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP);
   Tuple* cond_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_COND);
   if (temp_tuple && cond_tuple) {
     s_weather_temp = temp_tuple->value->int32;
-    snprintf(s_weather_cond, sizeof(s_weather_cond), "%s", cond_tuple->value->cstring);
   }
 
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {

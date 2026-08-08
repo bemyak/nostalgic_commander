@@ -56,7 +56,6 @@ static void reset_all_state(void) {
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
   }
-  strcpy(s_weather_cond, "--");
 
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_date_day = 10;
@@ -499,7 +498,7 @@ void test_weather_strip_should_draw_the_condition_in_mark(void) {
   // never banded — it carries no thresholds to encode.
   s_complication_slots[5].source = DATA_SOURCE_WEATHER_FULL;
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   s_weather_humidity = 55;
   s_weather_pcp = 10;
   mock_text_runs_reset();
@@ -541,7 +540,7 @@ void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
   // the theme mark, the value between stays primary. NC menus hint the
   // shortkey; there is no one-accent-per-chip budget.
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "CLD");
+  s_weather_cond_code = 1;
   mock_text_runs_reset();
   canvas_update_proc(NULL, NULL);
   GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "CLD 72F");
@@ -551,7 +550,7 @@ void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
 
   // No reading: the sentinel stays quiet on the ground.
   s_weather_temp = -999;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   mock_text_runs_reset();
   canvas_update_proc(NULL, NULL);
   GRect dash_row = vga16_value_rect(s_complication_slots[0].box_rect, "-- --");
@@ -683,7 +682,7 @@ void test_weather_strip_should_hint_quiet_units(void) {
   // The same rail under the strip: TMP's unit letter, HUM's "%".
   s_complication_slots[5].source = DATA_SOURCE_WEATHER_FULL;
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   s_weather_humidity = 55;
   s_weather_pcp = 10;
   mock_text_runs_reset();
@@ -715,7 +714,7 @@ void test_pcp_chip_should_band_by_wmo_intensity_and_keep_accent_when_calm(void) 
   // bands like the strip's and the accent would drown on the fill, so it goes.
   s_complication_slots[3].source = DATA_SOURCE_WEATHER_PCP;
   s_settings_units = 1;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   GRect band = status_band_rect(s_complication_slots[3].box_rect);
 
   s_precip_now = 30;  // 3 mm: light
@@ -916,32 +915,32 @@ void test_get_source_data_should_format_weather(void) {
 
   // No data
   s_weather_temp = -999;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   // Imperial: no sign on positives (signed F is noise; negatives are rare)
   s_settings_units = 0;
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("SUN 72F", buf);
 
   // Metric: always signed
   s_settings_units = 1;
   s_weather_temp = 22;
-  strcpy(s_weather_cond, "CLD");
+  s_weather_cond_code = 1;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("CLD +22C", buf);
 
   // Widest realistic forms still fit the 11-cell top-slot budget
   s_weather_temp = -22;
-  strcpy(s_weather_cond, "TSTM");
+  s_weather_cond_code = 95;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("TSTM -22C", buf);
   s_settings_units = 0;
   s_weather_temp = 103;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("RAIN 103F", buf);
 }
@@ -999,7 +998,7 @@ void test_get_source_data_should_format_weather_temp_and_cond(void) {
   TEST_ASSERT_EQUAL_STRING("+0C", buf);
 
   // Cond
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   get_source_data(DATA_SOURCE_WEATHER_COND, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("RAIN", buf);
 }
@@ -1309,7 +1308,7 @@ void test_get_source_data_should_format_hum_pcp(void) {
   // Metric rain swaps the PCP half to the amount spelling.
   s_settings_units = 1;
   s_precip_now = 34;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   get_source_data(DATA_SOURCE_HUM_PCP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("61% 3mm", buf);
 
@@ -1552,7 +1551,7 @@ void test_get_source_data_should_format_weather_full(void) {
 
   // No data at all — every field's sentinel shows through
   s_weather_temp = -999;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   s_weather_humidity = -1;
   s_weather_pcp = -1;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), &percent);
@@ -1562,7 +1561,7 @@ void test_get_source_data_should_format_weather_full(void) {
   // A mid-fetch blip leaves one field at sentinel, the rest live
   s_settings_units = 0;
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   s_weather_humidity = -1;
   s_weather_pcp = 60;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
@@ -1577,7 +1576,7 @@ void test_get_source_data_should_format_weather_full(void) {
   // Worst-case mix (metric): comfortably inside the strip budget
   s_settings_units = 1;
   s_weather_temp = -22;
-  strcpy(s_weather_cond, "TSTM");
+  s_weather_cond_code = 95;
   s_weather_humidity = 100;
   s_weather_pcp = 100;
   get_source_data(DATA_SOURCE_WEATHER_FULL, buf, sizeof(buf), NULL);
@@ -1625,7 +1624,7 @@ void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
 
   // Neutral weather (panel theme, imperial): everything plain text
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   s_weather_humidity = -1;
   s_weather_pcp = -1;
   TEST_ASSERT_FALSE(strip_field_is_banded(cond));
@@ -1692,18 +1691,18 @@ void test_get_source_data_should_format_pcp(void) {
   // Metric and actively precipitating: the live rate replaces the guess
   s_settings_units = 1;
   s_weather_pcp = 45;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   s_precip_now = 25;  // 2.5mm over the past hour
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("2mm", buf);
   TEST_ASSERT_EQUAL_INT(0, percent);  // amount tells no progress-story
 
-  strcpy(s_weather_cond, "TSTM");
+  s_weather_cond_code = 95;
   s_precip_now = 1230;  // cloudburst clamps
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("99mm", buf);
 
-  strcpy(s_weather_cond, "SNOW");
+  s_weather_cond_code = 71;
   s_precip_now = 4;  // trace drizzle
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("<1mm", buf);
@@ -1715,13 +1714,70 @@ void test_get_source_data_should_format_pcp(void) {
 
   // Settled sky or a missing live reading falls back to probability
   s_settings_units = 1;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("45%", buf);
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   s_precip_now = -1;
   get_source_data(DATA_SOURCE_WEATHER_PCP, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("45%", buf);
+}
+
+void test_wmo_cond_should_map_words_and_the_precipitation_facet(void) {
+  // One table, both facets: the word the chips render and whether the family
+  // flips PCP to the live rate. Edges and unmapped codes are the drift risks.
+  struct {
+    int code;
+    const char* word;
+    bool precipitating;
+  } cases[] = {{0, "SUN", false},  {1, "CLD", false},  {3, "CLD", false},  {45, "FOG", false},
+               {55, "RAIN", true}, {56, "--", false},  {61, "RAIN", true}, {71, "SNOW", true},
+               {80, "RAIN", true}, {82, "RAIN", true}, {85, "SNOW", true}, {95, "TSTM", true},
+               {99, "TSTM", true}, {100, "--", false}, {-1, "--", false}};
+  for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    TEST_ASSERT_EQUAL_STRING(cases[i].word, weather_cond_word(cases[i].code));
+    TEST_ASSERT_EQUAL(cases[i].precipitating, weather_cond_precipitating(cases[i].code));
+  }
+}
+
+void test_precip_amount_mode_should_gate_on_units_family_and_data(void) {
+  s_settings_units = 1;
+  s_precip_now = 25;
+
+  s_weather_cond_code = 61;  // rain, tstm, snow: the live rate wins
+  TEST_ASSERT_TRUE(weather_shows_precip_amount());
+  s_weather_cond_code = 95;
+  TEST_ASSERT_TRUE(weather_shows_precip_amount());
+  s_weather_cond_code = 71;
+  TEST_ASSERT_TRUE(weather_shows_precip_amount());
+
+  s_weather_cond_code = 0;  // settled, fog, unmapped, missing: never
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+  s_weather_cond_code = 45;
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+  s_weather_cond_code = 100;
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+  s_weather_cond_code = -1;
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+
+  s_weather_cond_code = 61;
+  s_settings_units = 0;  // imperial never switches to the rate
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+  s_settings_units = 1;
+  s_precip_now = -1;  // and a missing live reading falls back to probability
+  TEST_ASSERT_FALSE(weather_shows_precip_amount());
+}
+
+void test_weather_cond_formatter_should_render_the_word_or_dashes(void) {
+  char buf[8];
+
+  s_weather_cond_code = 71;
+  get_source_data(DATA_SOURCE_WEATHER_COND, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("SNOW", buf);
+
+  s_weather_cond_code = -1;  // no data; an unmapped code reads the same
+  get_source_data(DATA_SOURCE_WEATHER_COND, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
 }
 
 void test_get_source_data_should_format_high_low(void) {
@@ -2058,7 +2114,7 @@ void test_get_source_color_should_return_appropriate_colors(void) {
 
   // In amount mode the bands are WMO intensities (mm over the past hour)
   s_settings_units = 1;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   s_precip_now = 20;  // 2mm light — calm
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
   s_precip_now = 50;  // 5mm heavy
@@ -2066,7 +2122,7 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_precip_now = 90;  // 9mm violent
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
   s_precip_now = -1;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   s_settings_units = 0;
 
   // High/low takes the SHARED temperature bands of the day's high; the low
@@ -2286,22 +2342,13 @@ void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
   const struct {
     int* global;
     int sentinel;
-  } want[] = {{&s_weather_temp, -999},
-              {&s_weather_aqi, -1},
-              {&s_weather_uv, -1},
-              {&s_weather_humidity, -1},
-              {&s_weather_wind_direction, -1},
-              {&s_weather_wind_speed, -1},
-              {&s_weather_pcp, -1},
-              {&s_precip_now, -1},
-              {&s_temp_high, -999},
-              {&s_temp_low, -999},
-              {&s_temp_low_tmrw, -999},
-              {&s_temp_high_tmrw, -999},
-              {&s_hi_hour_today, -1},
-              {&s_lo_hour_today, -1},
-              {&s_hi_hour_tmrw, -1},
-              {&s_lo_hour_tmrw, -1}};
+  } want[] = {
+      {&s_weather_temp, -999},     {&s_weather_cond_code, -1}, {&s_weather_aqi, -1},
+      {&s_weather_uv, -1},         {&s_weather_humidity, -1},  {&s_weather_wind_direction, -1},
+      {&s_weather_wind_speed, -1}, {&s_weather_pcp, -1},       {&s_precip_now, -1},
+      {&s_temp_high, -999},        {&s_temp_low, -999},        {&s_temp_low_tmrw, -999},
+      {&s_temp_high_tmrw, -999},   {&s_hi_hour_today, -1},     {&s_lo_hour_today, -1},
+      {&s_hi_hour_tmrw, -1},       {&s_lo_hour_tmrw, -1}};
   const unsigned rows = sizeof(s_weather_fields) / sizeof(s_weather_fields[0]);
   TEST_ASSERT_EQUAL_UINT(sizeof(want) / sizeof(want[0]), rows);
   for (unsigned w = 0; w < sizeof(want) / sizeof(want[0]); w++) {
@@ -2321,7 +2368,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   mock_persist_reset();
 
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   s_weather_aqi = 42;
   s_weather_uv = 5;
   s_weather_humidity = 55;
@@ -2340,7 +2387,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
 
   // Simulate a relaunch: globals reset to sentinels
   s_weather_temp = -999;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   s_weather_aqi = -1;
   s_weather_uv = -1;
   s_weather_humidity = -1;
@@ -2358,7 +2405,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
 
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
-  TEST_ASSERT_EQUAL_STRING("SUN", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_cond_code);
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
@@ -2414,16 +2461,16 @@ void test_weather_cache_should_reject_missing_or_stale_data(void) {
 
   // Persist, then age the timestamp past the 30-minute window
   s_weather_temp = 72;
-  strcpy(s_weather_cond, "SUN");
+  s_weather_cond_code = 0;
   save_weather_cache();
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP,
                     (int32_t)time(NULL) - (WEATHER_CACHE_MAX_AGE_S + 1));
 
   s_weather_temp = -999;
-  strcpy(s_weather_cond, "--");
+  s_weather_cond_code = -1;
   TEST_ASSERT_FALSE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(-999, s_weather_temp);
-  TEST_ASSERT_EQUAL_STRING("--", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(-1, s_weather_cond_code);
 
   // A timestamp from the future (clock change) is also rejected
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) + 3600);
@@ -2434,7 +2481,7 @@ void test_weather_cache_should_keep_values_at_edge_of_window(void) {
   mock_persist_reset();
 
   s_weather_temp = 18;
-  strcpy(s_weather_cond, "RAIN");
+  s_weather_cond_code = 61;
   s_weather_aqi = 12;
   s_weather_uv = 2;
   save_weather_cache();
@@ -2445,7 +2492,22 @@ void test_weather_cache_should_keep_values_at_edge_of_window(void) {
   s_weather_temp = -999;
   TEST_ASSERT_TRUE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(18, s_weather_temp);
-  TEST_ASSERT_EQUAL_STRING("RAIN", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(61, s_weather_cond_code);
+}
+
+void test_weather_cache_without_cond_code_should_degrade_to_dashes(void) {
+  // A cache written before the wire switch has no code key: the per-key
+  // optional load leaves the sentinel, and the word reads dashes until the
+  // next fetch.
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
+  persist_write_int(PERSIST_KEY_WEATHER_TEMP, 18);
+
+  s_weather_temp = -999;
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(18, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(-1, s_weather_cond_code);
+  TEST_ASSERT_EQUAL_STRING("--", weather_cond_word(s_weather_cond_code));
 }
 
 void test_settings_should_round_trip_through_persistence(void) {
@@ -2632,7 +2694,7 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 42);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 7);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
@@ -2644,7 +2706,7 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   inbox_received_callback(NULL, NULL);
 
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
-  TEST_ASSERT_EQUAL_STRING("SUN", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_cond_code);
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(7, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
@@ -2666,7 +2728,7 @@ void test_inbox_should_parse_and_persist_tomorrow_low(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LOW_TOMORROW, 55);
 
   inbox_received_callback(NULL, NULL);
@@ -2680,7 +2742,7 @@ void test_inbox_should_parse_and_persist_wind_direction(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 270);
 
   inbox_received_callback(NULL, NULL);
@@ -2759,7 +2821,7 @@ void test_inbox_should_parse_and_persist_wind_speed(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");  // cache save needs a real payload
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);  // cache save needs a real payload
   mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_SPEED, 23);
 
   inbox_received_callback(NULL, NULL);
@@ -2777,7 +2839,7 @@ void test_inbox_without_wind_should_leave_the_sentinel(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   s_weather_wind_direction = -1;
 
   inbox_received_callback(NULL, NULL);
@@ -2789,7 +2851,7 @@ void test_inbox_should_parse_and_persist_extreme_rollover_keys(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, 77);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 15);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, 5);
@@ -2816,7 +2878,7 @@ void test_inbox_without_extreme_timing_should_leave_the_sentinels(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   s_temp_high_tmrw = -999;
   s_hi_hour_today = -1;
   s_lo_hour_today = -1;
@@ -2838,7 +2900,7 @@ void test_inbox_without_tomorrow_low_should_leave_the_sentinel(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   s_temp_low_tmrw = -999;
 
   inbox_received_callback(NULL, NULL);
@@ -3067,7 +3129,7 @@ void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
 
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
@@ -3110,7 +3172,7 @@ void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "SUN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
   inbox_received_callback(NULL, NULL);
 
   int writes = mock_persist_write_count;
@@ -3292,7 +3354,7 @@ void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
   // so this shape is stageable; distinct values catch cross-wired rows.
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
-  mock_dict_add_cstring(MESSAGE_KEY_WEATHER_COND, "RAIN");
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 61);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 42);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 5);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 55);
@@ -3311,7 +3373,7 @@ void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
   inbox_received_callback(NULL, NULL);
 
   TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
-  TEST_ASSERT_EQUAL_STRING("RAIN", s_weather_cond);
+  TEST_ASSERT_EQUAL_INT(61, s_weather_cond_code);
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(5, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(55, s_weather_humidity);
@@ -3396,6 +3458,9 @@ int main(void) {
   RUN_TEST(test_full_weather_chips_should_fill_only_on_a_status_color);
   RUN_TEST(test_strip_temp_formatter_should_always_carry_the_unit_letter);
   RUN_TEST(test_get_source_data_should_format_pcp);
+  RUN_TEST(test_wmo_cond_should_map_words_and_the_precipitation_facet);
+  RUN_TEST(test_precip_amount_mode_should_gate_on_units_family_and_data);
+  RUN_TEST(test_weather_cond_formatter_should_render_the_word_or_dashes);
   RUN_TEST(test_get_source_data_should_format_high_low);
   RUN_TEST(test_high_low_cells_should_roll_when_their_extreme_hour_ends);
   RUN_TEST(test_high_low_cells_should_stay_chronological_on_inversion_days);
@@ -3417,6 +3482,7 @@ int main(void) {
   RUN_TEST(test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);
+  RUN_TEST(test_weather_cache_without_cond_code_should_degrade_to_dashes);
   RUN_TEST(test_settings_should_round_trip_through_persistence);
   RUN_TEST(test_settings_persistence_is_decoupled_from_message_key_ids);
   RUN_TEST(test_update_health_info_should_read_heart_rate);

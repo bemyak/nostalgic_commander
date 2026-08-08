@@ -19,8 +19,8 @@ int s_active_minutes = 0;
 
 // Weather readings — pushed by the phone; messaging.c's field table owns the
 // wire contract for every one of them (keys, persistence, sentinels).
-int s_weather_temp = -999;  // -999 indicates no data
-char s_weather_cond[16] = "--";
+int s_weather_temp = -999;          // -999 indicates no data
+int s_weather_cond_code = -1;       // WMO weather code; -1 indicates no data
 int s_weather_aqi = -1;             // -1 indicates no data
 int s_weather_uv = -1;              // -1 indicates no data
 int s_weather_humidity = -1;        // -1 indicates no data
@@ -82,10 +82,43 @@ static void format_temp(char* buf, size_t len, int temp, bool with_unit) {
   }
 }
 
+// WMO weather codes → the face's condition words, plus whether the family
+// precipitates (that facet gates the live-rate PCP readout). Ranges don't
+// overlap; anything unmapped reads "--" and counts as dry.
+typedef struct {
+  int from, to;
+  const char* word;
+  bool precipitating;
+} WmoCond;
+
+static const WmoCond s_wmo_conds[] = {
+    {0, 0, "SUN", false},   {1, 3, "CLD", false},   {45, 48, "FOG", false},
+    {51, 55, "RAIN", true}, {61, 65, "RAIN", true}, {80, 82, "RAIN", true},
+    {71, 77, "SNOW", true}, {85, 86, "SNOW", true}, {95, 99, "TSTM", true},
+};
+
+static const WmoCond* wmo_cond(int code) {
+  for (unsigned i = 0; i < sizeof(s_wmo_conds) / sizeof(s_wmo_conds[0]); i++) {
+    if (code >= s_wmo_conds[i].from && code <= s_wmo_conds[i].to) return &s_wmo_conds[i];
+  }
+  return NULL;
+}
+
+const char* weather_cond_word(int code) {
+  const WmoCond* cond = wmo_cond(code);
+  return cond ? cond->word : "--";
+}
+
+bool weather_cond_precipitating(int code) {
+  const WmoCond* cond = wmo_cond(code);
+  return cond && cond->precipitating;
+}
+
+// While precipitating and metric, the PCP readout shows the observed rate
+// instead of the forecast probability — the guess is settled.
 bool weather_shows_precip_amount(void) {
   if (s_settings_units != 1 || s_precip_now < 0) return false;
-  return strcmp(s_weather_cond, "RAIN") == 0 || strcmp(s_weather_cond, "SNOW") == 0 ||
-         strcmp(s_weather_cond, "TSTM") == 0;
+  return weather_cond_precipitating(s_weather_cond_code);
 }
 
 // The eight arrows, clockwise from north. UTF-8 for U+2190..U+2199.
@@ -222,7 +255,7 @@ static void fmt_weather_temp(char* buf, int len, int* percent) {
 
 static void fmt_weather_cond(char* buf, int len, int* percent) {
   (void)percent;
-  snprintf(buf, len, "%s", s_weather_cond);
+  snprintf(buf, len, "%s", weather_cond_word(s_weather_cond_code));
 }
 
 static void fmt_weather(char* buf, int len, int* percent) {
@@ -231,7 +264,7 @@ static void fmt_weather(char* buf, int len, int* percent) {
   // plus signed temps past the 11-cell top-slot budget.
   char t_buf[16];
   format_temp(t_buf, sizeof(t_buf), s_weather_temp, true);
-  snprintf(buf, len, "%s %s", s_weather_cond, t_buf);
+  snprintf(buf, len, "%s %s", weather_cond_word(s_weather_cond_code), t_buf);
 }
 
 static void fmt_heart_rate(char* buf, int len, int* percent) {

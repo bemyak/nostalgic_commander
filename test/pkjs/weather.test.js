@@ -58,11 +58,11 @@ test('field table declares every key once, with the contract sentinel', () => {
            of ['WEATHER_TEMP', 'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_LOW_TOMORROW',
                'WEATHER_TEMP_HIGH_TOMORROW'])
     assert.equal(sentinel[k], -999, k);
-  assert.equal(sentinel.WEATHER_COND, '--');
   for (const k
-           of ['WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP', 'WEATHER_PRECIP_NOW',
-               'WEATHER_WIND_DIRECTION', 'WEATHER_WIND_SPEED', 'WEATHER_HI_HOUR_TODAY',
-               'WEATHER_LO_HOUR_TODAY', 'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW'])
+           of ['WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP', 'WEATHER_COND',
+               'WEATHER_PRECIP_NOW', 'WEATHER_WIND_DIRECTION', 'WEATHER_WIND_SPEED',
+               'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY', 'WEATHER_HI_HOUR_TOMORROW',
+               'WEATHER_LO_HOUR_TOMORROW'])
     assert.equal(sentinel[k], -1, k);
   // The sentinel payload is complete by construction.
   assert.ok(weather.isCompleteWeatherPayload(weather.sentinelPayload()));
@@ -71,7 +71,7 @@ test('field table declares every key once, with the contract sentinel', () => {
 test('parseForecast maps and rounds the current block', () => {
   const out = weather.parseForecast(fullResponse(), NOW);
   assert.equal(out.WEATHER_TEMP, 23);
-  assert.equal(out.WEATHER_COND, 'RAIN');
+  assert.equal(out.WEATHER_COND, 61);  // the raw code; the watch maps the word
   assert.equal(out.WEATHER_HUMIDITY, 54);
   assert.equal(out.WEATHER_WIND_DIRECTION, 270);
   assert.equal(out.WEATHER_WIND_SPEED, 12);
@@ -82,9 +82,8 @@ test('parseForecast maps and rounds the current block', () => {
 test('parseForecast falls back to sentinels per field', () => {
   const out = weather.parseForecast({}, NOW);
   assert.equal(out.WEATHER_TEMP, -999);
-  // A missing weather code reads as CLD, not the sentinel — the face always
-  // shows a condition word for a parsed forecast.
-  assert.equal(out.WEATHER_COND, 'CLD');
+  // A missing weather code is the sentinel now — the face reads '--'.
+  assert.equal(out.WEATHER_COND, -1);
   assert.equal(out.WEATHER_HUMIDITY, -1);
   assert.equal(out.WEATHER_UV, -1);
   assert.equal(out.WEATHER_HIGH, -999);
@@ -134,25 +133,18 @@ test('a single-day series leaves tomorrow hours unknown', () => {
   assert.equal(out.WEATHER_HI_HOUR_TOMORROW, -1);
 });
 
-test('wmoCondition maps ranges and boundaries', () => {
-  const cases = [
-    [0, 'SUN'],
-    [3, 'CLD'],
-    [45, 'FOG'],
-    [48, 'FOG'],
-    [51, 'RAIN'],
-    [55, 'RAIN'],
-    [66, 'CLD'],
-    [71, 'SNOW'],
-    [82, 'RAIN'],
-    [86, 'SNOW'],
-    [95, 'TSTM'],
-    [99, 'TSTM'],
-  ];
-  for (const [code, word] of cases) assert.equal(weather.wmoCondition(code), word, `${code}`);
-  assert.equal(weather.wmoCondition(undefined), 'CLD');
-  assert.equal(weather.wmoCondition(NaN), 'CLD');
-  assert.equal(weather.wmoCondition(4), 'CLD');
+test('the WMO code crosses the wire untouched, rounded when fractional', () => {
+  const json = fullResponse();
+  json.current.weather_code = 61.6;
+  assert.equal(weather.parseForecast(json, NOW).WEATHER_COND, 62);
+  json.current.weather_code = 96;
+  assert.equal(weather.parseForecast(json, NOW).WEATHER_COND, 96);
+
+  // Missing, null, or non-finite codes are the sentinel, not an invented word
+  for (const junk of [undefined, null, NaN, '3']) {
+    json.current.weather_code = junk;
+    assert.equal(weather.parseForecast(json, NOW).WEATHER_COND, -1, `${junk}`);
+  }
 });
 
 test('parseAqi rounds real values and reads junk as no-data', () => {

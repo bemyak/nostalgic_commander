@@ -57,7 +57,7 @@ extern int s_active_minutes;
 
 // --- Weather readings; the wire contract is messaging.c's field table ---
 extern int s_weather_temp;
-extern char s_weather_cond[16];
+extern int s_weather_cond_code;  // WMO weather code; -1 indicates no data
 extern int s_weather_aqi;
 extern int s_weather_uv;
 extern int s_weather_humidity;
@@ -69,6 +69,10 @@ extern int s_precip_now;
 // While precipitating and metric, the PCP readout shows the observed rate
 // instead of the forecast probability — the guess is settled.
 bool weather_shows_precip_amount(void);
+// The face's word for a WMO weather code ("--" when unmapped), and whether
+// the code's family precipitates.
+const char* weather_cond_word(int code);
+bool weather_cond_precipitating(int code);
 extern int s_temp_high;
 extern int s_temp_low;
 extern int s_temp_high_tmrw;  // tomorrow's daily max; -999 indicates no data
