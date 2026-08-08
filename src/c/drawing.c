@@ -64,6 +64,20 @@ static GRect status_band_rect(GRect box_rect) {
                box_rect.size.w - 2 * inset, VGA16_CELL_H);
 }
 
+// -------------------------------------------------------------------------
+// The value row: the primitives every complication reads its pixels through.
+//   layout   vga16_value_rect / status_band_rect — where a value sits
+//   runs     draw_run / draw_accented_value / draw_shade_run — one color, or
+//            one span picked out, or a multi-byte glyph repeated
+//   idioms   draw_shortkey_value / draw_plain_value — quiet readings, hint or
+//            none; draw_status_field / draw_banded_value — a severity band
+//            behind the text; draw_progress_bar — goal fill plus reading;
+//            draw_hinted_half — one side of a two-field chip
+// The per-source drawers below compose these. canvas_drawer() maps source to
+// drawer; canvas_update_proc() paints frames, captions, then values through
+// it; request_ui_redraw() at the bottom is the change gate.
+// -------------------------------------------------------------------------
+
 // Draws `len` characters of `text` starting `cell` glyph cells into `row`.
 static void draw_run(GContext* ctx, GRect row, int cell, const char* text, int len, GColor color) {
   if (len <= 0) return;
