@@ -856,22 +856,6 @@ static UiSnapshot s_shown_ui;
 // the strings must outlive the call.
 static char s_slot_text[NUM_SLOTS][40];
 
-// The bar sources have no get_source_data case of their own — their drawers
-// read the plain counterpart (draw_steps_bar_complication passes
-// DATA_SOURCE_STEPS, draw_battery_bar_complication passes
-// DATA_SOURCE_BATTERY). Snapshotting slot->source for a bar would record
-// empty text and percent 0 forever, so a bar would never register a change.
-static ComplicationDataSource snapshot_source(ComplicationDataSource source) {
-  switch (source) {
-    case DATA_SOURCE_STEPS_BAR:
-      return DATA_SOURCE_STEPS;
-    case DATA_SOURCE_BATTERY_BAR:
-      return DATA_SOURCE_BATTERY;
-    default:
-      return source;
-  }
-}
-
 // Everything on screen is derived from slot contents and the theme: values
 // and bar fills come out of get_source_data's text and percent, bands and
 // accents out of theme colors and the thresholds it reads. A change nothing
@@ -884,11 +868,12 @@ static void build_snapshot(UiSnapshot* s) {
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
     // The label and frame follow the configured source; the value follows
-    // whatever the drawer actually reads.
+    // whatever the drawer actually reads (for the bars, through the
+    // registry's .backs chain to the plain counterpart).
     s->source[i] = slot->source;
-    get_source_data(snapshot_source(slot->source), s->text[i], sizeof(s->text[i]), &s->percent[i]);
-    s->battery_charging[i] =
-        snapshot_source(slot->source) == DATA_SOURCE_BATTERY && s_battery_charging;
+    get_source_data(slot->source, s->text[i], sizeof(s->text[i]), &s->percent[i]);
+    const ComplicationSpec* spec = complication_spec(slot->source);
+    s->battery_charging[i] = spec && spec->backs == DATA_SOURCE_BATTERY && s_battery_charging;
   }
 }
 

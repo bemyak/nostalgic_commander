@@ -111,6 +111,25 @@ typedef struct {
 
 extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 
+typedef void (*ComplicationFormatFn)(char* buf, int len, int* percent);
+
+// What a complication source *is*, one row per source in data.c's
+// s_complication_specs[]: window title, value formatter, the source whose
+// reading backs it (the progress bars mirror their plain counterpart — the
+// render gate's snapshot follows this too), and whether a slot showing it
+// needs the weather feed. Adding a complication starts here; recipe in
+// docs/ARCHITECTURE.md.
+typedef struct {
+  ComplicationDataSource source;
+  const char* label;
+  ComplicationFormatFn format;  // NULL: format through `backs` (only EMPTY
+                                // legitimately has neither)
+  ComplicationDataSource backs;
+  bool needs_weather;
+} ComplicationSpec;
+
+const ComplicationSpec* complication_spec(ComplicationDataSource source);
+
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
 // The single arrow for a wind blowing FROM `deg` (meteo bearing); the face

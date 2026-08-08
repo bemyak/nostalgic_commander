@@ -76,17 +76,25 @@ This document explains how the pieces fit together.
 ## The complication system
 
 A complication is identified by a `ComplicationDataSource` enum value
-(`data.h`). Three functions define each source's behavior:
+(`data.h`). Each source is one row in `s_complication_specs[]` (`data.c`) —
+window title, value formatter, backing source, weather-need — plus two
+per-module dispatches:
 
-- `get_source_label()` (`data.c`) — the short title drawn in the window frame
-  gap (e.g. `STEP`, `BPM`, `AQI/UV`).
-- `get_source_data()` (`data.c`) — formats the value string and optionally the
-  progress toward a goal, as a percentage. Steps are *not* clamped to 100:
-  beating a goal is worth seeing, so consumers clamp for their own needs — a
-  progress bar fills only to its end while the reading beside it keeps
-  counting, up to the three digits the value field holds.
+- `label` — the short title drawn in the window frame gap (e.g. `STEP`,
+  `BPM`); `""` for the frame-stub windows, whose titles are the split
+  captions drawn in `drawing.c` (and for EMPTY, which is never drawn).
+- `format` — formats the value string and optionally the progress toward a
+  goal, as a percentage. Steps are *not* clamped to 100: beating a goal is
+  worth seeing, so consumers clamp for their own needs — a progress bar
+  fills only to its end while the reading beside it keeps counting, up to
+  the three digits the value field holds. NULL means the source reads
+  through `backs`: the two progress bars mirror their plain counterpart,
+  which is also how the render gate snapshots them. `needs_weather` feeds
+  every fetch gate (tick cadence, launch, settings change).
 - `get_source_color()` (`theme.c`) — the value's color on color displays
   (e.g. battery yellow/red, green on the charger, AQI/UV bands).
+- `canvas_drawer()` (`drawing.c`) — the custom painter, or NULL for sources
+  the slot's generic TextLayer renders.
 
 There are two placement types:
 
@@ -121,8 +129,10 @@ There are two placement types:
 
 1. Add an enum value in `data.h` (before `DATA_SOURCE_EMPTY`, keeping numeric
    values stable — they are persisted and used in `config.json`).
-2. Add cases to `get_source_label()` and `get_source_data()` in `data.c`
-   (and `get_source_color()` in `theme.c` if it needs color logic).
+2. Add a row to `s_complication_specs[]` in `data.c` (label, formatter,
+   backing source, `needs_weather`). Add a `get_source_color()` case in
+   `theme.c` if it needs color logic, and a drawer plus `canvas_drawer()`
+   case in `drawing.c` if the generic TextLayer path doesn't fit.
 3. Add the option (label + numeric value as a string) to the relevant `SLOT_*`
    selects in `src/pkjs/config.json`. Top slots are wider — wide formats like
    combined Weather belong only there.

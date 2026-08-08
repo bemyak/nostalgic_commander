@@ -117,9 +117,10 @@ void test_render_gate_should_pass_displayed_changes_through(void) {
 }
 
 void test_render_gate_should_notice_bar_slot_changes(void) {
-  // Regression: the bar sources have no get_source_data case, so a snapshot
-  // keyed on slot->source records empty text forever and the bar freezes
-  // between minute ticks. snapshot_source() maps them to their plain source.
+  // Regression: the bar sources used to have no data of their own, so a
+  // snapshot keyed on slot->source recorded empty text forever and the bar
+  // froze between minute ticks. The registry's .backs field re-reads the
+  // plain source.
   main_window_load(NULL);
   s_complication_slots[2].source = DATA_SOURCE_STEPS_BAR;
   s_step_count = 1000;
@@ -862,6 +863,60 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("", get_source_label(DATA_SOURCE_EMPTY));
 }
 
+void test_registry_rows_should_be_unique_and_resolve(void) {
+  // One row per source, no shadowing duplicates, and every backing source
+  // resolves to a row with a real formatter. EMPTY is the one source allowed
+  // to format nothing at all.
+  const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
+  TEST_ASSERT_EQUAL_INT(27, count);  // one row per live enum value
+  for (int i = 0; i < count; i++) {
+    const ComplicationSpec* row = &s_complication_specs[i];
+    TEST_ASSERT_NOT_NULL(row->label);
+    TEST_ASSERT_EQUAL_INT(row->source, complication_spec(row->source)->source);
+    for (int j = i + 1; j < count; j++) {
+      TEST_ASSERT_NOT_EQUAL(row->source, s_complication_specs[j].source);
+    }
+    const ComplicationSpec* backing = complication_spec(row->backs);
+    TEST_ASSERT_NOT_NULL(backing);
+    ComplicationFormatFn format = row->format ? row->format : backing->format;
+    if (row->source != DATA_SOURCE_EMPTY) TEST_ASSERT_NOT_NULL(format);
+  }
+}
+
+void test_registry_should_pin_the_weather_backed_set(void) {
+  // The fetch gate reads row flags now instead of a hand-maintained list; the
+  // exact set drives the tick gate, the launch fetch, and the settings
+  // refetch, so pin it.
+  const ComplicationDataSource expected[] = {DATA_SOURCE_WEATHER,
+                                             DATA_SOURCE_WEATHER_TEMP,
+                                             DATA_SOURCE_WEATHER_COND,
+                                             DATA_SOURCE_AQI,
+                                             DATA_SOURCE_UV,
+                                             DATA_SOURCE_AQI_UV,
+                                             DATA_SOURCE_HUMIDITY,
+                                             DATA_SOURCE_WIND,
+                                             DATA_SOURCE_WEATHER_FULL,
+                                             DATA_SOURCE_WEATHER_PCP,
+                                             DATA_SOURCE_TEMP_HIGH_LOW,
+                                             DATA_SOURCE_HUM_PCP};
+  const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
+  int found = 0;
+  for (int i = 0; i < count; i++) {
+    const ComplicationSpec* row = &s_complication_specs[i];
+    bool want = false;
+    for (unsigned j = 0; j < sizeof(expected) / sizeof(expected[0]); j++) {
+      if (expected[j] == row->source) want = true;
+    }
+    if (row->needs_weather) {
+      found++;
+      TEST_ASSERT_TRUE_MESSAGE(want, "unexpected weather-backed source");
+    } else {
+      TEST_ASSERT_FALSE_MESSAGE(want, "weather-backed source lost its flag");
+    }
+  }
+  TEST_ASSERT_EQUAL_INT((int)(sizeof(expected) / sizeof(expected[0])), found);
+}
+
 void test_get_source_data_should_format_battery(void) {
   char buf[16];
   int percent = 0;
@@ -1025,12 +1080,21 @@ void test_progress_bar_sources_should_reuse_their_plain_counterparts(void) {
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_INT(82, percent);
 
+  // Bars re-read their plain counterpart through the registry's .backs chain.
+  get_source_data(DATA_SOURCE_STEPS_BAR, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("8200", buf);
+  TEST_ASSERT_EQUAL_INT(82, percent);
+
   s_step_count = -1;
   get_source_data(DATA_SOURCE_STEPS, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_INT(0, percent);
 
   s_battery_level = 45;
   get_source_data(DATA_SOURCE_BATTERY, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_INT(45, percent);
+
+  get_source_data(DATA_SOURCE_BATTERY_BAR, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("45%", buf);
   TEST_ASSERT_EQUAL_INT(45, percent);
 
   // Over-achievement reaches the bar intact, so the reading beside it can show
@@ -3195,6 +3259,8 @@ int main(void) {
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
   RUN_TEST(test_get_source_label_should_return_correct_labels);
+  RUN_TEST(test_registry_rows_should_be_unique_and_resolve);
+  RUN_TEST(test_registry_should_pin_the_weather_backed_set);
   RUN_TEST(test_get_source_data_should_format_battery);
   RUN_TEST(test_get_source_data_should_format_steps);
   RUN_TEST(test_get_source_data_should_format_weather);

@@ -34,13 +34,11 @@ static bool any_slot_is_one_of(const ComplicationDataSource* sources, int count)
 }
 
 bool any_slot_needs_weather(void) {
-  return any_slot_is_one_of(
-      (ComplicationDataSource[]){DATA_SOURCE_WEATHER, DATA_SOURCE_WEATHER_TEMP,
-                                 DATA_SOURCE_WEATHER_COND, DATA_SOURCE_AQI, DATA_SOURCE_UV,
-                                 DATA_SOURCE_AQI_UV, DATA_SOURCE_HUMIDITY, DATA_SOURCE_WIND,
-                                 DATA_SOURCE_WEATHER_FULL, DATA_SOURCE_WEATHER_PCP,
-                                 DATA_SOURCE_TEMP_HIGH_LOW, DATA_SOURCE_HUM_PCP},
-      12);
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);
+    if (spec && spec->needs_weather) return true;
+  }
+  return false;
 }
 
 static void update_health_info() {
