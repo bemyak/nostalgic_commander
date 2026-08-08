@@ -18,3 +18,5 @@ jobs:
         run: make format-check
       - name: Run unit tests
         run: make -C test test
+      - name: Run pkjs tests
+        run: node --test test/pkjs/*.test.js

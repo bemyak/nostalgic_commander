@@ -14,6 +14,8 @@ This document explains how the pieces fit together.
   ┌────────────────────────────────────────┐   ┌─────────────────────────────┐
   │ src/pkjs/index.js                      │   │ src/c/                      │
   │  - Clay settings page (config.json)    │   │  messaging.c  ← AppMessage  │
+  │  - weather.js: the field table that    │   │                             │
+  │    parses API responses into the dict  │   │                             │
   │  - Geolocation → Open-Meteo APIs       │──▶│  data.c       (cache+format)│
   │    (weather, humidity, UV, AQI)        │   │  theme.c      (colors)      │
   └────────────────────────────────────────┘   │  drawing.c    (rendering)   │
@@ -39,7 +41,10 @@ This document explains how the pieces fit together.
    swap with the layout, so the readout stays self-labelling)
    and the air-quality API (US AQI).
    The PCP complication swaps probability for that live rate while it
-   actually rains (metric only). It maps the
+   actually rains (metric only). Response parsing lives in `weather.js`:
+   one `WEATHER_FIELDS` row per value — key, sentinel, how it reads the API
+   JSON — so the reply dictionary, the parse fallbacks, and the
+   cache-completeness check are all projections of that table. It maps the
    WMO weather code to a short condition string (`SUN`, `CLD`, `FOG`, `RAIN`,
    `SNOW`, `TSTM`) and sends everything back in one dictionary. On startup
    the phone also replays its freshest cached payload — and if that payload
@@ -130,10 +135,13 @@ There are two placement types:
 3. Add the option (label + numeric value as a string) to the relevant `SLOT_*`
    selects in `src/pkjs/config.json`. Top slots are wider — wide formats like
    combined Weather belong only there.
-4. If the data comes from the phone, add a message key in `package.json`,
-   populate it in `index.js`, and parse it in `inbox_received_callback()`.
-5. Add unit tests in `test/test_watchface.c` (formatting, colors, edge cases —
-   see AGENTS.md's exhaustive-testing directive).
+4. If the data comes from the phone, add a message key in `package.json`, a
+   `WEATHER_FIELDS` row plus its parse code in `src/pkjs/weather.js`, and a
+   row in messaging.c's weather table (the inbox parse, cache save, and cache
+   load all walk it).
+5. Add unit tests in `test/test_watchface.c` (formatting, colors, edge cases
+   — see AGENTS.md's exhaustive-testing directive) and in
+   `test/pkjs/weather.test.js` for the phone-side contract.
 
 ## Theming
 
@@ -213,8 +221,11 @@ keys are hand-assigned and independent of `messageKeys` ordering.
 Unit tests live in `test/` and run on the host (no emulator needed):
 
 ```sh
-cd test && make test
+make test            # format check, C suite, and the pkjs suite
 ```
+
+- `test/pkjs/weather.test.js` pins the phone-side weather contract (field
+  table, sentinels, response parsing) with plain `node --test`.
 
 - `test_watchface.c` `#include`s the C source files directly (so static
   functions are testable) with `TEST_ENV` defined, which compiles out the real
