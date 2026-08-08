@@ -48,9 +48,9 @@
 #define HUM_PCP_FIELD_CELLS 3
 #define HUM_PCP_GAP_CELLS 2
 
-extern Window* s_main_window;
+// The canvas main.c creates and everything draws on; request_ui_redraw()
+// marks it dirty. s_main_window and the clock layer live over in main.h.
 extern Layer* s_canvas_layer;
-extern TextLayer* s_time_layer;
 
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title);
 

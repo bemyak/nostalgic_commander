@@ -2,7 +2,6 @@
 #include "messaging.h"
 #include "data.h"
 #include "main.h"
-#include "drawing.h"
 
 static void persist_write_int_if_changed(uint32_t key, int32_t value) {
   if (!persist_exists(key) || persist_read_int(key) != value) {

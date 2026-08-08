@@ -1,6 +1,5 @@
 #include <pebble.h>
 #include "theme.h"
-#include "drawing.h"  // For s_main_window
 
 const WatchTheme* s_active_theme = NULL;
 
@@ -87,12 +86,10 @@ const WatchTheme* determine_theme(int theme_setting, int current_hour) {
   }
 }
 
+// Palette selection only — main.c repaints the window background itself;
+// a theme module has no business touching the window.
 void apply_theme(struct tm* tick_time) {
   s_active_theme = determine_theme(s_settings_theme, tick_time->tm_hour);
-
-  if (s_main_window) {
-    window_set_background_color(s_main_window, s_active_theme->center_bg);
-  }
 }
 
 // Hot/cold bands, shared by every temperature reading (temp alone, the

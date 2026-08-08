@@ -5,6 +5,12 @@
 #include "drawing.h"
 #include "messaging.h"
 
+// The window, the canvas everything draws on, and the clock row — owned here,
+// with lifecycle. drawing.c/the drawers read the handles via drawing.h/main.h.
+Window* s_main_window = NULL;
+Layer* s_canvas_layer = NULL;
+TextLayer* s_time_layer = NULL;
+
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
 static GFont s_vga_16;
 static GFont s_vga_64;
@@ -117,8 +123,9 @@ void update_time() {
   apply_theme(tick_time);
 
   // The theme can change while the face is open (Auto crossing 06:00/14:00/22:00,
-  // or a settings push); the time layer keeps its load-time color unless
-  // re-applied here. The date is canvas-drawn, so it follows on redraw.
+  // or a settings push); the window and time layer keep their load-time colors
+  // unless re-applied here. Everything else is canvas-drawn and follows on redraw.
+  if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
   s_beats = compute_beats(temp);
@@ -315,6 +322,7 @@ static void init(void) {
   s_main_window = window_create();
   time_t now = time(NULL);
   apply_theme(localtime(&now));
+  window_set_background_color(s_main_window, s_active_theme->center_bg);
   window_set_window_handlers(s_main_window, (WindowHandlers){
                                                 .load = main_window_load,
                                                 .unload = main_window_unload,

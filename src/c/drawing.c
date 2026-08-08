@@ -3,10 +3,6 @@
 #include "data.h"
 #include "theme.h"
 
-Window* s_main_window = NULL;
-Layer* s_canvas_layer = NULL;
-TextLayer* s_time_layer = NULL;
-
 void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
   int x = rect.origin.x;
   int y = rect.origin.y;
