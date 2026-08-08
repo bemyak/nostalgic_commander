@@ -1,5 +1,5 @@
 var Clay = require('@rebble/clay');
-var clayConfig = require('./config.json');
+var clayConfig = require('./config.js');
 var clay = new Clay(clayConfig);
 
 var weather = require('./weather.js');
