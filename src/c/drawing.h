@@ -14,6 +14,9 @@
 #define VGA16_CHAR_W 8
 #define VGA16_CELL_H 16
 
+// The same font baked at size 64: cells are 64px tall. Feeds the clock layer.
+#define VGA64_CELL_H 64
+
 // Where a value sits inside its window, measured from the box origin. Shared
 // by every slot's canvas value run; the big clock row is the lone TextLayer
 // left.

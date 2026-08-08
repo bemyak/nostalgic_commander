@@ -7,13 +7,12 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   build` runs on every change (mock-vs-SDK drift now caught by tests — the
   mock matches SDK linkage), and full-face emulator screenshot pairs were
   AE-clean across the 2026-08-08 refactor stack (TextLayer removal included).
-  Still open, needs a phone: weather logs showing exactly one fetch per
-  request, launch-race (exactly one fetch per relaunch with a stale cache),
-  and a Task-7 bar-fill look with the centre slot set to a progress bar
-  (interactive config, can't be scripted headless).
-  Also open, needs real rain: the metric precip-amount readout (`Xmm` while
-  precipitating) after the WMO-code wire change — host tests pin the
-  precip-mode switch per code family, the pixel look is unverified.
+  Still open: weather logs showing exactly one fetch per request, and the
+  launch-race (exactly one fetch per relaunch with a stale cache). Note:
+  health/battery/BT/time injection IS scriptable via `pebble emu-steps`,
+  `emu-sleep`, `emu-heart-rate`, `emu-set-time`, `emu-bt-connection` — only
+  the Clay config page needs a phone (`emu-app-config` shows but can't
+  submit). Weather payloads may be injectable via `pebble send-app-message`.
 - [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
   health reads and weather fetches are slot-gated, event-driven renders are
   snapshot-gated, persistence writes are compare-before-write, bar fills

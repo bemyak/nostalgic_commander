@@ -1,5 +1,6 @@
 #pragma once
 #include <pebble.h>
+#include "layout.h"
 
 typedef enum {
   DATA_SOURCE_BATTERY = 0,
@@ -109,12 +110,8 @@ extern int s_settings_short_date_format;
 extern int s_settings_dow_position;
 extern int s_settings_disconnect_vibe;
 
-// Every frame spans these columns: an 8px margin on each edge, matching the
-// vertical margins. 184 is 23 whole character cells, so the frame lines up with
-// the font's 8px column grid. Lives here because the slot table below has to
-// tile within it.
-#define LAYOUT_X 8
-#define LAYOUT_W 184
+// Face geometry (margins, slot rects, TIME window, clock layer) lives in
+// layout.h.
 
 #define NUM_SLOTS 6
 // Slot positions double as the persisted SLOT_* identities; never reorder.

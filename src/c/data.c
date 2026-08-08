@@ -57,19 +57,14 @@ int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default), 0 = silenced
 
-// Each row tiles LAYOUT_X..LAYOUT_X+LAYOUT_W-1, with neighbours overlapping by
-// 2 columns — the frame border width — so their borders coincide into a single
-// shared divider rather than stacking into a double-width one.
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
-    [SLOT_IDX_TOP_LEFT] = {.box_rect = {{LAYOUT_X, 8}, {93, 36}}, .source = DATA_SOURCE_WEATHER},
-    [SLOT_IDX_TOP_RIGHT] = {.box_rect = {{99, 8}, {93, 36}}, .source = DATA_SOURCE_SLEEP},
-    [SLOT_IDX_BOTTOM_LEFT] = {.box_rect = {{LAYOUT_X, 184}, {63, 36}}, .source = DATA_SOURCE_STEPS},
-    [SLOT_IDX_BOTTOM_CENTER] = {.box_rect = {{69, 184}, {62, 36}},
+    [SLOT_IDX_TOP_LEFT] = {.box_rect = SLOT_RECT_TOP_LEFT, .source = DATA_SOURCE_WEATHER},
+    [SLOT_IDX_TOP_RIGHT] = {.box_rect = SLOT_RECT_TOP_RIGHT, .source = DATA_SOURCE_SLEEP},
+    [SLOT_IDX_BOTTOM_LEFT] = {.box_rect = SLOT_RECT_BOTTOM_LEFT, .source = DATA_SOURCE_STEPS},
+    [SLOT_IDX_BOTTOM_CENTER] = {.box_rect = SLOT_RECT_BOTTOM_CENTER,
                                 .source = DATA_SOURCE_HEART_RATE},
-    [SLOT_IDX_BOTTOM_RIGHT] = {.box_rect = {{129, 184}, {63, 36}}, .source = DATA_SOURCE_BLUETOOTH},
-    // The wide centre row.
-    [SLOT_IDX_CENTER] = {.box_rect = {{LAYOUT_X, 142}, {LAYOUT_W, 36}},
-                         .source = DATA_SOURCE_FULL_DATE}};
+    [SLOT_IDX_BOTTOM_RIGHT] = {.box_rect = SLOT_RECT_BOTTOM_RIGHT, .source = DATA_SOURCE_BLUETOOTH},
+    [SLOT_IDX_CENTER] = {.box_rect = SLOT_RECT_CENTER, .source = DATA_SOURCE_FULL_DATE}};
 
 // The face's temperature spelling, unit-aware by policy: imperial prints the
 // unit letter and signs negatives only, metric always signs and letters

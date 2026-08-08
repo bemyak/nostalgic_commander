@@ -811,7 +811,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
 
   // TIME is fixed; the centre row is the sixth slot, so the loop below draws
   // its frame and title from whatever source it holds.
-  draw_ascii_window(ctx, GRect(LAYOUT_X, 50, LAYOUT_W, 86), "TIME");
+  draw_ascii_window(ctx, TIME_WINDOW_RECT, "TIME");
 
   // Draw parameterized ASCII windows
   for (int i = 0; i < NUM_SLOTS; i++) {

@@ -318,7 +318,7 @@ static void main_window_load(Window* window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  s_time_layer = text_layer_create(GRect(LAYOUT_X + 4, 49, LAYOUT_W - 8, 64));
+  s_time_layer = text_layer_create(CLOCK_RECT);
   text_layer_set_background_color(s_time_layer, GColorClear);
   text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);

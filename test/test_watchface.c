@@ -1127,6 +1127,17 @@ void test_centre_slot_should_be_the_sixth_and_default_to_the_date(void) {
   TEST_ASSERT_EQUAL_INT(LAYOUT_W, s_complication_slots[5].box_rect.size.w);
 }
 
+void test_clock_layer_should_stay_inside_the_time_window(void) {
+  // The 1px up-overlap is deliberate (optical centring); the bottom must
+  // clear the window's bottom border, the sides stay within the margins.
+  TEST_ASSERT_EQUAL_INT(TIME_WINDOW_Y - 1, CLOCK_RECT.origin.y);
+  TEST_ASSERT_EQUAL_INT(VGA64_CELL_H, CLOCK_RECT.size.h);
+  TEST_ASSERT_GREATER_THAN(TIME_WINDOW_X, CLOCK_RECT.origin.x);
+  TEST_ASSERT_LESS_THAN(TIME_WINDOW_X + TIME_WINDOW_W, CLOCK_RECT.origin.x + CLOCK_RECT.size.w);
+  TEST_ASSERT_LESS_THAN(TIME_WINDOW_Y + TIME_WINDOW_H - WINDOW_BORDER_PX,
+                        CLOCK_RECT.origin.y + CLOCK_RECT.size.h);
+}
+
 void test_get_source_data_should_format_date_and_day(void) {
   char buf[16];
 
@@ -3517,6 +3528,7 @@ int main(void) {
   RUN_TEST(test_progress_bar_sources_should_reuse_their_plain_counterparts);
   RUN_TEST(test_battery_band_and_color_should_agree_at_every_level);
   RUN_TEST(test_centre_slot_should_be_the_sixth_and_default_to_the_date);
+  RUN_TEST(test_clock_layer_should_stay_inside_the_time_window);
   RUN_TEST(test_get_source_data_should_format_bluetooth);
   RUN_TEST(test_get_source_data_should_format_bt_qt);
   RUN_TEST(test_get_source_data_should_format_hum_pcp);
