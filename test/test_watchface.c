@@ -20,20 +20,14 @@ void setUp(void) {
   s_step_count = -1;
   s_sleep_seconds = -1;
   s_heart_rate = 0;
-  s_weather_temp = -999;
+  // Every weather-contract reading starts at its sentinel; the messaging
+  // table owns the set, so a new field resets itself. (setUp used to leak
+  // whichever weather globals it forgot — AQI/UV/humidity among them.)
+  init_message_tables();
+  for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
+    *s_weather_fields[i].target = s_weather_fields[i].sentinel;
+  }
   strcpy(s_weather_cond, "--");
-  // Leak-proofing: these weather globals used to keep whatever the previous
-  // test left in them.
-  s_temp_high = -999;
-  s_temp_low = -999;
-  s_weather_pcp = -1;
-  s_precip_now = -1;
-  s_temp_low_tmrw = -999;
-  s_temp_high_tmrw = -999;
-  s_lo_hour_today = -1;
-  s_hi_hour_today = -1;
-  s_lo_hour_tmrw = -1;
-  s_hi_hour_tmrw = -1;
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_connected = true;
   s_quiet_time_active = false;
@@ -44,8 +38,6 @@ void setUp(void) {
   // offset and the last-refresh stamp so no test inherits a window.
   mock_time_offset = 0;
   s_last_throttled_health_refresh = 0;
-  s_weather_wind_direction = -1;
-  s_weather_wind_speed = -1;
   // main_window_load() reads the theme like init() applies one first; the
   // render-gate tests load the window without going through init().
   s_active_theme = &s_theme_panel;
@@ -2278,6 +2270,46 @@ void test_short_date_should_stay_short_whatever_the_date_format(void) {
   TEST_ASSERT_EQUAL_STRING("31-12", buf);
 }
 
+void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
+  // The watch side of the contract: 16 int fields, each pointing at its
+  // data.c global with the sentinel the JS field table and the formatters'
+  // "--" fallbacks agree on. A row pointing at the wrong global or drifting
+  // sentinel fails here.
+  init_message_tables();
+  const struct {
+    int* global;
+    int sentinel;
+  } want[] = {{&s_weather_temp, -999},
+              {&s_weather_aqi, -1},
+              {&s_weather_uv, -1},
+              {&s_weather_humidity, -1},
+              {&s_weather_wind_direction, -1},
+              {&s_weather_wind_speed, -1},
+              {&s_weather_pcp, -1},
+              {&s_precip_now, -1},
+              {&s_temp_high, -999},
+              {&s_temp_low, -999},
+              {&s_temp_low_tmrw, -999},
+              {&s_temp_high_tmrw, -999},
+              {&s_hi_hour_today, -1},
+              {&s_lo_hour_today, -1},
+              {&s_hi_hour_tmrw, -1},
+              {&s_lo_hour_tmrw, -1}};
+  const unsigned rows = sizeof(s_weather_fields) / sizeof(s_weather_fields[0]);
+  TEST_ASSERT_EQUAL_UINT(sizeof(want) / sizeof(want[0]), rows);
+  for (unsigned w = 0; w < sizeof(want) / sizeof(want[0]); w++) {
+    bool found = false;
+    for (unsigned j = 0; j < rows; j++) {
+      if (s_weather_fields[j].target == want[w].global) {
+        TEST_ASSERT_FALSE(found);  // one row per global, no shadows
+        found = true;
+        TEST_ASSERT_EQUAL_INT(want[w].sentinel, s_weather_fields[j].sentinel);
+      }
+    }
+    TEST_ASSERT_TRUE(found);
+  }
+}
+
 void test_weather_cache_should_round_trip_when_fresh(void) {
   mock_persist_reset();
 
@@ -3276,6 +3308,7 @@ int main(void) {
   RUN_TEST(test_every_date_combination_should_fit_its_window);
   RUN_TEST(test_weekday_position_should_be_independent_of_the_body);
   RUN_TEST(test_short_date_should_stay_short_whatever_the_date_format);
+  RUN_TEST(test_weather_field_table_should_pin_each_global_and_sentinel);
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
   RUN_TEST(test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
