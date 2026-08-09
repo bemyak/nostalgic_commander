@@ -6,7 +6,7 @@
 // Hot/cold bands, shared by every temperature reading (temp alone, the
 // combined weather value, and the day's high) so the thresholds live once.
 static GColor temp_band_color(int temp) {
-  if (s_settings_units == 1) {
+  if (s_settings_units == UNITS_METRIC) {
     if (temp > 29) return s_active_theme->status_red;
     if (temp < 4) return s_active_theme->accent_cold;
   } else {
@@ -51,9 +51,9 @@ GColor get_source_color(ComplicationDataSource source) {
     // unit, so rungs follow it.
     case DATA_SOURCE_WIND:
       if (s_weather_wind_speed < 0) return s_active_theme->text_primary;
-      if (s_weather_wind_speed >= (s_settings_units == 1 ? 17 : 39))
+      if (s_weather_wind_speed >= (s_settings_units == UNITS_METRIC ? 17 : 39))
         return s_active_theme->status_red;
-      if (s_weather_wind_speed >= (s_settings_units == 1 ? 11 : 25))
+      if (s_weather_wind_speed >= (s_settings_units == UNITS_METRIC ? 11 : 25))
         return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:

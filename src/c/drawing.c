@@ -841,6 +841,10 @@ typedef struct {
   // Obstruction is display state: the bottom row vanishing must pass the
   // memcmp gate even when no string or fill changed.
   bool quick_view_active;
+  // The HI/LO frame's caption stubs swap sides with the lead, outside any
+  // snapshotted text — an equal-value day flips the frame alone, so the
+  // lead itself is display state (one derivation shared by all HI/LO slots).
+  bool hi_lo_hi_leads;
 } UiSnapshot;
 
 // What the last scheduled render will draw. Compared whole; build_snapshot
@@ -856,6 +860,7 @@ static void build_snapshot(UiSnapshot* s) {
   memset(s, 0, sizeof(*s));
   s->theme = s_active_theme;
   s->quick_view_active = s_quick_view_active;
+  s->hi_lo_hi_leads = high_low_hi_leads();
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
     // The label and frame follow the configured source; the value follows

@@ -110,6 +110,11 @@ extern int s_beats;
 extern char s_date_display[64];
 extern char s_short_date_display[16];
 
+// Units option values; Clay sends them as strings, messaging.c's
+// tuple_get_int parses them to ints.
+#define UNITS_IMPERIAL 0
+#define UNITS_METRIC 1
+
 extern int s_settings_theme;
 extern int s_settings_units;
 extern int s_settings_date_format;

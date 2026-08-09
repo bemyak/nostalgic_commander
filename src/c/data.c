@@ -50,7 +50,7 @@ bool s_quick_view_active = false;
 // Settings — persisted under messaging.h's PERSIST_KEY_SETTINGS_*.
 int s_settings_theme =
     2;  // 0 = Auto, 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton
-int s_settings_units = 0;              // 0 = Imperial, 1 = Metric
+int s_settings_units = 0;              // UNITS_IMPERIAL; the JS defaults scrape parses this literal
 int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
@@ -71,7 +71,7 @@ ComplicationSlot s_complication_slots[NUM_SLOTS] = {
 void format_temp(char* buf, size_t len, int temp, bool with_unit) {
   if (temp == -999) {
     snprintf(buf, len, "--");
-  } else if (s_settings_units == 1) {
+  } else if (s_settings_units == UNITS_METRIC) {
     snprintf(buf, len, with_unit ? "%+dC" : "%+d", temp);
   } else {
     snprintf(buf, len, with_unit ? "%dF" : "%d", temp);
@@ -113,7 +113,7 @@ bool weather_cond_precipitating(int code) {
 // While precipitating and metric, the PCP readout shows the observed rate
 // instead of the forecast probability — the guess is settled.
 bool weather_shows_precip_amount(void) {
-  if (s_settings_units != 1 || s_precip_now < 0) return false;
+  if (s_settings_units != UNITS_METRIC || s_precip_now < 0) return false;
   return weather_cond_precipitating(s_weather_cond_code);
 }
 
@@ -137,7 +137,7 @@ void format_wind_speed(char* buf, size_t len, bool with_unit) {
   }
   int speed = s_weather_wind_speed > 999 ? 999 : s_weather_wind_speed;
   if (with_unit) {
-    snprintf(buf, len, "%d %s", speed, s_settings_units == 1 ? "m/s" : "mph");
+    snprintf(buf, len, "%d %s", speed, s_settings_units == UNITS_METRIC ? "m/s" : "mph");
   } else {
     snprintf(buf, len, "%d", speed);
   }
@@ -206,7 +206,7 @@ void format_high_low(char* buf, size_t len) {
   bool lo_left = !high_low_hi_leads();
   int left = lo_left ? lo_val : hi_val;
   int right = lo_left ? hi_val : lo_val;
-  if (s_settings_units == 1) {
+  if (s_settings_units == UNITS_METRIC) {
     snprintf(buf, len, "%+dC %+dC", left, right);
   } else {
     snprintf(buf, len, "%dF %dF", left, right);

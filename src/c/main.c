@@ -39,7 +39,6 @@ GFont vga_font_64(void) {
 // Data Updaters
 // -----------------------------------------------------------------------------
 
-#if defined(PBL_HEALTH)
 typedef enum {
   HEALTH_READ_RANGE_SUM,    // accessible + sum_today over [start of day, now]
   HEALTH_READ_INSTANT_PEEK  // HR is only accessible at an instant: the
@@ -48,7 +47,9 @@ typedef enum {
 } HealthReadMode;
 
 // One row per health metric: how it is read and what stands in for no data
-// — the divergences as data. A metric is read while any visible slot's spec
+// — the divergences as data, and the sole runtime definition of the
+// sentinels: every update pass starts from these empty values, health
+// hardware or not. A metric is read while any visible slot's spec
 // attributes it (complication.c's .health_metric); the watchful source list
 // is the registry's, not this table's.
 typedef struct {
@@ -81,9 +82,17 @@ static const HealthRead s_health_reads[] = {
      .mode = HEALTH_READ_INSTANT_PEEK,
      .divisor = 1},
 };
-#endif
+
+// Every update pass starts from the table's empty values: a skipped or denied
+// metric keeps its sentinel, a watched and accessible one gets overwritten.
+static void reset_health_readings(void) {
+  for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
+    *s_health_reads[i].target = s_health_reads[i].empty_value;
+  }
+}
 
 static void update_health_info(void) {
+  reset_health_readings();
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
   time_t now = time(NULL);
@@ -93,28 +102,17 @@ static void update_health_info(void) {
   // data — the tick that follows the settings push refills them.
   for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
     const HealthRead* read = &s_health_reads[i];
-    if (!any_slot_monitors_health(read->metric)) {
-      *read->target = read->empty_value;
-      continue;
-    }
+    if (!any_slot_monitors_health(read->metric)) continue;
     HealthServiceAccessibilityMask mask =
         read->mode == HEALTH_READ_INSTANT_PEEK
             ? health_service_metric_accessible(read->metric, now, now)
             : health_service_metric_accessible(read->metric, start, now);
-    if (!(mask & HealthServiceAccessibilityMaskAvailable)) {
-      *read->target = read->empty_value;
-      continue;
-    }
+    if (!(mask & HealthServiceAccessibilityMaskAvailable)) continue;
     int32_t value = read->mode == HEALTH_READ_INSTANT_PEEK
                         ? health_service_peek_current_value(read->metric)
                         : health_service_sum_today(read->metric);
     *read->target = (int)(value / read->divisor);
   }
-#else
-  s_step_count = -1;
-  s_sleep_seconds = -1;
-  s_heart_rate = 0;
-  s_active_minutes = 0;
 #endif
 }
 

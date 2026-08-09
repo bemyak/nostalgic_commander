@@ -163,10 +163,10 @@ void request_weather(void) {
 
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   (void)context;
-  // WEATHER_TEMP + WEATHER_COND together mark a real weather payload: a
-  // settings-only message must not refresh the cache timestamp. Temp alone
-  // lands here (the walk below skips it); cond rides the table like every
-  // other reading.
+  // WEATHER_TEMP + WEATHER_COND together mark a real weather payload; a
+  // settings-only message must not refresh the cache timestamp. The payload
+  // check reads temp itself, so the table walk skips it; cond rides the
+  // table like every other reading.
   Tuple* temp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP);
   Tuple* cond_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_COND);
   if (temp_tuple && cond_tuple) {

@@ -152,6 +152,26 @@ void test_render_gate_should_notice_bar_slot_changes(void) {
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
 }
 
+void test_render_gate_should_notice_hi_lo_caption_swaps(void) {
+  // An equal-value day prints identical HI/LO text under either lead, but the
+  // frame's caption stubs swap sides — display state the value string can't
+  // carry.
+  main_window_load(NULL);
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_TEMP_HIGH_LOW;
+  s_wall_hour = 10;
+  s_hi_hour_today = 8;  // both of today's extremes passed
+  s_lo_hour_today = 6;
+  s_hi_hour_tmrw = 15;  // tomorrow LO precedes HI → LO leads
+  s_lo_hour_tmrw = 13;
+  s_temp_high = s_temp_low = s_temp_high_tmrw = s_temp_low_tmrw = 8;
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+
+  s_hi_hour_tmrw = 11;  // now HI leads; the printed values stay "8F 8F"
+  request_ui_redraw();
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+}
+
 void test_render_gate_should_reapply_colors_on_theme_change(void) {
   main_window_load(NULL);
   s_settings_theme = 2;  // pin Panel so the Shadow swap below is unconditional
@@ -3626,6 +3646,7 @@ int main(void) {
   RUN_TEST(test_render_gate_should_ignore_changes_nobody_displays);
   RUN_TEST(test_render_gate_should_pass_displayed_changes_through);
   RUN_TEST(test_render_gate_should_notice_bar_slot_changes);
+  RUN_TEST(test_render_gate_should_notice_hi_lo_caption_swaps);
   RUN_TEST(test_render_gate_should_reapply_colors_on_theme_change);
   RUN_TEST(test_quick_view_did_change_should_gate_and_restore);
   RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
