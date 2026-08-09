@@ -22,6 +22,12 @@ typedef enum {
 // (renderers in drawing.c), and whether a slot showing it needs the weather
 // feed. Adding a complication: one row here, a color case in status.c if it
 // needs one, a Clay entry in config.js, and wire rows if phone-sourced.
+// HealthMetric as a plain int (mock/SDK-proof); -1 = not health-backed.
+// Explicit on every spec row: designated-init omission would read as 0, which
+// *is* HealthMetricStepCount in the SDK — a forgotten field would silently
+// attribute a new source to steps instead of reading as unset.
+#define HEALTH_METRIC_NONE (-1)
+
 typedef struct {
   ComplicationDataSource source;
   const char* label;
@@ -31,6 +37,7 @@ typedef struct {
   ComplicationDrawFn draw;  // NULL draws no value (EMPTY)
   ComplicationFrame frame;
   bool needs_weather;
+  int health_metric;
 } ComplicationSpec;
 
 const ComplicationSpec* complication_spec(ComplicationDataSource source);
@@ -38,3 +45,4 @@ const ComplicationSpec* complication_spec(ComplicationDataSource source);
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
 bool any_slot_needs_weather(void);
+bool any_slot_monitors_health(int metric);

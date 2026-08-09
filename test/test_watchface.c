@@ -875,6 +875,50 @@ void test_registry_should_pin_the_weather_backed_set(void) {
   TEST_ASSERT_EQUAL_INT((int)(sizeof(expected) / sizeof(expected[0])), found);
 }
 
+void test_registry_health_metrics_match_the_reads_table(void) {
+  // A metric is read only while a visible slot's spec attributes it. The
+  // exact attribution set is pinned (a lost field on STEPS itself must not
+  // hide behind STEPS_BAR), and no row may attribute a metric the reads
+  // table never reads — the reverse form of the silent seam.
+  const struct {
+    ComplicationDataSource source;
+    int metric;
+  } expected[] = {{DATA_SOURCE_STEPS, HealthMetricStepCount},
+                  {DATA_SOURCE_STEPS_BAR, HealthMetricStepCount},
+                  {DATA_SOURCE_SLEEP, HealthMetricSleepSeconds},
+                  {DATA_SOURCE_ACTIVE_MINUTES, HealthMetricActiveSeconds},
+                  {DATA_SOURCE_HEART_RATE, HealthMetricHeartRateBPM}};
+  const int read_count = (int)(sizeof(s_health_reads) / sizeof(s_health_reads[0]));
+  const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
+  int found = 0;
+  for (int i = 0; i < count; i++) {
+    const ComplicationSpec* row = &s_complication_specs[i];
+    int want = HEALTH_METRIC_NONE;
+    for (unsigned j = 0; j < sizeof(expected) / sizeof(expected[0]); j++) {
+      if (expected[j].source == row->source) want = expected[j].metric;
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(want, row->health_metric,
+                                  "health attribution differs from the expected set");
+    if (row->health_metric == HEALTH_METRIC_NONE) continue;
+    found++;
+    bool in_reads = false;
+    for (int r = 0; r < read_count; r++) {
+      if ((int)s_health_reads[r].metric == row->health_metric) in_reads = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(in_reads, "spec attributes a metric the table never reads");
+  }
+  TEST_ASSERT_EQUAL_INT((int)(sizeof(expected) / sizeof(expected[0])), found);
+  for (int r = 0; r < read_count; r++) {
+    int attributers = 0;
+    for (int i = 0; i < count; i++) {
+      if (s_complication_specs[i].health_metric == (int)s_health_reads[r].metric) {
+        attributers++;
+      }
+    }
+    TEST_ASSERT_GREATER_THAN_MESSAGE(0, attributers, "reads-table metric has no spec row");
+  }
+}
+
 void test_get_source_data_should_format_battery(void) {
   char buf[16];
   int percent = 0;
@@ -3518,6 +3562,7 @@ int main(void) {
   RUN_TEST(test_get_source_label_should_return_correct_labels);
   RUN_TEST(test_registry_rows_should_be_unique_and_resolve);
   RUN_TEST(test_registry_should_pin_the_weather_backed_set);
+  RUN_TEST(test_registry_health_metrics_match_the_reads_table);
   RUN_TEST(test_get_source_data_should_format_battery);
   RUN_TEST(test_get_source_data_should_format_steps);
   RUN_TEST(test_get_source_data_should_format_weather);

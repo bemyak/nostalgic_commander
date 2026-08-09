@@ -39,15 +39,6 @@ GFont vga_font_64(void) {
 // Data Updaters
 // -----------------------------------------------------------------------------
 
-static bool any_slot_is_one_of(const ComplicationDataSource* sources, int count) {
-  for (int i = 0; i < NUM_SLOTS; i++) {
-    for (int j = 0; j < count; j++) {
-      if (s_complication_slots[i].source == sources[j]) return true;
-    }
-  }
-  return false;
-}
-
 #if defined(PBL_HEALTH)
 typedef enum {
   HEALTH_READ_RANGE_SUM,    // accessible + sum_today over [start of day, now]
@@ -56,11 +47,11 @@ typedef enum {
                             // never shows
 } HealthReadMode;
 
-// One row per health metric: the slots that make its syscall worthwhile, how
-// it is read, and what stands in for no data — the divergences as data.
+// One row per health metric: how it is read and what stands in for no data
+// — the divergences as data. A metric is read while any visible slot's spec
+// attributes it (complication.c's .health_metric); the watchful source list
+// is the registry's, not this table's.
 typedef struct {
-  ComplicationDataSource watched[2];
-  int watched_count;
   HealthMetric metric;
   int* target;
   int empty_value;
@@ -69,30 +60,22 @@ typedef struct {
 } HealthRead;
 
 static const HealthRead s_health_reads[] = {
-    {.watched = {DATA_SOURCE_STEPS, DATA_SOURCE_STEPS_BAR},
-     .watched_count = 2,
-     .metric = HealthMetricStepCount,
+    {.metric = HealthMetricStepCount,
      .target = &s_step_count,
      .empty_value = -1,
      .mode = HEALTH_READ_RANGE_SUM,
      .divisor = 1},
-    {.watched = {DATA_SOURCE_SLEEP},
-     .watched_count = 1,
-     .metric = HealthMetricSleepSeconds,
+    {.metric = HealthMetricSleepSeconds,
      .target = &s_sleep_seconds,
      .empty_value = -1,
      .mode = HEALTH_READ_RANGE_SUM,
      .divisor = 1},
-    {.watched = {DATA_SOURCE_ACTIVE_MINUTES},
-     .watched_count = 1,
-     .metric = HealthMetricActiveSeconds,
+    {.metric = HealthMetricActiveSeconds,
      .target = &s_active_minutes,
      .empty_value = 0,
      .mode = HEALTH_READ_RANGE_SUM,
      .divisor = 60},
-    {.watched = {DATA_SOURCE_HEART_RATE},
-     .watched_count = 1,
-     .metric = HealthMetricHeartRateBPM,
+    {.metric = HealthMetricHeartRateBPM,
      .target = &s_heart_rate,
      .empty_value = 0,
      .mode = HEALTH_READ_INSTANT_PEEK,
@@ -110,7 +93,7 @@ static void update_health_info(void) {
   // data — the tick that follows the settings push refills them.
   for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
     const HealthRead* read = &s_health_reads[i];
-    if (!any_slot_is_one_of(read->watched, read->watched_count)) {
+    if (!any_slot_monitors_health(read->metric)) {
       *read->target = read->empty_value;
       continue;
     }

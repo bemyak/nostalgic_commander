@@ -125,7 +125,9 @@ agent-written code too — follow them.
 
 enum value in `data.h` → spec row in `complication.c`'s
 `s_complication_specs[]` (`format` can be one of the generic idioms, `draw`
-one of drawing.c's) → `get_source_color` case if it needs color logic → Clay
+one of drawing.c's; health-backed sources set `.health_metric` — the metric
+is read only while such a slot is visible — and weather-backed ones set
+`.needs_weather`) → `get_source_color` case if it needs color logic → Clay
 options in `config.js` → (if phone-sourced) `package.json` message key +
 `weather.js` field row + `messaging.c` table row → unit tests.
 
