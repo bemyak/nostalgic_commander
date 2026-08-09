@@ -3497,6 +3497,17 @@ void test_unknown_source_should_render_only_the_placeholder_frame(void) {
   TEST_ASSERT_EQUAL_INT(1, overlapping);
 }
 
+void test_mock_geometry_should_truncate_at_device_width(void) {
+  // Mock GPoint/GSize fields are int16_t like the SDK's: narrowing happens
+  // at storage, on host exactly as on device. (The casts are explicit for
+  // -Wconstant-conversion; the asserted values are the int16_t round-trip.)
+  GRect r = GRect((int16_t)40000, (int16_t)-40000, (int16_t)40000, 200);
+  TEST_ASSERT_EQUAL_INT(-25536, r.origin.x);
+  TEST_ASSERT_EQUAL_INT(25536, r.origin.y);
+  TEST_ASSERT_EQUAL_INT(-25536, r.size.w);
+  TEST_ASSERT_EQUAL_INT(200, r.size.h);
+}
+
 void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
   // The exact key set weather.js WEATHER_FIELDS emits — including HI/LO
   // hours — in one message. MOCK_DICT_MAX covers it with headroom precisely
@@ -3688,5 +3699,6 @@ int main(void) {
   RUN_TEST(test_empty_and_unknown_sources_should_draw_nothing);
   RUN_TEST(test_unknown_source_should_render_only_the_placeholder_frame);
   RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
+  RUN_TEST(test_mock_geometry_should_truncate_at_device_width);
   return UNITY_END();
 }
