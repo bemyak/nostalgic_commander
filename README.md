@@ -106,7 +106,9 @@ pebble install --emulator emery       # run on the emery emulator
 pebble install --phone <ip>           # install to a paired phone
 ```
 
-Run the unit tests (host-only, no SDK needed):
+Run the unit tests (host-only, no SDK needed — requires `clang-format`,
+`gcc`, and node ≥ 18 for `node --test`; `test/unity` is a submodule, so clone
+with `--recurse-submodules`):
 
 ```sh
 make test

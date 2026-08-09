@@ -51,6 +51,11 @@ function isCompleteWeatherPayload(payload) {
 // wire-contract.test.js pins the two in agreement.
 var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
 
+// Position staleness is its own budget, not the payload cache's: a cached fix
+// plus a cached payload can describe where you were up to ~1 h ago, so raising
+// the TTL must not silently widen the accepted GPS age.
+var GEOLOCATION_MAX_AGE_MS = 30 * 60 * 1000;
+
 // Fresh = fetched within the window. Garbage timestamps (NaN, undefined) are
 // never fresh, nor is a future one; at exactly the window edge the cache is
 // already stale.
@@ -185,6 +190,7 @@ module.exports = {
   sentinelPayload : sentinelPayload,
   isCompleteWeatherPayload : isCompleteWeatherPayload,
   WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,
+  GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
   isFreshWeatherCache : isFreshWeatherCache,
   parseForecast : parseForecast,
   parseAqi : parseAqi,

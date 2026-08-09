@@ -168,5 +168,5 @@ function getWeather(attempt) {
         aqiXhr.send();
       },
       function(err) { retryWeather(attempt, 'geolocation: ' + err.message); },
-      {timeout: 15000, maximumAge: weather.WEATHER_CACHE_MAX_AGE_MS});
+      {timeout: 15000, maximumAge: weather.GEOLOCATION_MAX_AGE_MS});
 }

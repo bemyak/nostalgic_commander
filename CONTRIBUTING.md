@@ -23,8 +23,8 @@ well.)
 
 ## Dev setup
 
-You'll need the [Pebble SDK](https://developer.repebble.com); the `pebble` CLI
-lives in a project-local virtualenv.
+You'll need the [Pebble SDK](https://developer.repebble.com): `pip install
+pebble-tool` provides the `pebble` CLI, which in turn installs the SDK.
 
 ```sh
 git clone --recurse-submodules <your-fork>   # test/unity is a submodule
