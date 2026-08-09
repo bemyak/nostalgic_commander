@@ -3112,13 +3112,16 @@ void test_inbox_units_change_should_trigger_weather_refetch(void) {
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(1, s_settings_units);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 
   // Same units again: no refetch
   mock_dict_reset();
   mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_UNITS, "1");
   before = mock_outbox_sends;
+  int writes = mock_outbox_write_count();
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(writes, mock_outbox_write_count());
 }
 
 void test_refresh_state_should_never_request_weather(void) {
@@ -3128,6 +3131,15 @@ void test_refresh_state_should_never_request_weather(void) {
   int before = mock_outbox_sends;
   refresh_state();
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
+void test_request_weather_should_send_exactly_the_trigger_key(void) {
+  // The outbox protocol is one content-free doorbell: key WEATHER_REQUEST,
+  // value 0, nothing else. Guards against the key degenerating back into a
+  // data-key overload — mock_outbox_sends alone can't see that.
+  request_weather();
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_write_count());
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 }
 
 void test_refresh_state_should_refresh_the_hi_lo_phase_hour(void) {
@@ -3188,6 +3200,7 @@ void test_tick_handler_should_request_weather_on_the_half_hour_edge(void) {
   t.tm_min = 30;
   tick_handler(&t, MINUTE_UNIT);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 
   t.tm_min = 0;
   tick_handler(&t, MINUTE_UNIT);
@@ -3232,6 +3245,7 @@ void test_inbox_should_fetch_when_a_weather_slot_first_appears(void) {
   int before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 
   // Already showing weather: the same push again must not refetch, and a
   // weather reply (no SLOT_* keys) must not either — that is the :00/:30 loop
@@ -3256,6 +3270,7 @@ void test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown(void
   int before = mock_outbox_sends;
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 
   // Re-pushing an unchanged assignment stays silent
   before = mock_outbox_sends;
@@ -3647,6 +3662,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_and_persist_disconnect_vibe_setting);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_refresh_state_should_never_request_weather);
+  RUN_TEST(test_request_weather_should_send_exactly_the_trigger_key);
   RUN_TEST(test_refresh_state_should_refresh_the_hi_lo_phase_hour);
   RUN_TEST(test_refresh_state_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_refresh_state_should_keep_date_output_when_nothing_changes);

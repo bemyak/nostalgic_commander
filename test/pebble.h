@@ -375,6 +375,10 @@ void mock_dict_add_int(uint32_t key, int32_t value);
 void mock_dict_add_int_width(uint32_t key, int32_t value, uint16_t width);
 void mock_dict_add_uint_width(uint32_t key, uint32_t value, uint16_t width);
 void mock_dict_add_cstring(uint32_t key, const char* str);
+
+// Outbound capture (writes between outbox_begin and outbox_send).
+int mock_outbox_write_count(void);
+bool mock_outbox_has(uint32_t key, uint8_t value);
 TextLayer* text_layer_create(GRect frame);
 void text_layer_destroy(TextLayer* text_layer);
 Layer* text_layer_get_layer(TextLayer* text_layer);

@@ -200,11 +200,36 @@ Tuple* dict_find(const DictionaryIterator* iter, uint32_t key) {
   }
   return NULL;
 }
+// Outbound capture: the only outbox payload is the weather-request trigger,
+// whose key *is* the message kind — tests must see the key, not just count
+// sends. Assertions go through the accessors, not this storage.
+#define MOCK_OUTBOX_WRITES_MAX 8
+static struct {
+  uint32_t key;
+  uint8_t value;
+} s_mock_outbox_writes[MOCK_OUTBOX_WRITES_MAX];
+static int s_mock_outbox_write_count = 0;
+
+int mock_outbox_write_count(void) {
+  return s_mock_outbox_write_count;
+}
+
+bool mock_outbox_has(uint32_t key, uint8_t value) {
+  for (int i = 0; i < s_mock_outbox_write_count; i++) {
+    if (s_mock_outbox_writes[i].key == key && s_mock_outbox_writes[i].value == value) return true;
+  }
+  return false;
+}
+
 DictionaryResult dict_write_uint8(DictionaryIterator* iter, const uint32_t key,
                                   const uint8_t value) {
   (void)iter;
-  (void)key;
-  (void)value;
+  if (s_mock_outbox_write_count >= MOCK_OUTBOX_WRITES_MAX) {
+    TEST_FAIL_MESSAGE("mock outbox capture full; raise MOCK_OUTBOX_WRITES_MAX");
+  }
+  s_mock_outbox_writes[s_mock_outbox_write_count].key = key;
+  s_mock_outbox_writes[s_mock_outbox_write_count].value = value;
+  s_mock_outbox_write_count++;
   return DICT_OK;
 }
 
@@ -540,12 +565,14 @@ void mock_reset(void) {
   mock_bt_connected = true;
   mock_clock_24h = false;
   mock_outbox_begin_ok = true;
+  mock_outbox_sends = 0;
+  s_mock_outbox_write_count = 0;
+  mock_health_accessible_count = 0;
   for (int i = 0; i < MOCK_HEALTH_METRIC_COUNT; i++) {
     mock_health_accessible[i] = HealthServiceAccessibilityMaskAvailable;
   }
   mock_heart_rate = 0;
-  mock_outbox_sends = 0;
-  mock_health_accessible_count = 0;
+
   mock_health_sum_today_count = 0;
   mock_health_peek_count = 0;
   mock_vibes_count = 0;
