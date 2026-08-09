@@ -48,6 +48,11 @@ VISUAL_MASK_ARGS = -fill black -draw "rectangle $(VISUAL_MASK_CLOCK)" \
                    -fill black -draw "rectangle $(VISUAL_MASK_DATE)" \
                    -fill black -draw "rectangle $(VISUAL_MASK_WEATHER)"
 
+# IM7 renames the front-end to `magick`; IM6 (ubuntu-latest's apt imagemagick)
+# only ships `convert`. `compare` exists under both, so only the two masking
+# invocations go through this.
+MAGICK := $(shell command -v magick || command -v convert || echo NO-IMAGEMAGICK)
+
 $(VISUAL_BASELINE):
 	@echo "no $(VISUAL_BASELINE) yet — regenerate it with 'make visual-baseline'"; exit 1
 
@@ -60,10 +65,24 @@ visual-baseline:
 visual-check: $(VISUAL_BASELINE)
 	pebble build
 	pebble install --emulator emery
+	@# Cold boots: the emulator takes a moment between install and a real first
+	@# render, so the first screenshot can catch a half-brought-up face. Settle,
+	@# then up to three screenshot+compare attempts, passing on the first AE==0 —
+	@# a real rendering regression persists across retries; only boot noise moves.
+	sleep 5
 	pebble screenshot --emulator emery --no-open $(VISUAL_SHOT)
-	magick $(VISUAL_BASELINE) $(VISUAL_MASK_ARGS) $(VISUAL_BASE_MASKED)
-	magick $(VISUAL_SHOT) $(VISUAL_MASK_ARGS) $(VISUAL_SHOT)
-	@ae=$$(compare -metric AE $(VISUAL_BASE_MASKED) $(VISUAL_SHOT) $(VISUAL_DIFF) 2>&1 || true); \
-	ae_px=$${ae%% *}; \
-	echo "visual-check: $$ae_px pixels differ outside the masks (diff image: $(VISUAL_DIFF))"; \
-	[ "$$ae_px" = "0" ] || { echo "visual-check FAILED (raw metric: $$ae)"; exit 1; }
+	$(MAGICK) $(VISUAL_BASELINE) $(VISUAL_MASK_ARGS) $(VISUAL_BASE_MASKED)
+	$(MAGICK) $(VISUAL_SHOT) $(VISUAL_MASK_ARGS) $(VISUAL_SHOT)
+	@for attempt in 1 2 3; do \
+		ae=$$(compare -metric AE $(VISUAL_BASE_MASKED) $(VISUAL_SHOT) $(VISUAL_DIFF) 2>&1 || true); \
+		ae_px=$${ae%% *}; \
+		echo "visual-check (attempt $$attempt): $$ae_px pixels differ outside the masks"; \
+		[ "$$ae_px" = "0" ] && exit 0; \
+		if [ $$attempt -lt 3 ]; then \
+			sleep 3; \
+			pebble screenshot --emulator emery --no-open $(VISUAL_SHOT); \
+			$(MAGICK) $(VISUAL_SHOT) $(VISUAL_MASK_ARGS) $(VISUAL_SHOT); \
+		fi; \
+	done; \
+	echo "visual-check FAILED (raw metric: $$ae; diff image: $(VISUAL_DIFF))"; \
+	exit 1

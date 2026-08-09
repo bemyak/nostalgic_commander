@@ -12,8 +12,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # Pinned to what dev machines run (node 24, clang-format 21.x — the pip
+      # wheel ships the LLVM binaries); apt's clang-format follows the image
+      # and its format rules drift between releases, silently redeciding
+      # format-check.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
       - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+        run: pip install 'clang-format==21.*'
       - name: Format check + unit tests
         run: make test
 
@@ -45,3 +53,38 @@ jobs:
         run: npm ci
       - name: pebble build
         run: pebble build
+
+  # The pixel gate: a rendering-only regression (frame stroke, palette const,
+  # accent idiom) compiles and passes the host suite green — only this catches
+  # it. Boot-defaults render (Norton theme) is what the committed baseline
+  # shows, so a fresh CI emulator reproduces it deterministically; the
+  # clock/date/weather regions are masked in the Makefile recipe. Xvfb gives
+  # the SDK's qemu the X server it expects (headless-specific flags: none —
+  # `pebble install/screenshot --emulator` launch it the same way as locally).
+  visual:
+    runs-on: ubuntu-latest
+    env:
+      PEBBLE_SDK_VERSION: '4.17'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+      - name: Install pebble tool, X server, ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb imagemagick
+          pip install pebble-tool
+      - name: Cache Pebble SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.pebble-sdk
+          key: ${{ runner.os }}-pebble-sdk-${{ env.PEBBLE_SDK_VERSION }}-${{ hashFiles('package.json') }}
+          restore-keys: ${{ runner.os }}-pebble-sdk-${{ env.PEBBLE_SDK_VERSION }}-
+      - name: Install SDK
+        run: pebble sdk install ${{ env.PEBBLE_SDK_VERSION }}
+      - name: npm dependencies (Clay)
+        run: npm ci
+      - name: Pixel gate
+        run: xvfb-run -a make visual-check
