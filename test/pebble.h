@@ -314,8 +314,6 @@ void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc);
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
 status_t persist_write_int(const uint32_t key, const int32_t value);
-int persist_write_string(const uint32_t key, const char* cstring);
-int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_size);
 // Test helpers/knobs below are not part of the real SDK
 void mock_persist_reset(void);
 void mock_reset(void);
@@ -328,6 +326,11 @@ extern int mock_health_peek_count;
 // Available bit routes update_health_info() down its sentinel branch.
 #define MOCK_HEALTH_METRIC_COUNT 7
 extern HealthServiceAccessibilityMask mock_health_accessible[MOCK_HEALTH_METRIC_COUNT];
+// Per-metric sum values, indexed by HealthMetric; distinct power-on defaults
+// (pebble_mock.c) so wrong-metric wiring shows a tell-tale, not a plausible
+// reading. mock_heart_rate plays the same role for instant reads.
+extern int32_t mock_health_sum_today_value[MOCK_HEALTH_METRIC_COUNT];
+extern int32_t mock_health_sum_averaged_value[MOCK_HEALTH_METRIC_COUNT];
 extern time_t mock_time_offset;
 extern bool mock_quiet_time_active;
 extern uint8_t mock_battery_percent;

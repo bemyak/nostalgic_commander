@@ -68,6 +68,16 @@ function isFreshWeatherCache(fetchedAtMs, nowMs) {
   return age >= 0 && age < WEATHER_CACHE_MAX_AGE_MS;
 }
 
+// The settings select stores raw option values as strings ('1' = metric,
+// matching data.h's UNITS_METRIC — wire-contract.test.js pins that join).
+// Before the first settings save the key is absent entirely, so this is the
+// operative default: imperial. Numeric 1 is accepted for belt and braces.
+function unitsFromClaySettings(settings) {
+  var raw = settings ? settings['SETTINGS_UNITS'] : undefined;
+  var metric = raw === '1' || raw === 1;
+  return {tempUnit: metric ? 'celsius' : 'fahrenheit', windSpeedUnit: metric ? 'ms' : 'mph'};
+}
+
 // Finite numbers only: missing keys, nulls, and NaN all count as "no data".
 // (The API's null probability-rows and the occasional absent field both land
 // here instead of becoming a bogus reading.)
@@ -192,6 +202,7 @@ module.exports = {
   WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,
   GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
   isFreshWeatherCache : isFreshWeatherCache,
+  unitsFromClaySettings : unitsFromClaySettings,
   parseForecast : parseForecast,
   parseAqi : parseAqi,
 };

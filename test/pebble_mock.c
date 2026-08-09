@@ -3,8 +3,6 @@
 #include <stdarg.h>
 
 // Mock Data
-int32_t mock_persist_storage[256];
-bool mock_persist_exists[256];
 
 // MESSAGE_KEY_* stand-ins, extern-linkage like the SDK's generated
 // message_keys.auto.c (values are arbitrary but fixed so tests can key off
@@ -367,18 +365,43 @@ HealthValue health_service_peek_current_value(HealthMetric metric) {
   if (metric == HealthMetricHeartRateBPM) return mock_heart_rate;
   return 0;
 }
+// Per-metric sum values, indexed by HealthMetric — distinct defaults, so a
+// formatter wired to the wrong metric shows a tell-tale number instead of a
+// plausible one. Never staged per-test today (nothing consumes averages), but
+// knobbed for parity with sum_today.
+int32_t mock_health_sum_today_value[MOCK_HEALTH_METRIC_COUNT];
+int32_t mock_health_sum_averaged_value[MOCK_HEALTH_METRIC_COUNT];
+
+// Power-on defaults; mock_reset restores these. HR rows are 0: HR is an
+// instant read (mock_heart_rate), never summed.
+static void mock_health_values_reset(void) {
+  static const int32_t defaults[MOCK_HEALTH_METRIC_COUNT] = {
+      5678,   // StepCount
+      2700,   // ActiveSeconds (-> 45 display minutes)
+      4321,   // WalkedDistanceMeters
+      26100,  // SleepSeconds (7h 15m)
+      19000,  // SleepRestfulSeconds
+      0,      // HeartRateBPM
+      0,      // HeartRateRawBPM
+  };
+  for (int i = 0; i < MOCK_HEALTH_METRIC_COUNT; i++) {
+    mock_health_sum_today_value[i] = defaults[i];
+    // Distinct from the today-sums on purpose: cross-wiring sum_today
+    // against sum_averaged must not accidentally read plausible.
+    mock_health_sum_averaged_value[i] = defaults[i] * 2;
+  }
+}
+
 HealthValue health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
                                         HealthServiceTimeScope scope) {
-  (void)metric;
   (void)time_start;
   (void)time_end;
   (void)scope;
-  return 10000;
+  return mock_health_sum_averaged_value[metric];
 }
 HealthValue health_service_sum_today(HealthMetric metric) {
-  (void)metric;
   mock_health_sum_today_count++;
-  return 5000;
+  return mock_health_sum_today_value[metric];
 }
 
 void layer_add_child(Layer* parent, Layer* child) {
@@ -416,37 +439,48 @@ void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc) {
   (void)update_proc;
 }
 
-char mock_persist_strings[256][64];
+// Key-exact store: persist keys are sparse (1000-1032 today), so an indexed
+// array would need a modulus — and silently alias keys a multiple of it
+// apart (test_mock_persist_should_keep_distant_keys_independent pins the
+// bug class). Capacity overflow fails loud, like the dict/outbox mocks.
+#define MOCK_PERSIST_MAX_KEYS 64
+static struct {
+  uint32_t key;
+  int32_t value;
+} s_mock_persist[MOCK_PERSIST_MAX_KEYS];
+static int s_mock_persist_count = 0;
+
+static int mock_persist_slot(uint32_t key) {
+  for (int i = 0; i < s_mock_persist_count; i++) {
+    if (s_mock_persist[i].key == key) return i;
+  }
+  return -1;
+}
+
 int mock_persist_write_count = 0;
 
 bool persist_exists(const uint32_t key) {
-  return mock_persist_exists[key % 256];
+  return mock_persist_slot(key) >= 0;
 }
 int32_t persist_read_int(const uint32_t key) {
-  return mock_persist_storage[key % 256];
+  int slot = mock_persist_slot(key);
+  return slot >= 0 ? s_mock_persist[slot].value : 0;  // a missing key reads 0
 }
 status_t persist_write_int(const uint32_t key, const int32_t value) {
   mock_persist_write_count++;
-  mock_persist_storage[key % 256] = value;
-  mock_persist_exists[key % 256] = true;
+  int slot = mock_persist_slot(key);
+  if (slot < 0) {
+    if (s_mock_persist_count >= MOCK_PERSIST_MAX_KEYS) {
+      TEST_FAIL_MESSAGE("mock persist capacity exceeded; raise MOCK_PERSIST_MAX_KEYS");
+    }
+    slot = s_mock_persist_count++;
+    s_mock_persist[slot].key = key;
+  }
+  s_mock_persist[slot].value = value;
   return S_SUCCESS;
 }
-int persist_write_string(const uint32_t key, const char* cstring) {
-  mock_persist_write_count++;
-  strncpy(mock_persist_strings[key % 256], cstring, sizeof(mock_persist_strings[0]) - 1);
-  mock_persist_strings[key % 256][sizeof(mock_persist_strings[0]) - 1] = '\0';
-  mock_persist_exists[key % 256] = true;
-  return strlen(mock_persist_strings[key % 256]) + 1;
-}
-int persist_read_string(const uint32_t key, char* buffer, const size_t buffer_size) {
-  strncpy(buffer, mock_persist_strings[key % 256], buffer_size - 1);
-  buffer[buffer_size - 1] = '\0';
-  return strlen(buffer) + 1;
-}
 void mock_persist_reset(void) {
-  memset(mock_persist_storage, 0, sizeof(mock_persist_storage));
-  memset(mock_persist_exists, 0, sizeof(mock_persist_exists));
-  memset(mock_persist_strings, 0, sizeof(mock_persist_strings));
+  s_mock_persist_count = 0;
 }
 
 static char mock_text_layer_storage[8];
@@ -575,6 +609,7 @@ void mock_reset(void) {
 
   mock_health_sum_today_count = 0;
   mock_health_peek_count = 0;
+  mock_health_values_reset();
   mock_vibes_count = 0;
   mock_mark_dirty_count = 0;
   mock_set_text_count = 0;

@@ -197,6 +197,68 @@ test('the Clay label ↔ enum name join holds on both sides', () => {
   assert.deepEqual(scrape.clayOptionLabels(), joined);
 });
 
+// The settings selects' value↔label pairs are the second hand-written
+// semantic join: permuting 'Imperial' ↔ 'Metric' (or DOS ↔ ISO) passes every
+// other test while users get swapped behavior, so the pairs are pinned here
+// verbatim. The theme SELECT's id↔name mirroring into theme.c's switch stays
+// hand-maintained — the (value, label) pin plus the boot-defaults pin below
+// is the agreed coverage.
+const EXPECTED_SETTINGS_OPTIONS = {
+  SETTINGS_THEME: [
+    ['0', 'Auto (by time of day)'],
+    ['1', 'Turbo Vision (light grey)'],
+    ['2', 'Norton (EGA blue)'],
+    ['3', 'Dark (black)'],
+    ['4', 'Navigator (dark grey)'],
+  ],
+  SETTINGS_UNITS: [['0', 'Imperial'], ['1', 'Metric']],
+  SETTINGS_DATE_FORMAT: [
+    ['0', 'ISO (1970-12-31)'],
+    ['1', 'DOS (31-12-1970)'],
+    ['2', 'Text (DEC 31st, 1970)'],
+    ['3', 'Short (no year)'],
+  ],
+  SETTINGS_SHORT_DATE_FORMAT: [['0', 'Month-Day (12-31)'], ['1', 'Day-Month (31-12)']],
+  SETTINGS_DOW_POSITION: [
+    ['0', 'Before date (THU 1970-12-31)'],
+    ['1', 'After date (1970-12-31 THU)'],
+    ['2', 'Hidden (1970-12-31)'],
+  ],
+  SETTINGS_DISCONNECT_VIBE: [['1', 'On'], ['0', 'Off']],
+};
+
+test('every settings select offers exactly the pinned value ↔ label pairs', () => {
+  const actual = {};
+  for (const section of config) {
+    for (const item of section.items || []) {
+      if (item.type === 'select' && /^SETTINGS_/.test(item.messageKey)) {
+        assert.ok(!actual[item.messageKey], `duplicate select for ${item.messageKey}`);
+        actual[item.messageKey] = item.options.map(o => [String(o.value), o.label]);
+      }
+    }
+  }
+  assert.deepEqual(
+      Object.keys(actual).sort(), Object.keys(EXPECTED_SETTINGS_OPTIONS).sort(),
+      'the six settings selects drifted');
+  for (const [key, expected] of Object.entries(EXPECTED_SETTINGS_OPTIONS)) {
+    assert.deepEqual(actual[key], expected, `option pair drift in ${key}`);
+  }
+});
+
+test('the units select\'s values carry the same semantics as data.h\'s defines', () => {
+  // The join that actually decides C behavior: the option value labeled
+  // 'Metric' must be data.h's UNITS_METRIC, likewise Imperial.
+  const dataH = readRepoFile('src/c/data.h');
+  const defines = new Map();
+  for (const m of dataH.matchAll(/^#define (UNITS_(?:IMPERIAL|METRIC)) (\d+)$/gm)) {
+    defines.set(m[1], m[2]);
+  }
+  assert.equal(defines.size, 2, 'UNITS_* defines not parsed — pattern drift?');
+  const options = new Map(EXPECTED_SETTINGS_OPTIONS.SETTINGS_UNITS.map(([v, l]) => [l, v]));
+  assert.equal(defines.get('UNITS_IMPERIAL'), options.get('Imperial'));
+  assert.equal(defines.get('UNITS_METRIC'), options.get('Metric'));
+});
+
 test('the C boot defaults equal the Clay shipped defaults', () => {
   const boots = scrape.cBootDefaults();  // 12 entries; the scraper asserts its own coverage
   const shipped = new Map();

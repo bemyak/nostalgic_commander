@@ -87,9 +87,8 @@ function getWeather(attempt) {
         } catch (e) {
           console.log('Error reading clay settings: ' + e);
         }
-        var units = settings['SETTINGS_UNITS'] || '0';
-        var tempUnit = (units === '1' || units === 1) ? 'celsius' : 'fahrenheit';
-        var windSpeedUnit = (units === '1' || units === 1) ? 'ms' : 'mph';
+        // Units policy (default, string/int tolerance) lives in weather.js.
+        var units = weather.unitsFromClaySettings(settings);
 
         // The modern `current` block carries temp/code/humidity in one shot;
         // `current_weather=true` is legacy and silently suppresses `current=`.
@@ -97,7 +96,7 @@ function getWeather(attempt) {
             '&longitude=' + lon +
             '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation,wind_direction_10m,wind_speed_10m' +
             '&timezone=auto' +
-            '&temperature_unit=' + tempUnit + '&wind_speed_unit=' + windSpeedUnit +
+            '&temperature_unit=' + units.tempUnit + '&wind_speed_unit=' + units.windSpeedUnit +
             '&hourly=uv_index,precipitation_probability,temperature_2m&forecast_days=2' +
             '&daily=temperature_2m_max,temperature_2m_min';
         var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +

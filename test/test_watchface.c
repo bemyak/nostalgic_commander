@@ -3614,6 +3614,33 @@ void test_mock_geometry_should_truncate_at_device_width(void) {
   TEST_ASSERT_EQUAL_INT(200, r.size.h);
 }
 
+void test_mock_persist_should_keep_distant_keys_independent(void) {
+  // Keys a multiple of the old store's modulus apart aliased silently — the
+  // bug class the key-exact store exists to close. 1000/1256 are plausible
+  // future PERSIST_KEY_* values 256 apart.
+  persist_write_int(1000, 111);
+  persist_write_int(1256, 222);
+  TEST_ASSERT_EQUAL_INT(111, persist_read_int(1000));
+  TEST_ASSERT_EQUAL_INT(222, persist_read_int(1256));
+  TEST_ASSERT_FALSE(persist_exists(999));
+}
+
+void test_update_health_info_should_land_each_metric_on_its_own_target(void) {
+  // All four health-backed sources visible (boot slots hold SLEEP, STEPS,
+  // HR; slot 0 takes ACTV). The mock's distinct per-metric defaults make
+  // wrong-metric wiring land a tell-tale value, and the divisor in
+  // update_health_info's table shows up as the seconds → minutes step.
+  s_complication_slots[0].source = DATA_SOURCE_ACTIVE_MINUTES;
+  mock_heart_rate = 72;
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricStepCount], s_step_count);
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricSleepSeconds],
+                        s_sleep_seconds);
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricActiveSeconds] / 60,
+                        s_active_minutes);
+  TEST_ASSERT_EQUAL_INT(72, s_heart_rate);
+}
+
 void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
   // The exact key set weather.js WEATHER_FIELDS emits — including HI/LO
   // hours — in one message. MOCK_DICT_MAX covers it with headroom precisely
@@ -3761,6 +3788,7 @@ int main(void) {
   RUN_TEST(test_update_health_info_should_read_heart_rate);
   RUN_TEST(test_update_health_info_should_do_nothing_with_no_health_slots);
   RUN_TEST(test_update_health_info_should_read_only_displayed_metrics);
+  RUN_TEST(test_update_health_info_should_land_each_metric_on_its_own_target);
   RUN_TEST(test_health_handler_should_throttle_movement_updates);
   RUN_TEST(test_health_handler_should_refresh_again_after_the_throttle_window);
   RUN_TEST(test_health_handler_should_not_throttle_heart_rate_updates);
@@ -3810,5 +3838,6 @@ int main(void) {
   RUN_TEST(test_unknown_source_should_render_only_the_placeholder_frame);
   RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
   RUN_TEST(test_mock_geometry_should_truncate_at_device_width);
+  RUN_TEST(test_mock_persist_should_keep_distant_keys_independent);
   return UNITY_END();
 }

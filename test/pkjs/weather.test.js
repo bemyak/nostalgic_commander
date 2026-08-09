@@ -166,6 +166,20 @@ test('cache freshness: inside the window fresh, at the edge already stale', () =
   assert.equal(weather.isFreshWeatherCache(NOW - weather.WEATHER_CACHE_MAX_AGE_MS - 1, NOW), false);
 });
 
+test('unitsFromClaySettings: imperial is the operative default, in every no-settings shape', () => {
+  const imperial = {tempUnit: 'fahrenheit', windSpeedUnit: 'mph'};
+  assert.deepEqual(weather.unitsFromClaySettings(undefined), imperial);
+  assert.deepEqual(weather.unitsFromClaySettings({}), imperial);  // no Clay save yet
+  assert.deepEqual(weather.unitsFromClaySettings({SETTINGS_UNITS: '0'}), imperial);
+  assert.deepEqual(weather.unitsFromClaySettings({SETTINGS_UNITS: 'bogus'}), imperial);
+});
+
+test('unitsFromClaySettings: metric exactly on the select\'s 1, string or numeric', () => {
+  const metric = {tempUnit: 'celsius', windSpeedUnit: 'ms'};
+  assert.deepEqual(weather.unitsFromClaySettings({SETTINGS_UNITS: '1'}), metric);
+  assert.deepEqual(weather.unitsFromClaySettings({SETTINGS_UNITS: 1}), metric);
+});
+
 test('cache freshness: garbage and future timestamps are never fresh', () => {
   assert.equal(weather.isFreshWeatherCache(NaN, NOW), false);
   assert.equal(weather.isFreshWeatherCache(undefined, NOW), false);
