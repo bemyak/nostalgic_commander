@@ -213,6 +213,20 @@ void test_canvas_should_skip_the_bottom_row_while_quick_view_is_up(void) {
   }
 }
 
+// One recorded text run pinned to its exact canvas pixels.
+static bool text_run_at(const char* text, GRect box, GColor color) {
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], text) == 0 && mock_text_run_boxes[i].origin.x == box.origin.x &&
+        mock_text_run_boxes[i].origin.y == box.origin.y &&
+        mock_text_run_boxes[i].size.w == box.size.w &&
+        mock_text_run_boxes[i].size.h == box.size.h &&
+        gcolor_equal(mock_text_run_colors[i], color)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // As delivered to the canvas, both checkboxes of the combined window must be
 // drawn — a stray atomic-source read inside the drawer is exactly the bug
 // where the QT box comes out empty.
@@ -231,6 +245,23 @@ void test_bt_qt_wide_should_draw_both_checkboxes(void) {
   }
   TEST_ASSERT_TRUE(x_found);
   TEST_ASSERT_TRUE(z_found);
+}
+
+void test_bt_qt_window_should_register_captions_and_boxes_on_one_strip(void) {
+  // Wide form: the 7-cell strip centres in the 93px top slot at x=26. The
+  // 3-cell checkbox boxes sit on strip cells 0 and 4; the stubs centre on
+  // them, straddling the top border at y=0.
+  test_apply_theme();
+  s_complication_slots[0].source = DATA_SOURCE_BT_QT;
+  s_connected = true;
+  s_quiet_time_active = true;
+  mock_text_run_count = 0;
+  canvas_update_proc(NULL, NULL);
+
+  TEST_ASSERT_TRUE(text_run_at("BT", GRect(30, 0, 16, 16), s_active_theme->text_secondary));
+  TEST_ASSERT_TRUE(text_run_at("QT", GRect(62, 0, 16, 16), s_active_theme->text_secondary));
+  TEST_ASSERT_TRUE(text_run_at("[x]", GRect(26, 18, 24, 24), s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(text_run_at("[z]", GRect(58, 18, 24, 24), s_active_theme->text_primary));
 }
 
 void test_canvas_procs_should_never_word_wrap(void) {
@@ -272,6 +303,21 @@ void test_hum_pcp_window_should_paint_its_halves(void) {
   }
   TEST_ASSERT_TRUE(hum_found);
   TEST_ASSERT_TRUE(pcp_found);
+}
+
+void test_hum_pcp_captions_should_centre_over_the_fields(void) {
+  // The 8-cell strip centres its fields at 22 and 62 (pinned by the halves
+  // test above); each stub is exactly its field's 3 cells wide, so centred
+  // on the field it shares the field's x and straddles the top border.
+  test_apply_theme();
+  s_complication_slots[0].source = DATA_SOURCE_HUM_PCP;
+  s_weather_humidity = 61;
+  s_weather_pcp = 12;
+  mock_text_run_count = 0;
+  canvas_update_proc(NULL, NULL);
+
+  TEST_ASSERT_TRUE(text_run_at("HUM", GRect(22, 0, 24, 16), s_active_theme->text_secondary));
+  TEST_ASSERT_TRUE(text_run_at("PCP", GRect(62, 0, 24, 16), s_active_theme->text_secondary));
 }
 
 void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
@@ -2029,6 +2075,29 @@ void test_high_low_stub_order_should_follow_the_layout(void) {
   TEST_ASSERT_FALSE(high_low_hi_leads());
 }
 
+void test_hi_lo_captions_should_centre_over_the_strip_halves(void) {
+  // The 9-cell strip centres in the 93px top slot at x=18; the stubs centre
+  // on the two 4-cell halves (air cell between), straddling the top border.
+  // Noon of a typical day: the 14:00 high leads, so HI takes the left half.
+  test_apply_theme();
+  s_settings_units = 1;
+  s_temp_low = 11;
+  s_temp_high = 20;
+  s_temp_low_tmrw = 7;
+  s_temp_high_tmrw = 22;
+  s_lo_hour_today = 2;
+  s_hi_hour_today = 14;
+  s_lo_hour_tmrw = 4;
+  s_hi_hour_tmrw = 16;
+  s_wall_hour = 12;
+  s_complication_slots[0].source = DATA_SOURCE_TEMP_HIGH_LOW;
+  mock_text_run_count = 0;
+  canvas_update_proc(NULL, NULL);
+
+  TEST_ASSERT_TRUE(text_run_at("HI", GRect(26, 0, 16, 16), s_active_theme->text_secondary));
+  TEST_ASSERT_TRUE(text_run_at("LO", GRect(66, 0, 16, 16), s_active_theme->text_secondary));
+}
+
 void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
   // BMT is UTC+1, so the beat day rolls over at 23:00 UTC.
   TEST_ASSERT_EQUAL_INT(0, compute_beats(82800));         // 23:00:00 UTC = @000
@@ -3562,7 +3631,9 @@ int main(void) {
   RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_hum_pcp_window_should_paint_its_halves);
+  RUN_TEST(test_hum_pcp_captions_should_centre_over_the_fields);
   RUN_TEST(test_bt_qt_wide_should_draw_both_checkboxes);
+  RUN_TEST(test_bt_qt_window_should_register_captions_and_boxes_on_one_strip);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
   RUN_TEST(test_steps_bar_should_fill_with_the_plain_text_color);
   RUN_TEST(test_battery_bar_should_fill_with_the_status_color);
@@ -3628,6 +3699,7 @@ int main(void) {
   RUN_TEST(test_high_low_cells_should_stay_chronological_on_inversion_days);
   RUN_TEST(test_high_low_layout_should_fall_back_to_lo_first_when_hours_unknown);
   RUN_TEST(test_high_low_stub_order_should_follow_the_layout);
+  RUN_TEST(test_hi_lo_captions_should_centre_over_the_strip_halves);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);

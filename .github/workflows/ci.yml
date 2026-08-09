@@ -21,6 +21,10 @@ jobs:
   # job is the "still compiles for the real SDK" gate.
   firmware:
     runs-on: ubuntu-latest
+    env:
+      # Pinned, not 'latest': the SDK version is part of the cache key below,
+      # so bumping it here busts stale caches on its own.
+      PEBBLE_SDK_VERSION: '4.17'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,10 +37,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.pebble-sdk
-          key: ${{ runner.os }}-pebble-sdk-${{ hashFiles('package.json') }}
-          restore-keys: ${{ runner.os }}-pebble-sdk-
+          key: ${{ runner.os }}-pebble-sdk-${{ env.PEBBLE_SDK_VERSION }}-${{ hashFiles('package.json') }}
+          restore-keys: ${{ runner.os }}-pebble-sdk-${{ env.PEBBLE_SDK_VERSION }}-
       - name: Install SDK
-        run: pebble sdk install latest
+        run: pebble sdk install ${{ env.PEBBLE_SDK_VERSION }}
       - name: npm dependencies (Clay)
         run: npm ci
       - name: pebble build

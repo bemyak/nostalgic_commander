@@ -350,23 +350,33 @@ static void draw_hinted_half(GContext* ctx, GRect box_rect, int x, int w, const 
   draw_status_field(ctx, box_rect, x, w, text, banded, band);
 }
 
+// The two fields of the HUM/PCP strip: equal cell-width boxes split by the
+// gap cell, centred as one strip. The drawer paints its halves in them, the
+// frame centres its caption stubs on them — one geometry, so a layout edit
+// can't drift the two apart.
+static void hum_pcp_field_boxes(GRect box_rect, GRect* left, GRect* right) {
+  const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
+  const int gap_px = HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
+  int left_x = box_rect.origin.x + (box_rect.size.w - (2 * field_px + gap_px)) / 2;
+  *left = GRect(left_x, box_rect.origin.y, field_px, box_rect.size.h);
+  *right = GRect(left_x + field_px + gap_px, box_rect.origin.y, field_px, box_rect.size.h);
+}
+
 // Humidity and precipitation side by side, same two-field shape as
 // AQI/UV: both halves carry the quiet-state unit hint; only the PCP half
 // bands.
 void draw_hum_pcp_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   (void)source;  // bound to one source; see the registry row
-  char pcp_str[8];
-  const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
-  const int gap_px = HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
-  int left_x = box_rect.origin.x + (box_rect.size.w - (2 * field_px + gap_px)) / 2;
-  int right_x = left_x + field_px + gap_px;
+  GRect left, right;
+  hum_pcp_field_boxes(box_rect, &left, &right);
 
   char hum_str[8];
   get_source_data(DATA_SOURCE_HUMIDITY, hum_str, sizeof(hum_str), NULL);
-  draw_hinted_half(ctx, box_rect, left_x, field_px, hum_str, false, GColorClear);
+  draw_hinted_half(ctx, box_rect, left.origin.x, left.size.w, hum_str, false, GColorClear);
 
+  char pcp_str[8];
   get_source_data(DATA_SOURCE_WEATHER_PCP, pcp_str, sizeof(pcp_str), NULL);
-  draw_hinted_half(ctx, box_rect, right_x, field_px, pcp_str,
+  draw_hinted_half(ctx, box_rect, right.origin.x, right.size.w, pcp_str,
                    reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
                    get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
@@ -629,6 +639,18 @@ void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSourc
   }
 }
 
+// The wide form's boxes: 3 cells each, BT on strip cell 0, QT an air cell
+// later. The drawer's runs and the frame's caption stubs anchor to the same
+// boxes, so the split can't drift half a cell.
+#define BT_QT_BOX_CELLS 3
+#define BT_QT_QT_CELL (BT_QT_BOX_CELLS + 1)
+
+static GRect bt_qt_strip_box(GRect box_rect, int strip_cell) {
+  int strip_x = box_rect.origin.x + (box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  return GRect(strip_x + strip_cell * VGA16_CHAR_W, box_rect.origin.y + VALUE_ROW_DY,
+               BT_QT_BOX_CELLS * VGA16_CHAR_W, VALUE_ROW_H);
+}
+
 void draw_bt_qt_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   (void)source;  // bound to one source; see the registry row
   char buf[8];
@@ -643,10 +665,10 @@ void draw_bt_qt_complication(GContext* ctx, GRect box_rect, ComplicationDataSour
   }
   // Wide: the boxes hold the strip's centre but gain an air cell; the split
   // captions above stay registered to them.
-  int strip_x = box_rect.origin.x + (box_rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
-  GRect strip = GRect(strip_x, row.origin.y, BT_QT_STRIP_CELLS * VGA16_CHAR_W, row.size.h);
-  draw_run(ctx, strip, 0, buf, 3, color);
-  draw_run(ctx, strip, 4, buf + 3, 3, color);
+  GRect bt = bt_qt_strip_box(box_rect, 0);
+  GRect qt = bt_qt_strip_box(box_rect, BT_QT_QT_CELL);
+  draw_run(ctx, bt, 0, buf, BT_QT_BOX_CELLS, color);
+  draw_run(ctx, qt, 0, buf + BT_QT_BOX_CELLS, BT_QT_BOX_CELLS, color);
 }
 
 void draw_heart_rate_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
@@ -693,7 +715,7 @@ void draw_battery_complication(GContext* ctx, GRect box_rect, ComplicationDataSo
   // A healthy charge just shows the ground. Below that — or whenever the
   // charger is in — it wears exactly the color the bar paints, so the two can
   // never disagree about the same reading.
-  draw_banded_value(ctx, box_rect, buf, s_battery_level <= BATTERY_LOW_PCT || s_battery_charging,
+  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_BATTERY),
                     get_source_color(DATA_SOURCE_BATTERY));
 }
 
@@ -704,10 +726,22 @@ static void render_bt_qt_frame(GContext* ctx, GRect rect, ComplicationDataSource
     draw_ascii_window(ctx, rect, get_source_label(source));
     return;
   }
-  // Captions centre over the 3-cell boxes at strip cells 0 and 4.
-  int strip_x = rect.origin.x + (rect.size.w - BT_QT_STRIP_CELLS * VGA16_CHAR_W) / 2;
-  draw_split_caption_window(ctx, rect, "BT", strip_x + 12 - rect.origin.x, "QT",
-                            strip_x + 44 - rect.origin.x);
+  // Captions centre over the same strip boxes the checkboxes paint.
+  GRect bt = bt_qt_strip_box(rect, 0);
+  GRect qt = bt_qt_strip_box(rect, BT_QT_QT_CELL);
+  draw_split_caption_window(ctx, rect, "BT", bt.origin.x + bt.size.w / 2 - rect.origin.x, "QT",
+                            qt.origin.x + qt.size.w / 2 - rect.origin.x);
+}
+
+// The strip's two halves: 4 cells each around one air cell, on the value
+// row. The stub captions centre on them — the centred value run lands its
+// temperatures on the same halves.
+#define HI_LO_HALF_CELLS 4
+
+static GRect hi_lo_half_box(GRect box_rect, int half) {
+  int strip_x = box_rect.origin.x + (box_rect.size.w - HI_LO_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  return GRect(strip_x + half * (HI_LO_HALF_CELLS + 1) * VGA16_CHAR_W,
+               box_rect.origin.y + VALUE_ROW_DY, HI_LO_HALF_CELLS * VGA16_CHAR_W, VALUE_ROW_H);
 }
 
 // Never a plain-title window: the settings offer HI/LO for top slots only,
@@ -717,9 +751,11 @@ static void render_bt_qt_frame(GContext* ctx, GRect rect, ComplicationDataSource
 static void render_hi_lo_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
   (void)source;
   bool hi_leads = high_low_hi_leads();
-  int strip_x = rect.origin.x + (rect.size.w - HI_LO_STRIP_CELLS * VGA16_CHAR_W) / 2;
-  draw_split_caption_window(ctx, rect, hi_leads ? "HI" : "LO", strip_x + 16 - rect.origin.x,
-                            hi_leads ? "LO" : "HI", strip_x + 56 - rect.origin.x);
+  GRect left = hi_lo_half_box(rect, 0);
+  GRect right = hi_lo_half_box(rect, 1);
+  draw_split_caption_window(ctx, rect, hi_leads ? "HI" : "LO",
+                            left.origin.x + left.size.w / 2 - rect.origin.x, hi_leads ? "LO" : "HI",
+                            right.origin.x + right.size.w / 2 - rect.origin.x);
 }
 
 // Two-field windows: captions centre over the fields the value drawers paint
@@ -734,11 +770,10 @@ static void render_aqi_uv_frame(GContext* ctx, GRect rect, ComplicationDataSourc
 
 static void render_hum_pcp_frame(GContext* ctx, GRect rect, ComplicationDataSource source) {
   (void)source;
-  const int field_px = HUM_PCP_FIELD_CELLS * VGA16_CHAR_W;
-  int strip_px = 2 * field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W;
-  int left_x = (rect.size.w - strip_px) / 2;
-  draw_split_caption_window(ctx, rect, "HUM", left_x + field_px / 2, "PCP",
-                            left_x + field_px + HUM_PCP_GAP_CELLS * VGA16_CHAR_W + field_px / 2);
+  GRect left, right;
+  hum_pcp_field_boxes(rect, &left, &right);
+  draw_split_caption_window(ctx, rect, "HUM", left.origin.x + left.size.w / 2 - rect.origin.x,
+                            "PCP", right.origin.x + right.size.w / 2 - rect.origin.x);
 }
 
 typedef void (*FrameRenderFn)(GContext*, GRect, ComplicationDataSource);

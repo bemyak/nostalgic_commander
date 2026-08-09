@@ -112,6 +112,23 @@ Run the unit tests (host-only, no SDK needed):
 make test
 ```
 
+### Visual gate
+
+`make test` proves logic; the rendered face is pinned by a committed capture,
+`test/visual/baseline.png`. The checker builds, installs on the emery
+emulator, screenshots immediately after launch, and diffs against the
+baseline after masking the regions that legitimately move (the clock row, the
+centre date strip, the top-left weather slot):
+
+```sh
+make visual-check     # must report 0 differing pixels
+make visual-baseline  # regenerate after an intentional visual change
+```
+
+Requires the emulator and ImageMagick's `compare` on PATH; assumes the
+emulator's persisted settings are the shipped defaults (any deviated
+persisted config renders differently by design).
+
 ## Development
 
 - [AGENTS.md](AGENTS.md) / [CONTRIBUTING.md](CONTRIBUTING.md) — upstream's

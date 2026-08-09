@@ -5,18 +5,18 @@
 // (src/pkjs/weather.js, WEATHER_FIELDS), the cache TTL exists once in
 // seconds (messaging.h) and once in milliseconds (weather.js), and package.json's messageKeys list
 // the keys both halves speak. These tests parse the C side as text and demand equality, so a
-// one-sided rename or sentinel drift fails here instead of surfacing as "--" on the wrist.
+// one-sided rename or sentinel drift fails here instead of surfacing as "--" on the wrist. The
+// same scrape idiom pins the other cross-language seams: Clay's offered option ids and labels
+// against the ComplicationDataSource enum, and the Clay shipped defaults against the C boots.
 
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 
 const weather = require('../../src/pkjs/weather.js');
+const config = require('../../src/pkjs/config.js');
+const scrape = require('./contract-scrape.js');
 
-function readRepoFile(rel) {
-  return fs.readFileSync(path.join(__dirname, '..', '..', rel), 'utf8');
-}
+const readRepoFile = scrape.readRepoFile;
 
 // The rows of a MessageField table: {&MESSAGE_KEY_<NAME>, PERSIST_KEY_<NAME>,
 // &target (or NULL for the slot table), <sentinel>[, wrapped across lines]}.
@@ -145,4 +145,65 @@ test('package.json messageKeys are exactly the keys messaging.c speaks', () => {
   const unreferenced = declared.filter(k => !referenced.has(k));
   assert.deepEqual(undeclared, [], 'keys used in messaging.c but absent from messageKeys');
   assert.deepEqual(unreferenced, [], 'messageKeys entries messaging.c never references');
+});
+
+// The one sanctioned semantic join between the settings page and the C enum:
+// which ComplicationDataSource each curated label stands for. Written out so
+// a renumbered id on either side fails here naming the drifted pair; kept in
+// OPTION_LABELS source order. (Option ids and labels are scraped on the
+// config.js side — the semantic join itself can only be pinned by hand.)
+const EXPECTED_SOURCE_LABELS = [
+  ['DATA_SOURCE_EMPTY', 'Empty'],
+  ['DATA_SOURCE_BATTERY', 'Battery'],
+  ['DATA_SOURCE_BT_QT', 'Bluetooth + Quiet Time'],
+  ['DATA_SOURCE_SHORT_DATE', 'Short Date (no year)'],
+  ['DATA_SOURCE_BEATS', '.beat time'],
+  ['DATA_SOURCE_STEPS', 'Steps'],
+  ['DATA_SOURCE_SLEEP', 'Sleep'],
+  ['DATA_SOURCE_HEART_RATE', 'Heart Rate'],
+  ['DATA_SOURCE_ACTIVE_MINUTES', 'Active Minutes'],
+  ['DATA_SOURCE_WEATHER', 'Weather'],
+  ['DATA_SOURCE_TEMP_HIGH_LOW', 'Next High / Low temperatures'],
+  ['DATA_SOURCE_WIND', 'Wind'],
+  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (next 12h max)'],
+  ['DATA_SOURCE_AQI_UV', 'AQI UV Index (next 12h max)'],
+  ['DATA_SOURCE_FULL_DATE', 'Date'],
+  ['DATA_SOURCE_WEATHER_FULL', 'Full Weather'],
+  ['DATA_SOURCE_STEPS_BAR', 'Steps Progress'],
+  ['DATA_SOURCE_BATTERY_BAR', 'Battery Progress'],
+  ['DATA_SOURCE_BLUETOOTH', 'Bluetooth Status'],
+  ['DATA_SOURCE_QUIET_TIME', 'Quiet Time'],
+  ['DATA_SOURCE_WEATHER_TEMP', 'Temperature'],
+  ['DATA_SOURCE_WEATHER_PCP', 'Precipitation (next 12h max)'],
+  ['DATA_SOURCE_HUMIDITY', 'Humidity'],
+  ['DATA_SOURCE_AQI', 'Air Quality (AQI)'],
+  ['DATA_SOURCE_UV', 'UV Index (next 12h max)'],
+];
+
+test('every slot option id Clay offers exists in ComplicationDataSource', () => {
+  const ids = new Set(scrape.dataSourceIds().values());
+  for (const id of scrape.claySlotOptionIds()) {
+    assert.ok(ids.has(id), `Clay offers source id ${id}, absent from the enum`);
+  }
+});
+
+test('the Clay label ↔ enum name join holds on both sides', () => {
+  const ids = scrape.dataSourceIds();
+  const joined = new Map();
+  for (const [name, label] of EXPECTED_SOURCE_LABELS) {
+    assert.ok(ids.has(name), `${name} no longer exists in the enum`);
+    joined.set(ids.get(name), label);
+  }
+  assert.deepEqual(scrape.clayOptionLabels(), joined);
+});
+
+test('the C boot defaults equal the Clay shipped defaults', () => {
+  const boots = scrape.cBootDefaults();  // 12 entries; the scraper asserts its own coverage
+  const shipped = new Map();
+  for (const section of config) {
+    for (const item of section.items || []) {
+      if (item.messageKey) shipped.set(item.messageKey, String(item.defaultValue));
+    }
+  }
+  assert.deepEqual(shipped, boots);
 });

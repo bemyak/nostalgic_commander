@@ -6,6 +6,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const config = require('../../src/pkjs/config.js');
+const scrape = require('./contract-scrape.js');
 
 function findSelect(messageKey) {
   for (const section of config) {
@@ -43,21 +44,9 @@ test('every messageKey appears exactly once and every default is valid', () => {
 });
 
 test('shipped defaults match the C-side boots', () => {
-  const want = {
-    SETTINGS_THEME: '2',
-    SETTINGS_UNITS: '0',
-    SETTINGS_DATE_FORMAT: '0',
-    SETTINGS_SHORT_DATE_FORMAT: '0',
-    SETTINGS_DOW_POSITION: '0',
-    SETTINGS_DISCONNECT_VIBE: '1',
-    SLOT_1: '5',
-    SLOT_2: '2',
-    SLOT_3: '1',
-    SLOT_4: '6',
-    SLOT_5: '9',
-    SLOT_6: '23',
-  };
-  for (const [key, def] of Object.entries(want)) {
+  // Compared against the scraped C boots (data.c's s_settings_* initializers
+  // and slot sources) rather than a third hand-copied map here.
+  for (const [key, def] of scrape.cBootDefaults()) {
     assert.equal(findSelect(key)?.defaultValue, def, key);
   }
 });
