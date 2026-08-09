@@ -11,11 +11,12 @@ bool s_battery_charging = false;
 bool s_connected = true;
 bool s_quiet_time_active = false;
 
-// Health readings; sentinels mark "no data" (steps/sleep -1, heart rate 0).
+// Health readings; sentinels mark "no data" (steps/sleep/active minutes -1,
+// heart rate 0).
 int s_step_count = -1;
 int s_sleep_seconds = -1;
 int s_heart_rate = 0;
-int s_active_minutes = 0;
+int s_active_minutes = -1;
 
 // Weather readings — pushed by the phone; messaging.c's field table owns the
 // wire contract for every one of them (keys, persistence, sentinels).

@@ -155,6 +155,9 @@ void load_settings(void) {
 void request_weather(void) {
   DictionaryIterator* iter;
   app_message_outbox_begin(&iter);
+  // No retry on begin failure (outbox_failed never fires when nothing was
+  // sent, so main.c's bounded retry doesn't either); the next :00/:30 tick
+  // re-asks.
   if (iter == NULL) return;
 
   dict_write_uint8(iter, MESSAGE_KEY_WEATHER_REQUEST, 0);

@@ -52,7 +52,7 @@ static void reset_all_state(void) {
   s_step_count = -1;
   s_sleep_seconds = -1;
   s_heart_rate = 0;
-  s_active_minutes = 0;
+  s_active_minutes = -1;
 
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
@@ -1484,6 +1484,12 @@ void test_get_source_data_should_format_active_minutes(void) {
   char buf[16];
   int percent = 0;
 
+  // No data reads like steps and sleep: "--", never a fake "0m"
+  s_active_minutes = -1;
+  get_source_data(DATA_SOURCE_ACTIVE_MINUTES, buf, sizeof(buf), &percent);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  TEST_ASSERT_EQUAL_INT(0, percent);
+
   s_active_minutes = 15;
   get_source_data(DATA_SOURCE_ACTIVE_MINUTES, buf, sizeof(buf), &percent);
   TEST_ASSERT_EQUAL_STRING("15m", buf);
@@ -2152,6 +2158,11 @@ void test_get_source_data_should_format_beats(void) {
 
 void test_get_source_color_should_return_appropriate_colors(void) {
   s_active_theme = &s_theme_panel;
+
+  // A missing reading is neutral in either unit system — the hot/cold bands
+  // are for real temperatures, "--" is not a cold one.
+  s_weather_temp = -999;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_TEMP));
 
   // Weather Temp color severity (Imperial: >85 red, <40 blue)
   s_settings_units = 0;
@@ -3516,6 +3527,12 @@ void test_update_health_info_should_fall_back_to_sentinels_without_permission(vo
   update_health_info();
   TEST_ASSERT_EQUAL_INT(0, s_heart_rate);
   TEST_ASSERT_EQUAL_INT(peeks, mock_health_peek_count);
+
+  mock_health_accessible[HealthMetricActiveSeconds] = HealthServiceAccessibilityMaskNoPermission;
+  s_complication_slots[4].source = DATA_SOURCE_ACTIVE_MINUTES;
+  s_active_minutes = 42;  // stale value: a denied metric must clear it
+  update_health_info();
+  TEST_ASSERT_EQUAL_INT(-1, s_active_minutes);
 }
 
 void test_clock_should_follow_the_12h_24h_settings(void) {

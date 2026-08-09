@@ -3,9 +3,12 @@
 #include "data.h"
 #include "theme.h"
 
-// Hot/cold bands, shared by every temperature reading (temp alone, the
-// combined weather value, and the day's high) so the thresholds live once.
+// Hot/cold bands, shared by every temperature reading that consults color:
+// the solo temp, the HI/LO headline high, and the full-weather strip's TEMP
+// chip (via WEATHER_TEMP). The thresholds live here, once. A missing reading
+// stays neutral — "--" is neither hot nor cold.
 static GColor temp_band_color(int temp) {
+  if (temp == -999) return s_active_theme->text_primary;
   if (s_settings_units == UNITS_METRIC) {
     if (temp > 29) return s_active_theme->status_red;
     if (temp < 4) return s_active_theme->accent_cold;
@@ -57,7 +60,6 @@ GColor get_source_color(ComplicationDataSource source) {
         return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_TEMP:
-    case DATA_SOURCE_WEATHER:
       return temp_band_color(s_weather_temp);
     // Clean air and mild sun are unremarkable: only a flagged reading
     // earns a color, and the band follows it.

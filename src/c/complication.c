@@ -113,6 +113,12 @@ static void fmt_quiet_time(char* buf, int len, int* percent) {
 }
 
 static void fmt_active_minutes(char* buf, int len, int* percent) {
+  // No data reads like steps and sleep: "--", never a fake "0m".
+  if (s_active_minutes == -1) {
+    snprintf(buf, len, "--");
+    if (percent) *percent = 0;
+    return;
+  }
   snprintf(buf, len, "%dm", s_active_minutes);
   if (percent) {
     *percent = (s_active_minutes * 100) / ACTIVE_MINUTES_GOAL;

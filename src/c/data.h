@@ -51,7 +51,7 @@ extern bool s_battery_charging;
 extern bool s_connected;
 extern bool s_quiet_time_active;
 
-// --- Health readings (sentinels: steps/sleep -1, heart rate 0) ---
+// --- Health readings (sentinels: steps/sleep/active minutes -1, heart rate 0) ---
 extern int s_step_count;
 extern int s_sleep_seconds;
 extern int s_heart_rate;
