@@ -3,10 +3,9 @@
 // The wire contract across the language boundary: the weather field table
 // exists once in C (src/c/messaging.c, s_weather_fields) and once in JS
 // (src/pkjs/weather.js, WEATHER_FIELDS), the cache TTL exists once in
-// seconds and once in milliseconds, and package.json's messageKeys list the
-// keys both halves speak. These tests parse the C side as text and demand
-// equality, so a one-sided rename or sentinel drift fails here instead of
-// surfacing as "--" on the wrist.
+// seconds (messaging.h) and once in milliseconds (weather.js), and package.json's messageKeys list
+// the keys both halves speak. These tests parse the C side as text and demand equality, so a
+// one-sided rename or sentinel drift fails here instead of surfacing as "--" on the wrist.
 
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -129,10 +128,10 @@ test('persist values are unique and every pinned key is defined', () => {
 test('the weather cache TTL agrees in seconds (C) and milliseconds (JS)', () => {
   const sDef = readRepoFile('src/c/messaging.h')
                    .match(/#define WEATHER_CACHE_MAX_AGE_S \(?(\d+(?:\s*\*\s*\d+)*)\)?/);
-  const msDef =
-      readRepoFile('src/pkjs/index.js').match(/WEATHER_CACHE_MAX_AGE_MS = (\d+(?:\s*\*\s*\d+)*);/);
+  const msDef = readRepoFile('src/pkjs/weather.js')
+                    .match(/WEATHER_CACHE_MAX_AGE_MS = (\d+(?:\s*\*\s*\d+)*);/);
   assert.ok(sDef, 'WEATHER_CACHE_MAX_AGE_S not found/parseable in messaging.h');
-  assert.ok(msDef, 'WEATHER_CACHE_MAX_AGE_MS not found/parseable in index.js');
+  assert.ok(msDef, 'WEATHER_CACHE_MAX_AGE_MS not found/parseable in weather.js');
   assert.equal(evalProduct(msDef[1]), evalProduct(sDef[1]) * 1000);
 });
 

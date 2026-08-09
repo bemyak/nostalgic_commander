@@ -4,8 +4,6 @@ var clay = new Clay(clayConfig);
 
 var weather = require('./weather.js');
 
-var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
-
 // A failed fetch is otherwise not retried until the next :00/:30 tick, which
 // leaves the watch blank for up to 30 minutes after a launch-time blip.
 var WEATHER_MAX_RETRIES = 2;
@@ -36,7 +34,7 @@ function sendWeatherDict(dict, logLabel) {
 function readFreshWeatherCache() {
   try {
     var cache = JSON.parse(localStorage.getItem('weather-cache'));
-    if (cache && cache.payload && (Date.now() - cache.fetchedAt) < WEATHER_CACHE_MAX_AGE_MS) {
+    if (cache && cache.payload && weather.isFreshWeatherCache(cache.fetchedAt, Date.now())) {
       return cache.payload;
     }
   } catch (e) {
@@ -170,5 +168,5 @@ function getWeather(attempt) {
         aqiXhr.send();
       },
       function(err) { retryWeather(attempt, 'geolocation: ' + err.message); },
-      {timeout: 15000, maximumAge: WEATHER_CACHE_MAX_AGE_MS});
+      {timeout: 15000, maximumAge: weather.WEATHER_CACHE_MAX_AGE_MS});
 }

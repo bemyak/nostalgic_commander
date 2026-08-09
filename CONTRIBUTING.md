@@ -28,7 +28,8 @@ lives in a project-local virtualenv.
 
 ```sh
 git clone --recurse-submodules <your-fork>   # test/unity is a submodule
-source pebble-env/bin/activate
+pip install pebble-tool && pebble sdk install latest
+npm ci
 pebble build
 pebble install --emulator emery
 ```
@@ -39,8 +40,16 @@ installs if you get them wrong:
 
 - Don't renumber `ComplicationDataSource` values or reuse a `PERSIST_KEY_*`
   constant — both are on-disk identifiers.
-- If you're forking, change the `uuid` and `displayName` in `package.json` so
-  your build doesn't collide with installed copies of Nostalgic Commander.
+
+Forking? The identity smear, in one sweep:
+
+- `package.json` — `name`, `author`, `pebble.displayName`, and a fresh
+  `pebble.uuid` (`uuidgen`); a reused uuid collides with installed copies of
+  Nostalgic Commander on the same watch.
+- `src/pkjs/config.js` — the settings page heading.
+- `CHANGELOG.md` — the compare-link host at the file tail (or start fresh).
+- `LICENSE.md` — the copyright notice lines at the head.
+- `resources/icon.png` — the menu icon; presence, not obligation.
 
 ## Conventions
 
@@ -58,6 +67,9 @@ installs if you get them wrong:
 - Tests `#include` the C sources directly (with `TEST_ENV` defined) so static
   functions are reachable. Add tests to `test/test_watchface.c` and register
   them with `RUN_TEST(...)`.
+- The JS side splits the same way: `test/pkjs/` pins the pure decisions in
+  `weather.js`; `index.js`'s listener/retry wiring is deliberately untested,
+  same as `main()`'s lifecycle.
 
 The [README](README.md#philosophy) covers the project's values;
 [AGENTS.md](AGENTS.md) holds the hard rules and the module map.

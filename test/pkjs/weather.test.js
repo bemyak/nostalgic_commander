@@ -159,3 +159,16 @@ test('a cache from an older build fails completeness', () => {
   delete full.WEATHER_UV;
   assert.ok(!weather.isCompleteWeatherPayload(full));
 });
+
+test('cache freshness: inside the window fresh, at the edge already stale', () => {
+  assert.equal(weather.isFreshWeatherCache(NOW - 1000, NOW), true);
+  assert.equal(weather.isFreshWeatherCache(NOW - weather.WEATHER_CACHE_MAX_AGE_MS, NOW), false);
+  assert.equal(weather.isFreshWeatherCache(NOW - weather.WEATHER_CACHE_MAX_AGE_MS - 1, NOW), false);
+});
+
+test('cache freshness: garbage and future timestamps are never fresh', () => {
+  assert.equal(weather.isFreshWeatherCache(NaN, NOW), false);
+  assert.equal(weather.isFreshWeatherCache(undefined, NOW), false);
+  assert.equal(weather.isFreshWeatherCache(NOW + 1000, NOW), false);
+  assert.equal(weather.isFreshWeatherCache(NOW - 1000, NaN), false);
+});

@@ -46,6 +46,23 @@ function isCompleteWeatherPayload(payload) {
   return WEATHER_FIELDS.every(function(f) { return payload[f.key] !== undefined; });
 }
 
+// The phone-side weather cache's freshness window. The watch keeps the same
+// figure in seconds (messaging.h's WEATHER_CACHE_MAX_AGE_S) —
+// wire-contract.test.js pins the two in agreement.
+var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+// Fresh = fetched within the window. Garbage timestamps (NaN, undefined) are
+// never fresh, nor is a future one; at exactly the window edge the cache is
+// already stale.
+function isFreshWeatherCache(fetchedAtMs, nowMs) {
+  if (typeof fetchedAtMs !== 'number' || !isFinite(fetchedAtMs) || typeof nowMs !== 'number' ||
+      !isFinite(nowMs)) {
+    return false;
+  }
+  var age = nowMs - fetchedAtMs;
+  return age >= 0 && age < WEATHER_CACHE_MAX_AGE_MS;
+}
+
 // Finite numbers only: missing keys, nulls, and NaN all count as "no data".
 // (The API's null probability-rows and the occasional absent field both land
 // here instead of becoming a bogus reading.)
@@ -167,6 +184,8 @@ module.exports = {
   UV_WINDOW_HOURS : UV_WINDOW_HOURS,
   sentinelPayload : sentinelPayload,
   isCompleteWeatherPayload : isCompleteWeatherPayload,
+  WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,
+  isFreshWeatherCache : isFreshWeatherCache,
   parseForecast : parseForecast,
   parseAqi : parseAqi,
 };

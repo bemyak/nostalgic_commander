@@ -46,10 +46,12 @@ the change is wrong.
 
 ## Build, run, test
 
-The Pebble CLI lives in the project-local virtualenv:
+The CLI comes from pip; the SDK and Clay install once per machine/clone:
 
 ```sh
-source pebble-env/bin/activate
+pip install pebble-tool
+pebble sdk install latest
+npm ci
 pebble build            # build for all targetPlatforms
 pebble install --emulator emery
 pebble install --phone <ip>
@@ -93,7 +95,8 @@ The module map:
 | `src/c/messaging.c`/`.h` | AppMessage: weather requests, inbox parsing, persistence |
 | `src/pkjs/index.js` | Phone side: Clay config, geolocation, Open-Meteo fetches |
 | `src/pkjs/config.js` | Clay settings page, as code (pinned by `test/pkjs/config.test.js`) |
-| `test/` | Unity-based host tests with a hand-written Pebble SDK mock |
+| `src/pkjs/weather.js` | Fetch shaping, response parsing, cache policy — the pure, unit-tested JS half (`test/pkjs/weather.test.js`, `test/pkjs/wire-contract.test.js`) |
+| `test/` | Unity-based host C suite with a hand-written SDK mock; `test/pkjs/` pins the JS halves (parser, config shape, cross-language wire contract) |
 
 Data flows phone → watch over AppMessage: the watch sends a trigger message,
 JS fetches weather/AQI/UV from Open-Meteo and replies with one dictionary;

@@ -95,11 +95,12 @@ Inherited from upstream, held to more strictly, not less:
 
 ## Building from source
 
-Requires the [Pebble SDK](https://developer.repebble.com). The CLI is set up
-in a project-local virtualenv:
+Requires the [Pebble SDK](https://developer.repebble.com):
 
 ```sh
-source pebble-env/bin/activate
+pip install pebble-tool                  # CLI and emulators
+pebble sdk install latest                # one-time SDK + toolchain
+npm ci                                   # Clay, for the pkjs bundle
 pebble build                          # build for all targetPlatforms
 pebble install --emulator emery       # run on the emery emulator
 pebble install --phone <ip>           # install to a paired phone
