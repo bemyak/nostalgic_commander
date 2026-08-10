@@ -24,8 +24,9 @@ extern const WatchTheme s_theme_shadow;     // the same panel, in shadow
 extern const WatchTheme s_theme_dialog;     // the Turbo Vision dialog box
 extern const WatchTheme s_theme_navigator;  // DOS Navigator's default screen
 
-// Setting 0 is Auto, which picks by the hour; 1-4 pin one theme.
-const WatchTheme* determine_theme(int theme_setting, int current_hour);
-void apply_theme(struct tm* tick_time);
+// Settings 1-4 pin one theme; 0 (retired Auto) and anything unrecognized
+// fall back to Norton.
+const WatchTheme* determine_theme(int theme_setting);
+void apply_theme(void);
 
 // Which reading earns which status color lives over in status.c/h.

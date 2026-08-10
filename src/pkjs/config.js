@@ -75,11 +75,10 @@ module.exports = [
     type : 'section',
     items :
           [
-            select(
-                'SETTINGS_THEME', 'Theme', '2', labeledOptions([
-                  ['0', 'Auto (by time of day)'], ['1', 'Turbo Vision (light grey)'],
-                  ['2', 'Norton (EGA blue)'], ['3', 'Dark (black)'], ['4', 'Navigator (dark grey)']
-                ])),
+            select('SETTINGS_THEME', 'Theme', '2', labeledOptions([
+                     ['1', 'Turbo Vision (light grey)'], ['2', 'Norton (EGA blue)'],
+                     ['3', 'Dark (black)'], ['4', 'Navigator (dark grey)']
+                   ])),
             select(
                 'SETTINGS_UNITS', 'Units', '0',
                 labeledOptions([['0', 'Imperial'], ['1', 'Metric']])),

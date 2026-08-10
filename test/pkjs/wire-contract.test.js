@@ -205,7 +205,6 @@ test('the Clay label ↔ enum name join holds on both sides', () => {
 // is the agreed coverage.
 const EXPECTED_SETTINGS_OPTIONS = {
   SETTINGS_THEME: [
-    ['0', 'Auto (by time of day)'],
     ['1', 'Turbo Vision (light grey)'],
     ['2', 'Norton (EGA blue)'],
     ['3', 'Dark (black)'],

@@ -62,16 +62,7 @@ const WatchTheme s_theme_navigator = {.center_bg = GColorDarkGray,
                                       .status_yellow = GColorIcterine,
                                       .status_red = GColorSunsetOrange};
 
-// Auto walks the three themes on 8-hour shifts, brightest first: the light
-// dialog through the morning, the blue panel through the afternoon, and the
-// shadowed panel overnight.
-static const WatchTheme* theme_for_hour(int current_hour) {
-  if (current_hour >= 6 && current_hour < 14) return &s_theme_dialog;
-  if (current_hour >= 14 && current_hour < 22) return &s_theme_panel;
-  return &s_theme_shadow;  // 22:00 to 06:00
-}
-
-const WatchTheme* determine_theme(int theme_setting, int current_hour) {
+const WatchTheme* determine_theme(int theme_setting) {
   switch (theme_setting) {
     case 1:
       return &s_theme_dialog;
@@ -81,13 +72,13 @@ const WatchTheme* determine_theme(int theme_setting, int current_hour) {
       return &s_theme_shadow;
     case 4:
       return &s_theme_navigator;
-    default:  // 0 = Auto, and anything unrecognized
-      return theme_for_hour(current_hour);
+    default:  // 0 was Auto; it and anything unrecognized fall back to Norton
+      return &s_theme_panel;
   }
 }
 
 // Palette selection only — main.c repaints the window background itself;
 // a theme module has no business touching the window.
-void apply_theme(struct tm* tick_time) {
-  s_active_theme = determine_theme(s_settings_theme, tick_time->tm_hour);
+void apply_theme(void) {
+  s_active_theme = determine_theme(s_settings_theme);
 }

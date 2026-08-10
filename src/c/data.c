@@ -50,7 +50,7 @@ bool s_quick_view_active = false;
 
 // Settings — persisted under messaging.h's PERSIST_KEY_SETTINGS_*.
 int s_settings_theme =
-    2;  // 0 = Auto, 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton
+    2;  // 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton; 0 was Auto
 int s_settings_units = 0;              // UNITS_IMPERIAL; the JS defaults scrape parses this literal
 int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month

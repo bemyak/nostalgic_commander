@@ -40,17 +40,13 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   current temp, humidity and precipitation as captioned status chips), or a
   DOS progress bar for steps or battery — `█` blocks against a `░` track,
   with the percentage after it.
-- **Four DOS/EGA themes, Norton by default.** Auto cycles three of them on
-  8-hour shifts, brightest to darkest as the day goes on: Turbo Vision (the
-  dialog box, dark grey frames and captions, black text on light
-  grey) 06:00–14:00,
-  Norton (Commander panel, cyan frames, white entries over
-  EGA blue) 14:00–22:00, Dark (the same panel dimmed to grey
-  chrome on black, the way Turbo Vision faked it) 22:00–06:00. Navigator
-  (dark grey ground, white chrome, yellow hotkey marks) sits outside the
-  rotation. Pick a theme
-  directly to lock it in. Exact EGA colors, since Pebble's display uses the
-  same channel steps.
+- **Four DOS/EGA themes, Norton by default.** Turbo Vision (the dialog box,
+  dark grey frames and captions, black text on light grey), Norton (the
+  Commander panel, cyan frames, white entries over EGA blue), Dark (the
+  same panel dimmed to grey chrome on black, the way Turbo Vision faked
+  it), and Navigator (dark grey ground, white chrome, yellow hotkey
+  marks). Exact EGA colors, since Pebble's display uses the same channel
+  steps.
 - **Colors only when something needs attention**: temperature runs
   red-hot / blue-cold, AQI and UV go yellow then red past their thresholds,
   battery goes yellow then red as it drains — and green on the charger.
@@ -65,7 +61,7 @@ deliberately few:
 
 | Setting | Options |
 |---------|---------|
-| Theme | Auto, Turbo Vision, Norton, Dark, Navigator |
+| Theme | Turbo Vision, Norton, Dark, Navigator |
 | Units | Imperial, Metric |
 | Date format | ISO, DOS, full text, short |
 | Short date format | Month-Day, Day-Month |

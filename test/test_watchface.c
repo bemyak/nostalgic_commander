@@ -93,11 +93,9 @@ void setUp(void) {
 // Tests
 // -----------------------------------------------------------------------------
 
-// apply_theme() takes a tm after the clock-consolidation refactor; keep the
-// plumbing in one place.
+// apply_theme() reads only s_settings_theme; keep the plumbing in one place.
 static void test_apply_theme(void) {
-  time_t now = time(NULL);
-  apply_theme(localtime(&now));
+  apply_theme();
 }
 
 void test_render_gate_should_go_silent_when_nothing_changes(void) {
@@ -181,7 +179,7 @@ void test_render_gate_should_reapply_colors_on_theme_change(void) {
   int texts = mock_set_text_count;
   int marks = mock_mark_dirty_count;
 
-  s_active_theme = &s_theme_shadow;  // e.g. Auto crossing 22:00
+  s_active_theme = &s_theme_shadow;  // e.g. a settings push swapped the palette
   request_ui_redraw();
   TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);    // canvas recolors
   TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);  // no string changed
@@ -1508,44 +1506,16 @@ static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_the
 #define NUM_THEMES (sizeof(all_themes) / sizeof(all_themes[0]))
 
 void test_determine_theme_should_handle_all_configurations(void) {
-  // Pinned choices ignore the clock entirely.
-  for (int hour = 0; hour < 24; hour++) {
-    TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(1, hour));
-    TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(2, hour));
-    TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(3, hour));
-    TEST_ASSERT_EQUAL_PTR(&s_theme_navigator, determine_theme(4, hour));
-  }
+  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(1));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(2));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(3));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_navigator, determine_theme(4));
 
-  // Auto: three 8-hour shifts, brightest first. Boundaries are the whole point.
-  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 5));  // 05:00 still night
-  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(0, 6));  // 06:00 dialog starts
-  TEST_ASSERT_EQUAL_PTR(&s_theme_dialog, determine_theme(0, 13));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0, 14));  // 14:00 panel starts
-  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0, 21));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 22));  // 22:00 shadow starts
-  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 23));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(0, 0));
-
-  // Every hour must resolve to exactly one theme, and each shift must be 8h —
-  // otherwise a gap or overlap would leave some hour unthemed or double-mapped.
-  int dialog = 0, panel = 0, shadow = 0;
-  for (int hour = 0; hour < 24; hour++) {
-    const WatchTheme* t = determine_theme(0, hour);
-    TEST_ASSERT_NOT_NULL(t);
-    if (t == &s_theme_dialog)
-      dialog++;
-    else if (t == &s_theme_panel)
-      panel++;
-    else if (t == &s_theme_shadow)
-      shadow++;
-  }
-  TEST_ASSERT_EQUAL_INT(8, dialog);
-  TEST_ASSERT_EQUAL_INT(8, panel);
-  TEST_ASSERT_EQUAL_INT(8, shadow);
-
-  // Unknown values fall back to Auto rather than a null theme.
-  TEST_ASSERT_EQUAL_PTR(determine_theme(0, 12), determine_theme(99, 12));
-  TEST_ASSERT_EQUAL_PTR(determine_theme(0, 23), determine_theme(-1, 23));
+  // 0 (retired Auto) and anything unrecognized fall back to Norton, never
+  // NULL — a stale persisted setting must still resolve to a palette.
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(99));
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(-1));
 }
 
 void test_themes_should_keep_text_readable_on_their_ground(void) {

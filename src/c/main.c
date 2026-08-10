@@ -122,11 +122,11 @@ void refresh_state(void) {
 
   s_wall_hour = tick_time->tm_hour;
 
-  apply_theme(tick_time);
+  apply_theme();
 
-  // The theme can change while the face is open (Auto crossing 06:00/14:00/22:00,
-  // or a settings push); the window and time layer keep their load-time colors
-  // unless re-applied here. Everything else is canvas-drawn and follows on redraw.
+  // A settings push can change the theme while the face is open; the window
+  // and time layer keep their load-time colors unless re-applied here.
+  // Everything else is canvas-drawn and follows on redraw.
   if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
@@ -324,8 +324,7 @@ static void init(void) {
   s_vga_64 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_64));
 
   s_main_window = window_create();
-  time_t now = time(NULL);
-  apply_theme(localtime(&now));
+  apply_theme();
   window_set_background_color(s_main_window, s_active_theme->center_bg);
   window_set_window_handlers(s_main_window, (WindowHandlers){
                                                 .load = main_window_load,
