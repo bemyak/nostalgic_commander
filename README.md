@@ -40,8 +40,8 @@ pipeline, test harness, much of the runtime — is upstream's work. See
   current temp, humidity and precipitation as captioned status chips), or a
   DOS progress bar for steps or battery — `█` blocks against a `░` track,
   with the percentage after it.
-- **Four DOS/EGA themes, Norton by default.** Turbo Vision (the dialog box,
-  dark grey frames and captions, black text on light grey), Norton (the
+- **Four DOS/EGA themes, Norton by default.** Turbo Vision (the menu bar,
+  black frames and captions, red hotkey letters on light grey), Norton (the
   Commander panel, cyan frames, white entries over EGA blue), Dark (the
   same panel dimmed to grey chrome on black, the way Turbo Vision faked
   it), and Navigator (dark grey ground, white chrome, yellow hotkey

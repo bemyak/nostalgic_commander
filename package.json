@@ -1,7 +1,7 @@
 {
   "name": "nostalgic-commander",
   "author": "bemyak",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "license": "PolyForm-Noncommercial-1.0.0",
   "keywords": [
     "pebble-app"
@@ -77,7 +77,7 @@
           "type": "font",
           "name": "FONT_VGA_64",
           "file": "fonts/Px437_IBM_VGA_8x16.ttf",
-          "characterRegex": "[\\x20-\\x7E]",
+          "characterRegex": "[0-9:]",
           "size": 64
         }
       ]

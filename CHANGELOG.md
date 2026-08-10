@@ -6,11 +6,41 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-13
+
+### Added
+
+- New theme: Navigator. Dark grey background, white frames, yellow hotkey
+  letters — the DOS Navigator screen.
+- Menu icon for the watchapp list. App icon is also redrawn.
+- Temperature reading is now available in bottom slots.
+- Slot values draw the trailing unit (`24C`, `12 m/s`, `7h 30m`) in the
+  accent color, same for the weather condition word. A value on a status
+  band is drawn fully in ink, without accent.
+
 ### Changed
 
-- **Weather wire contract**: the condition now travels as the raw WMO weather
-  code and the watch maps codes to its display words itself; a code outside
-  the known ranges shows `--` instead of an invented `CLD`.
+- Themes have new names: Dialog → Turbo Vision, Commander Panel → Norton,
+  Shadowed Panel → Dark. A saved theme choice keeps working.
+- Turbo Vision palette fixes: frames are dark grey (were blue), hotkey
+  letter is dark red (was tan — hard to read on light grey at this size).
+- Weather wire contract: the condition travels as the raw WMO code and the
+  watch maps it to the display word. Unknown code shows `--` instead of an
+  invented word.
+
+### Fixed
+
+- Active Minutes showed `0m` when there is no data. Now it shows `--`, like
+  other short readings.
+- Missing temperature was tinted cold-blue. Now `--` is neutral.
+- Phone-side parsing: garbage AQI reported clean air, missing temperature
+  showed `NaN`, malformed reply kept stale values on screen. All of these
+  now show `--`. WMO fog codes 46/47 show `FOG`.
+
+### Removed
+
+- Auto theme switching. The theme is selected directly. A watch with Auto
+  saved falls back to Norton.
 
 ## [1.4.1] - 2026-08-06
 
@@ -163,7 +193,8 @@ A full battery pass — the face:
 
 - Old tuiface store thumbnail — `screenshots/` covers store imagery.
 
-[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.3.0...v1.3.1
