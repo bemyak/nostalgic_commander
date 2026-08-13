@@ -29,6 +29,7 @@ typedef enum {
   DATA_SOURCE_BT_QT = 32,
   DATA_SOURCE_WIND = 34,
   DATA_SOURCE_HUM_PCP = 35,
+  DATA_SOURCE_UV_NOW = 36,
   // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES), 33 (ARROWS font test).
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
@@ -62,6 +63,12 @@ extern int s_weather_temp;
 extern int s_weather_cond_code;  // WMO weather code; -1 indicates no data
 extern int s_weather_aqi;
 extern int s_weather_uv;
+// Spot UV — the hourly bucket containing "now". Fed alongside s_weather_uv
+// (the 12h peak) so the two consumers can diverge: DATA_SOURCE_UV keeps the
+// look-ahead peak ("plan the day"), DATA_SOURCE_UV_NOW is the spot value the
+// AQI/UV combined window uses so both halves answer the same "should I go out
+// right now" question — AQI is already spot-valued from Open-Meteo's `current`.
+extern int s_weather_uv_now;
 extern int s_weather_humidity;
 extern int s_weather_wind_direction;
 extern int s_weather_wind_speed;

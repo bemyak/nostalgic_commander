@@ -893,7 +893,7 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("STEP", get_source_label(DATA_SOURCE_STEPS));
   TEST_ASSERT_EQUAL_STRING("WEATHER", get_source_label(DATA_SOURCE_WEATHER));
   TEST_ASSERT_EQUAL_STRING("AQI", get_source_label(DATA_SOURCE_AQI));
-  TEST_ASSERT_EQUAL_STRING("UV", get_source_label(DATA_SOURCE_UV));
+  TEST_ASSERT_EQUAL_STRING("UV HI", get_source_label(DATA_SOURCE_UV));
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
   TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
@@ -913,7 +913,7 @@ void test_registry_rows_should_be_unique_and_resolve(void) {
   // resolves to a row with a real formatter. EMPTY is the one source allowed
   // to format nothing at all.
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
-  TEST_ASSERT_EQUAL_INT(27, count);  // one row per live enum value
+  TEST_ASSERT_EQUAL_INT(28, count);  // one row per live enum value
   for (int i = 0; i < count; i++) {
     const ComplicationSpec* row = &s_complication_specs[i];
     TEST_ASSERT_NOT_NULL(row->label);
@@ -946,6 +946,7 @@ void test_registry_should_pin_the_weather_backed_set(void) {
                                              DATA_SOURCE_WEATHER_COND,
                                              DATA_SOURCE_AQI,
                                              DATA_SOURCE_UV,
+                                             DATA_SOURCE_UV_NOW,
                                              DATA_SOURCE_AQI_UV,
                                              DATA_SOURCE_HUMIDITY,
                                              DATA_SOURCE_WIND,
@@ -1634,7 +1635,7 @@ void test_get_source_data_should_format_aqi_and_uv(void) {
   get_source_data(DATA_SOURCE_AQI, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("42", buf);
 
-  // UV formatting
+  // UV formatting — standalone is the 12h peak
   s_weather_uv = -1;
   get_source_data(DATA_SOURCE_UV, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("--", buf);
@@ -1643,17 +1644,29 @@ void test_get_source_data_should_format_aqi_and_uv(void) {
   get_source_data(DATA_SOURCE_UV, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("5", buf);
 
-  // Combined AQI / UV formatting
+  // Spot UV — the hourly bucket containing "now"; drives the combined block.
+  s_weather_uv_now = -1;
+  get_source_data(DATA_SOURCE_UV_NOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+
+  s_weather_uv_now = 2;
+  get_source_data(DATA_SOURCE_UV_NOW, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("2", buf);
+
+  // Combined AQI / UV formatting — both spot values, so a dark-hour peak of 5
+  // reads "-- --" on the pair while standalone UV still says "5".
   s_weather_aqi = -1;
-  s_weather_uv = -1;
+  s_weather_uv = 5;
+  s_weather_uv_now = -1;
   get_source_data(DATA_SOURCE_AQI_UV, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("-- --", buf);
 
   s_weather_aqi = 42;
-  s_weather_uv = 5;
+  s_weather_uv = 8;
+  s_weather_uv_now = 2;
   get_source_data(DATA_SOURCE_AQI_UV, buf, sizeof(buf), NULL);
   // Air joins the halves; the frame stubs (AQI/UV) carry the naming.
-  TEST_ASSERT_EQUAL_STRING("42 5", buf);
+  TEST_ASSERT_EQUAL_STRING("42 2", buf);
 }
 
 void test_get_source_data_should_format_humidity(void) {
@@ -2226,17 +2239,29 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_uv = 8;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_UV));
 
-  // AQI / UV combined: only a flagged half colors the pair
+  // Spot UV shares the ladder — same thresholds, just against s_weather_uv_now
+  s_weather_uv_now = -1;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_UV_NOW));
+  s_weather_uv_now = 2;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_UV_NOW));
+  s_weather_uv_now = 3;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_UV_NOW));
+  s_weather_uv_now = 6;
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_UV_NOW));
+
+  // AQI / UV combined colors by SPOT UV, not the 12h peak — a dark-hour peak
+  // of 8 with a spot of 1 stays quiet.
   s_weather_aqi = 34;
-  s_weather_uv = 1;
+  s_weather_uv = 8;
+  s_weather_uv_now = 1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_AQI_UV));
 
-  s_weather_aqi = 65;  // yellow
-  s_weather_uv = 1;
+  s_weather_aqi = 65;  // yellow AQI
+  s_weather_uv_now = 1;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_AQI_UV));
 
   s_weather_aqi = 34;
-  s_weather_uv = 8;  // red
+  s_weather_uv_now = 8;  // red spot UV
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_AQI_UV));
 
   // Humidity is a plain readout like heart rate: outdoor RH has no
@@ -2511,11 +2536,11 @@ void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
     int sentinel;
   } want[] = {
       {&s_weather_temp, -999},     {&s_weather_cond_code, -1}, {&s_weather_aqi, -1},
-      {&s_weather_uv, -1},         {&s_weather_humidity, -1},  {&s_weather_wind_direction, -1},
-      {&s_weather_wind_speed, -1}, {&s_weather_pcp, -1},       {&s_precip_now, -1},
-      {&s_temp_high, -999},        {&s_temp_low, -999},        {&s_temp_low_tmrw, -999},
-      {&s_temp_high_tmrw, -999},   {&s_hi_hour_today, -1},     {&s_lo_hour_today, -1},
-      {&s_hi_hour_tmrw, -1},       {&s_lo_hour_tmrw, -1}};
+      {&s_weather_uv, -1},         {&s_weather_uv_now, -1},    {&s_weather_humidity, -1},
+      {&s_weather_wind_direction, -1}, {&s_weather_wind_speed, -1}, {&s_weather_pcp, -1},
+      {&s_precip_now, -1},         {&s_temp_high, -999},       {&s_temp_low, -999},
+      {&s_temp_low_tmrw, -999},    {&s_temp_high_tmrw, -999},  {&s_hi_hour_today, -1},
+      {&s_lo_hour_today, -1},      {&s_hi_hour_tmrw, -1},      {&s_lo_hour_tmrw, -1}};
   const unsigned rows = sizeof(s_weather_fields) / sizeof(s_weather_fields[0]);
   TEST_ASSERT_EQUAL_UINT(sizeof(want) / sizeof(want[0]), rows);
   for (unsigned w = 0; w < sizeof(want) / sizeof(want[0]); w++) {

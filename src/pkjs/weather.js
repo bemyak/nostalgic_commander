@@ -15,6 +15,7 @@ var WEATHER_FIELDS = [
   {key: 'WEATHER_COND', sentinel: -1},  // raw WMO weather code
   {key: 'WEATHER_AQI', sentinel: -1},
   {key: 'WEATHER_UV', sentinel: -1},
+  {key: 'WEATHER_UV_NOW', sentinel: -1},
   {key: 'WEATHER_HUMIDITY', sentinel: -1},
   {key: 'WEATHER_WIND_DIRECTION', sentinel: -1},
   {key: 'WEATHER_WIND_SPEED', sentinel: -1},
@@ -117,6 +118,10 @@ function parseForecast(json, nowMs) {
     var windowEnd = nowMs + UV_WINDOW_HOURS * 3600 * 1000;
     var uvArr = hourly.uv_index || [];
     var pcpArr = hourly.precipitation_probability || [];
+    // The spot UV is the hourly bucket containing "now" — hours are anchored
+    // at :00 (Open-Meteo returns "YYYY-MM-DDTHH:00"), so pick the latest
+    // sample at or before nowMs.
+    var spotTs = -Infinity;
     for (var i = 0; i < hourly.time.length; i++) {
       var ts = new Date(hourly.time[i]).getTime();
       if (!(ts >= windowStart && ts <= windowEnd)) continue;  // NaN-safe
@@ -124,8 +129,14 @@ function parseForecast(json, nowMs) {
       if (v !== undefined && v > out.WEATHER_UV) out.WEATHER_UV = v;
       v = num(pcpArr[i]);
       if (v !== undefined && v > out.WEATHER_PCP) out.WEATHER_PCP = v;
+      var uvHere = num(uvArr[i]);
+      if (uvHere !== undefined && ts <= nowMs && ts > spotTs) {
+        spotTs = ts;
+        out.WEATHER_UV_NOW = uvHere;
+      }
     }
     if (out.WEATHER_UV >= 0) out.WEATHER_UV = Math.round(out.WEATHER_UV);
+    if (out.WEATHER_UV_NOW >= 0) out.WEATHER_UV_NOW = Math.round(out.WEATHER_UV_NOW);
     if (out.WEATHER_PCP >= 0) out.WEATHER_PCP = Math.round(out.WEATHER_PCP);
 
     // Event hours of the four extremes: each day's argmin/argmax over the

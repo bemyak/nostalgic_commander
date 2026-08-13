@@ -422,7 +422,7 @@ void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSou
   char aqi_str[8];
   char uv_str[8];
   get_source_data(DATA_SOURCE_AQI, aqi_str, sizeof(aqi_str), NULL);
-  get_source_data(DATA_SOURCE_UV, uv_str, sizeof(uv_str), NULL);
+  get_source_data(DATA_SOURCE_UV_NOW, uv_str, sizeof(uv_str), NULL);
 
   GRect band = status_band_rect(box_rect);
 
@@ -437,7 +437,8 @@ void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSou
   draw_status_field(ctx, box_rect, band.origin.x, half, aqi_str,
                     reading_commands_attention(DATA_SOURCE_AQI), get_source_color(DATA_SOURCE_AQI));
   draw_status_field(ctx, box_rect, right_x, half, uv_str,
-                    reading_commands_attention(DATA_SOURCE_UV), get_source_color(DATA_SOURCE_UV));
+                    reading_commands_attention(DATA_SOURCE_UV_NOW),
+                    get_source_color(DATA_SOURCE_UV_NOW));
 }
 
 // One chip per reading; one-cell gaps between chips. The fill comes from the
