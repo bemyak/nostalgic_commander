@@ -55,18 +55,18 @@ function fullResponse() {
 
 test('field table declares every key once, with the contract sentinel', () => {
   const fields = weather.WEATHER_FIELDS;
-  assert.equal(fields.length, 17);
-  assert.equal(new Set(fields.map(f => f.key)).size, 17);
+  assert.equal(fields.length, 18);
+  assert.equal(new Set(fields.map(f => f.key)).size, 18);
   const sentinel = Object.fromEntries(fields.map(f => [f.key, f.sentinel]));
   for (const k
            of ['WEATHER_TEMP', 'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_LOW_TOMORROW',
                'WEATHER_TEMP_HIGH_TOMORROW'])
     assert.equal(sentinel[k], -999, k);
   for (const k
-           of ['WEATHER_AQI', 'WEATHER_UV', 'WEATHER_HUMIDITY', 'WEATHER_PCP', 'WEATHER_COND',
-               'WEATHER_PRECIP_NOW', 'WEATHER_WIND_DIRECTION', 'WEATHER_WIND_SPEED',
-               'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY', 'WEATHER_HI_HOUR_TOMORROW',
-               'WEATHER_LO_HOUR_TOMORROW'])
+           of ['WEATHER_AQI', 'WEATHER_UV', 'WEATHER_UV_NOW', 'WEATHER_HUMIDITY', 'WEATHER_PCP',
+               'WEATHER_COND', 'WEATHER_PRECIP_NOW', 'WEATHER_WIND_DIRECTION',
+               'WEATHER_WIND_SPEED', 'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY',
+               'WEATHER_HI_HOUR_TOMORROW', 'WEATHER_LO_HOUR_TOMORROW'])
     assert.equal(sentinel[k], -1, k);
   // The sentinel payload is complete by construction.
   assert.ok(weather.isCompleteWeatherPayload(weather.sentinelPayload()));
@@ -136,6 +136,21 @@ test('windowHoursFromClaySettings: the select values read through, string or num
   assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: '2'}), 2);
   assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: 24}), 24);
   assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: '0'}), 0);  // Now
+});
+
+test('WEATHER_UV_NOW is the hourly bucket containing now, distinct from the peak', () => {
+  const json = fullResponse();
+  json.hourly.uv_index[12] = 4.6;  // 12:00 bucket contains NOW (12:30)
+  const out = weather.parseForecast(json, NOW);
+  assert.equal(out.WEATHER_UV_NOW, 5);  // rounded, and independent of the 15:00 peak
+  assert.equal(out.WEATHER_UV, 6);      // 6.3 at 15:00 is still the window max
+});
+
+test('WEATHER_UV_NOW stays at the sentinel when the current-hour bucket is missing', () => {
+  const json = fullResponse();
+  delete json.hourly.uv_index[12];  // scrub the "now" bucket
+  const out = weather.parseForecast(json, NOW);
+  assert.equal(out.WEATHER_UV_NOW, -1);
 });
 
 test('extremes sink together when any one is missing', () => {

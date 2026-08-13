@@ -68,11 +68,16 @@ GColor get_source_color(ComplicationDataSource source) {
       if (s_weather_aqi > 100) return s_active_theme->status_red;
       if (s_weather_aqi > 50) return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
+    // Same ladder for peak and spot — the spot bands simply fire while the
+    // sun is actually up rather than pre-warning for a peak hours out.
     case DATA_SOURCE_UV:
-      if (s_weather_uv == -1) return s_active_theme->text_primary;
-      if (s_weather_uv >= 6) return s_active_theme->status_red;
-      if (s_weather_uv >= 3) return s_active_theme->status_yellow;
+    case DATA_SOURCE_UV_NOW: {
+      int uv = (source == DATA_SOURCE_UV) ? s_weather_uv : s_weather_uv_now;
+      if (uv == -1) return s_active_theme->text_primary;
+      if (uv >= 6) return s_active_theme->status_red;
+      if (uv >= 3) return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
+    }
     case DATA_SOURCE_WEATHER_PCP:
       if (weather_shows_precip_amount()) {
         // WMO intensity bands (mm over the past hour): light rain is calm;
@@ -96,9 +101,12 @@ GColor get_source_color(ComplicationDataSource source) {
       return temp_band_color(hi);
     }
     case DATA_SOURCE_AQI_UV: {
-      if (s_weather_aqi == -1 && s_weather_uv == -1) return s_active_theme->text_primary;
-      bool is_red = (s_weather_aqi > 100 || s_weather_uv >= 6);
-      bool is_yellow = (s_weather_aqi > 50 || s_weather_uv >= 3);
+      // Symmetric with fmt_aqi_uv: colour the "right now" pair by the spot
+      // UV, not the 12h peak. Same thresholds; they simply fire while the sun
+      // is actually up rather than pre-warning for a peak still hours out.
+      if (s_weather_aqi == -1 && s_weather_uv_now == -1) return s_active_theme->text_primary;
+      bool is_red = (s_weather_aqi > 100 || s_weather_uv_now >= 6);
+      bool is_yellow = (s_weather_aqi > 50 || s_weather_uv_now >= 3);
       if (is_red) return s_active_theme->status_red;
       if (is_yellow) return s_active_theme->status_yellow;
       return s_active_theme->text_primary;

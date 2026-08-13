@@ -24,6 +24,7 @@ int s_weather_temp = -999;
 int s_weather_cond_code = -1;  // WMO weather code; -1 indicates no data
 int s_weather_aqi = -1;
 int s_weather_uv = -1;
+int s_weather_uv_now = -1;
 int s_weather_humidity = -1;
 int s_weather_wind_direction = -1;  // meteo bearing, degrees FROM; -1 indicates no data
 int s_weather_wind_speed = -1;      // in the settings unit (mph/m/s); -1 indicates no data
