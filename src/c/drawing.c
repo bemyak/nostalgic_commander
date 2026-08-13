@@ -175,6 +175,39 @@ void draw_weather_complication(GContext* ctx, GRect box_rect, ComplicationDataSo
   draw_run(ctx, row, unit_at, buf + unit_at, total - unit_at, s_active_theme->mark);
 }
 
+// Each extreme's unit letter is a shortkey hint, like the weather chip's
+// pair — so the left half's trailing letters wear the mark too, not just the
+// string's tail.
+void draw_hi_lo_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  (void)source;  // bound to one source; see the registry row
+  char buf[32];
+  get_source_data(DATA_SOURCE_TEMP_HIGH_LOW, buf, sizeof(buf), NULL);
+  GRect row = vga16_value_rect(box_rect, buf);
+  int total = strlen(buf);
+
+  // The left half's unit trail ends at the air cell; the right's closes the
+  // string. Zero-length spans collapse in draw_run, sentinel "-- --"
+  // included.
+  int u1_at = 0, u1_len = 0, u2_at = total, u2_len = 0;
+  char* space = strchr(buf, ' ');
+  if (space) {
+    *space = '\0';
+    trailing_unit_span(buf, &u1_at, &u1_len);
+    *space = ' ';
+  }
+  int tail_at = 0;
+  if (trailing_unit_span(space ? space + 1 : buf, &tail_at, &u2_len)) {
+    u2_at = (space ? (int)(space + 1 - buf) : 0) + tail_at;
+  }
+
+  GColor base = get_source_color(DATA_SOURCE_TEMP_HIGH_LOW);
+  draw_run(ctx, row, 0, buf, u1_at, base);
+  draw_run(ctx, row, u1_at, buf + u1_at, u1_len, s_active_theme->mark);
+  draw_run(ctx, row, u1_at + u1_len, buf + u1_at + u1_len, u2_at - u1_at - u1_len, base);
+  draw_run(ctx, row, u2_at, buf + u2_at, u2_len, s_active_theme->mark);
+  draw_run(ctx, row, u2_at + u2_len, buf + u2_at + u2_len, total - u2_at - u2_len, base);
+}
+
 // A date with its weekday picked out. Shared by the DATE window and the
 // year-less slot complication, which order their weekday the same way.
 static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {

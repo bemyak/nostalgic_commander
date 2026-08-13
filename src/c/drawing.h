@@ -67,6 +67,7 @@ void draw_battery_bar_complication(GContext* ctx, GRect box_rect, ComplicationDa
 void draw_steps_bar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_heart_rate_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_weather_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
+void draw_hi_lo_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_hum_pcp_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);

@@ -694,7 +694,9 @@ void test_temp_chip_should_color_shift_and_hint_the_unit(void) {
   TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
 }
 
-void test_high_low_chip_should_hint_the_trailing_unit(void) {
+void test_high_low_chip_should_hint_both_units(void) {
+  // Two extremes, two shortkey letters: each half's unit wears the mark,
+  // digits stay primary — same policy as the weather chip's condition+unit.
   s_complication_slots[0].source = DATA_SOURCE_TEMP_HIGH_LOW;
   s_settings_units = 1;
   s_temp_low = 11;
@@ -709,8 +711,38 @@ void test_high_low_chip_should_hint_the_trailing_unit(void) {
   mock_text_runs_reset();
   canvas_update_proc(NULL, NULL);
   GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "+11C +20C");
-  TEST_ASSERT_TRUE(row_has_run(row, "C", s_active_theme->mark));
-  TEST_ASSERT_TRUE(row_has_run(row, "+11C +20", s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(row_has_run(row, "+11", s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(row_has_run(row, " +20", s_active_theme->text_primary));
+  int marked_units = 0;
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.y == row.origin.y &&
+        mock_text_run_boxes[i].origin.x >= row.origin.x &&
+        mock_text_run_boxes[i].origin.x + mock_text_run_boxes[i].size.w <=
+            row.origin.x + row.size.w &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark) &&
+        strcmp(mock_text_runs[i], "C") == 0) {
+      marked_units++;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(2, marked_units);
+
+  // "-- --" has no letters to hint: the sentinel stays plain on the ground.
+  s_temp_high = -999;
+  s_temp_low = -999;
+  s_temp_high_tmrw = -999;
+  s_temp_low_tmrw = -999;
+  mock_text_runs_reset();
+  canvas_update_proc(NULL, NULL);
+  row = vga16_value_rect(s_complication_slots[0].box_rect, "-- --");
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (mock_text_run_boxes[i].origin.y == row.origin.y &&
+        mock_text_run_boxes[i].origin.x >= row.origin.x &&
+        mock_text_run_boxes[i].origin.x + mock_text_run_boxes[i].size.w <=
+            row.origin.x + row.size.w &&
+        gcolor_equal(mock_text_run_colors[i], s_active_theme->mark)) {
+      TEST_FAIL_MESSAGE("the HI/LO sentinel should stay plain");
+    }
+  }
 }
 
 void test_wind_chip_should_hint_the_unit_until_gale(void) {
@@ -3681,7 +3713,7 @@ int main(void) {
   RUN_TEST(test_humidity_chip_should_stay_plain);
   RUN_TEST(test_active_chip_should_hint_minutes);
   RUN_TEST(test_temp_chip_should_color_shift_and_hint_the_unit);
-  RUN_TEST(test_high_low_chip_should_hint_the_trailing_unit);
+  RUN_TEST(test_high_low_chip_should_hint_both_units);
   RUN_TEST(test_wind_chip_should_hint_the_unit_until_gale);
   RUN_TEST(test_weather_strip_should_hint_quiet_units);
   RUN_TEST(test_weather_strip_should_draw_the_condition_in_mark);
