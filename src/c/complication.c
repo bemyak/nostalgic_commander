@@ -145,12 +145,21 @@ static void fmt_uv(char* buf, int len, int* percent) {
   fmt_sentinel_reading(buf, len, s_weather_uv);
 }
 
+static void fmt_uv_now(char* buf, int len, int* percent) {
+  (void)percent;
+  fmt_sentinel_reading(buf, len, s_weather_uv_now);
+}
+
 static void fmt_aqi_uv(char* buf, int len, int* percent) {
   (void)percent;
   char aqi_str[8];
   char uv_str[8];
   fmt_sentinel_reading(aqi_str, sizeof(aqi_str), s_weather_aqi);
-  fmt_sentinel_reading(uv_str, sizeof(uv_str), s_weather_uv);
+  // Both halves are spot readings so the pair answers "should I go out right
+  // now" symmetrically — AQI is spot-valued from Open-Meteo's `current`, UV
+  // comes from the hourly bucket containing "now" via s_weather_uv_now. The
+  // 12h peak lives in the standalone UV complication.
+  fmt_sentinel_reading(uv_str, sizeof(uv_str), s_weather_uv_now);
   // Air joins the halves; the frame stubs carry the naming.
   snprintf(buf, len, "%s %s", aqi_str, uv_str);
 }
@@ -294,9 +303,19 @@ static const ComplicationSpec s_complication_specs[] = {
      .needs_weather = true},
     {.source = DATA_SOURCE_UV,
      .health_metric = HEALTH_METRIC_NONE,
-     .label = "UV",
+     .label = "UV HI",
      .format = fmt_uv,
      .backs = DATA_SOURCE_UV,
+     .draw = draw_banded_complication,
+     .needs_weather = true},
+    // Spot UV — not offered as a standalone Clay option (that stays the
+    // 12h peak); registered so draw_aqi_uv_complication can pull value and
+    // colour through the same atomic-source seam as any half.
+    {.source = DATA_SOURCE_UV_NOW,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "UV",
+     .format = fmt_uv_now,
+     .backs = DATA_SOURCE_UV_NOW,
      .draw = draw_banded_complication,
      .needs_weather = true},
     {.source = DATA_SOURCE_AQI_UV,

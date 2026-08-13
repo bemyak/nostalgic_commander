@@ -56,7 +56,8 @@
       "SETTINGS_DISCONNECT_VIBE",
       "WEATHER_WIND_DIRECTION",
       "WEATHER_WIND_SPEED",
-      "WEATHER_REQUEST"
+      "WEATHER_REQUEST",
+      "WEATHER_UV_NOW"
     ],
     "resources": {
       "media": [

@@ -68,6 +68,7 @@ static const MessageField s_weather_fields[] = {
     {&MESSAGE_KEY_WEATHER_COND, PERSIST_KEY_WEATHER_COND_CODE, &s_weather_cond_code, -1},
     {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1},
     {&MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, -1},
+    {&MESSAGE_KEY_WEATHER_UV_NOW, PERSIST_KEY_WEATHER_UV_NOW, &s_weather_uv_now, -1},
     {&MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY, &s_weather_humidity, -1},
     {&MESSAGE_KEY_WEATHER_WIND_DIRECTION, PERSIST_KEY_WEATHER_WIND_DIRECTION,
      &s_weather_wind_direction, -1},

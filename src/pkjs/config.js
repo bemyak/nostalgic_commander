@@ -20,7 +20,7 @@ var OPTION_LABELS = {
   30: 'Next High / Low temperatures',
   34: 'Wind',
   35: 'Humidity + Precipitation (next 12h max)',
-  18: 'AQI UV Index (next 12h max)',
+  18: 'AQI + UV Index (current)',
   23: 'Date',
   27: 'Full Weather',
   24: 'Steps Progress',
