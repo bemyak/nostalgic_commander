@@ -6,6 +6,20 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-17
+
+### Added
+
+- Weather forecast window setting: Now, 2, 8, 12 (default), or 24 hours. It
+  sizes the window the UV and precipitation probability maxima peak over.
+  The slot labels read "(window max)" instead of "(next 12h max)", since
+  12 hours is now a choice rather than a constant. Changing the setting
+  refetches weather immediately instead of waiting out the cached values.
+- Week Number complication in the bottom slots. ISO 8601 numbering, drawn
+  as `W34`; newlib has no strftime `%V`, so the watch computes it. The
+  year boundaries follow the spec: early January can read W52/W53 (last
+  week's number), late December can read W01.
+
 ## [1.5.0] - 2026-08-13
 
 ### Added
@@ -193,7 +207,8 @@ A full battery pass — the face:
 
 - Old tuiface store thumbnail — `screenshots/` covers store imagery.
 
-[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.3.1...v1.4.0
