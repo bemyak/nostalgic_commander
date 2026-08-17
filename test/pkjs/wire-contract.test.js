@@ -71,6 +71,8 @@ const EXPECTED_PERSIST = new Map([
   ['SETTINGS_DOW_POSITION', 'PERSIST_KEY_SETTINGS_DOW'],
   ['SETTINGS_DISCONNECT_VIBE', 'PERSIST_KEY_SETTINGS_DISCONNECT_VIBE'],
   ['SETTINGS_WEATHER_WINDOW', 'PERSIST_KEY_SETTINGS_WEATHER_WINDOW'],
+  ['SETTINGS_CRT', 'PERSIST_KEY_SETTINGS_CRT'],
+  ['SETTINGS_CRT_SOUND', 'PERSIST_KEY_SETTINGS_CRT_SOUND'],
   ['SLOT_1', 'PERSIST_KEY_SLOT_1'],
   ['SLOT_2', 'PERSIST_KEY_SLOT_2'],
   ['SLOT_3', 'PERSIST_KEY_SLOT_3'],
@@ -225,6 +227,8 @@ const EXPECTED_SETTINGS_OPTIONS = {
     ['1', 'After date (1970-12-31 THU)'],
     ['2', 'Hidden (1970-12-31)'],
   ],
+  SETTINGS_CRT: [['1', 'On'], ['0', 'Off']],
+  SETTINGS_CRT_SOUND: [['1', 'On'], ['0', 'Off']],
   SETTINGS_DISCONNECT_VIBE: [['1', 'On'], ['0', 'Off']],
   SETTINGS_WEATHER_WINDOW: [
     ['0', 'Now'],
@@ -247,7 +251,7 @@ test('every settings select offers exactly the pinned value ↔ label pairs', ()
   }
   assert.deepEqual(
       Object.keys(actual).sort(), Object.keys(EXPECTED_SETTINGS_OPTIONS).sort(),
-      'the seven settings selects drifted');
+      'the nine settings selects drifted');
   for (const [key, expected] of Object.entries(EXPECTED_SETTINGS_OPTIONS)) {
     assert.deepEqual(actual[key], expected, `option pair drift in ${key}`);
   }

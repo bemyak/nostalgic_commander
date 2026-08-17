@@ -38,6 +38,8 @@ uint32_t MESSAGE_KEY_SETTINGS_WEATHER_WINDOW = 134;
 uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION = 131;
 uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED = 132;
 uint32_t MESSAGE_KEY_WEATHER_REQUEST = 133;
+uint32_t MESSAGE_KEY_SETTINGS_CRT = 135;
+uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND = 136;
 
 // Implementations
 void app_event_loop(void) {}
@@ -84,11 +86,18 @@ AppMessageOutboxFailed app_message_register_outbox_failed(AppMessageOutboxFailed
   return failed_callback;
 }
 
+int mock_timer_register_count = 0;
+uint32_t mock_timer_last_ms = 0;
+AppTimerCallback mock_timer_callback = NULL;
 AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void* callback_data) {
-  (void)timeout_ms;
-  (void)callback;
   (void)callback_data;
-  return NULL;  // host tests drive retries by calling the callback directly
+  // Recorded, not scheduled: host tests fire delayed callbacks by calling
+  // mock_timer_callback(NULL) directly. The NULL return matches the SDK's
+  // pool-exhausted case; callers tolerate it (see main.c's weather retry).
+  mock_timer_register_count++;
+  mock_timer_last_ms = timeout_ms;
+  mock_timer_callback = callback;
+  return NULL;
 }
 bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms) {
   (void)timer;
@@ -97,6 +106,54 @@ bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms) {
 }
 void app_timer_cancel(AppTimer* timer) {
   (void)timer;
+}
+
+int mock_backlight_subscribe_count = 0;
+int mock_backlight_unsubscribe_count = 0;
+BacklightHandler mock_backlight_handler = NULL;
+void backlight_service_subscribe(BacklightHandler handler) {
+  mock_backlight_subscribe_count++;
+  mock_backlight_handler = handler;
+}
+void backlight_service_unsubscribe(void) {
+  mock_backlight_unsubscribe_count++;
+  mock_backlight_handler = NULL;
+}
+
+uint8_t mock_framebuffer[200 * 228];
+int mock_fb_capture_count = 0;
+int mock_fb_release_count = 0;
+static GBitmap s_mock_fb = {GRect(0, 0, 200, 228), mock_framebuffer};
+GBitmap* graphics_capture_frame_buffer(GContext* ctx) {
+  (void)ctx;
+  mock_fb_capture_count++;
+  return &s_mock_fb;
+}
+bool graphics_release_frame_buffer(GContext* ctx, GBitmap* buffer) {
+  (void)ctx;
+  mock_fb_release_count++;
+  return buffer == &s_mock_fb;
+}
+uint8_t* gbitmap_get_data(const GBitmap* bitmap) {
+  return bitmap->data;
+}
+GRect gbitmap_get_bounds(const GBitmap* bitmap) {
+  return bitmap->bounds;
+}
+
+bool mock_speaker_muted = false;
+int mock_speaker_play_notes_count = 0;
+uint32_t mock_speaker_last_num_notes = 0;
+uint8_t mock_speaker_last_volume = 0;
+bool speaker_play_notes(const SpeakerNote* notes, uint32_t num_notes, uint8_t volume) {
+  (void)notes;
+  mock_speaker_play_notes_count++;
+  mock_speaker_last_num_notes = num_notes;
+  mock_speaker_last_volume = volume;
+  return true;
+}
+bool speaker_is_muted(void) {
+  return mock_speaker_muted;
 }
 
 uint8_t mock_battery_percent = 100;
@@ -568,9 +625,11 @@ Layer* window_get_root_layer(const Window* window) {
   (void)window;
   return NULL;
 }
+int mock_window_set_bg_count = 0;
 void window_set_background_color(Window* window, GColor background_color) {
   (void)window;
   (void)background_color;
+  mock_window_set_bg_count++;
 }
 void window_set_window_handlers(Window* window, WindowHandlers handlers) {
   (void)window;
@@ -620,6 +679,20 @@ void mock_reset(void) {
   mock_tick_units = 0;
   mock_battery_subscribe_count = 0;
   mock_connection_subscribe_count = 0;
+  mock_backlight_subscribe_count = 0;
+  mock_backlight_unsubscribe_count = 0;
+  mock_backlight_handler = NULL;
+  mock_timer_register_count = 0;
+  mock_timer_last_ms = 0;
+  mock_timer_callback = NULL;
+  mock_fb_capture_count = 0;
+  mock_fb_release_count = 0;
+  mock_window_set_bg_count = 0;
+  mock_speaker_muted = false;
+  mock_speaker_play_notes_count = 0;
+  mock_speaker_last_num_notes = 0;
+  mock_speaker_last_volume = 0;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));  // opaque black glass
   mock_health_subscribe_count = 0;
   mock_unobstructed_subscribe_count = 0;
   mock_inbox_received_count = 0;

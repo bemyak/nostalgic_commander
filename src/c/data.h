@@ -123,6 +123,12 @@ extern int s_settings_date_format;
 extern int s_settings_short_date_format;
 extern int s_settings_dow_position;
 extern int s_settings_disconnect_vibe;
+// The CRT overlay (curvature + aberration + warm-up flash); 1 = on. Visual
+// only — it never changes what any slot monitors.
+extern int s_settings_crt;
+// The degauss sound at backlight-on; 1 = on, independent from the visual
+// toggle (s_settings_crt) — sound requires the visual strike to be on too.
+extern int s_settings_crt_sound;
 // Persisted like the other settings but read only phone-side: it sizes the
 // reduction window for the UV/PCP maxima, which happens before the wire.
 extern int s_settings_weather_window;

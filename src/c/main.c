@@ -5,12 +5,14 @@
 #include "theme.h"
 #include "drawing.h"
 #include "messaging.h"
+#include "crt.h"
 
 // The window, the canvas everything draws on, and the clock row — owned here,
 // with lifecycle. drawing.c/the drawers read the handles via drawing.h/main.h.
 Window* s_main_window = NULL;
 Layer* s_canvas_layer = NULL;
 TextLayer* s_time_layer = NULL;
+Layer* s_crt_layer = NULL;
 
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
 static GFont s_vga_16;
@@ -301,6 +303,12 @@ static void main_window_load(Window* window) {
   text_layer_set_font(s_time_layer, vga_font_64());
   layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
 
+  // Topmost: the CRT overlay draws over the clock too (a tube has no
+  // privileged pixels). It paints nothing while the setting is off.
+  s_crt_layer = layer_create(bounds);
+  layer_set_update_proc(s_crt_layer, crt_update_proc);
+  layer_add_child(window_layer, s_crt_layer);
+
   // Fresh layer tree: the next request_ui_redraw()/refresh_state() must apply
   // unconditionally, not match a previous layer tree's snapshot.
   reset_ui_snapshot();
@@ -316,6 +324,7 @@ static void main_window_load(Window* window) {
 static void main_window_unload(Window* window) {
   (void)window;
   text_layer_destroy(s_time_layer);
+  layer_destroy(s_crt_layer);
   layer_destroy(s_canvas_layer);
 }
 
@@ -336,6 +345,7 @@ static void init(void) {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   battery_state_service_subscribe(battery_callback);
+  backlight_service_subscribe(crt_backlight_handler);
   connection_service_subscribe(
       (ConnectionHandlers){.pebble_app_connection_handler = handle_bluetooth});
 #if defined(PBL_HEALTH)

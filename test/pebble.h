@@ -31,6 +31,14 @@ typedef struct {
   GSize size;
 } GRect;
 
+// Minimal GBitmap stand-in: enough of the real struct for framebuffer
+// capture — bounds for geometry, data for the pixel bytes the CRT shader
+// reads and rewrites.
+typedef struct GBitmap {
+  GRect bounds;
+  uint8_t* data;
+} GBitmap;
+
 #define GRect(x, y, w, h) ((GRect){{(x), (y)}, {(w), (h)}})
 #define GPoint(x, y) ((GPoint){(x), (y)})
 
@@ -63,6 +71,7 @@ typedef uint32_t GColor;
 #define GColorRajah 24
 #define GColorIcterine 25
 #define GColorDarkCandyAppleRed 26
+#define GColorCyan 27
 static inline GColor GColorFromRGB(int r, int g, int b) {
   (void)r;
   (void)g;
@@ -240,6 +249,8 @@ extern uint32_t MESSAGE_KEY_SETTINGS_WEATHER_WINDOW;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED;
 extern uint32_t MESSAGE_KEY_WEATHER_REQUEST;
+extern uint32_t MESSAGE_KEY_SETTINGS_CRT;
+extern uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND;
 
 // Handler typedefs and result types, spelled as the SDK umbrella header has
 // them so prototypes below can match the SDK verbatim.
@@ -249,6 +260,29 @@ typedef void (*AppMessageOutboxSent)(DictionaryIterator* iterator, void* context
 typedef void (*AppMessageOutboxFailed)(DictionaryIterator* iterator, AppMessageResult reason,
                                        void* context);
 typedef void (*AppTimerCallback)(void* data);
+typedef void (*BacklightHandler)(bool on);
+// Speaker API surface used by the CRT strike sound. LCD-types stay
+// child-sized: a note row and the waveforms the face picks among.
+#define PACKED
+
+typedef enum {
+  SpeakerWaveformSine = 0,
+  SpeakerWaveformSquare,
+  SpeakerWaveformTriangle,
+  SpeakerWaveformSawtooth,
+} SpeakerWaveform;
+
+typedef struct PACKED {
+  uint8_t midi_note;
+  uint8_t waveform;
+  uint16_t duration_ms;
+  uint8_t velocity;
+  uint8_t reserved;
+} SpeakerNote;
+
+bool speaker_play_notes(const SpeakerNote* notes, uint32_t num_notes, uint8_t volume);
+bool speaker_is_muted(void);
+
 typedef void (*BatteryStateHandler)(BatteryChargeState charge);
 typedef void (*HealthEventHandler)(HealthEventType event, void* context);
 typedef void (*TickHandler)(struct tm* tick_time, TimeUnits units_changed);
@@ -272,6 +306,12 @@ AppMessageOutboxFailed app_message_register_outbox_failed(AppMessageOutboxFailed
 AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void* callback_data);
 bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms);
 void app_timer_cancel(AppTimer* timer);
+void backlight_service_subscribe(BacklightHandler handler);
+void backlight_service_unsubscribe(void);
+GBitmap* graphics_capture_frame_buffer(GContext* ctx);
+bool graphics_release_frame_buffer(GContext* ctx, GBitmap* buffer);
+uint8_t* gbitmap_get_data(const GBitmap* bitmap);
+GRect gbitmap_get_bounds(const GBitmap* bitmap);
 BatteryChargeState battery_state_service_peek(void);
 void battery_state_service_subscribe(BatteryStateHandler handler);
 bool clock_is_24h_style(void);
@@ -352,6 +392,25 @@ extern int mock_battery_subscribe_count;
 extern int mock_connection_subscribe_count;
 extern int mock_health_subscribe_count;
 extern int mock_unobstructed_subscribe_count;
+extern int mock_backlight_subscribe_count;
+extern int mock_backlight_unsubscribe_count;
+// The last handler registered; tests drive backlight transitions through it.
+extern BacklightHandler mock_backlight_handler;
+// app_timer_register records its last call so tests can fire a delayed
+// callback manually: invoke mock_timer_callback(NULL) and assert the timeout.
+extern int mock_timer_register_count;
+extern uint32_t mock_timer_last_ms;
+extern AppTimerCallback mock_timer_callback;
+// The mock screen: capture/_release wrap this buffer, tests stage into and
+// assert out of it. GColor8 bytes, row-major, 200x228 like the glass.
+extern uint8_t mock_framebuffer[200 * 228];
+extern int mock_fb_capture_count;
+extern int mock_fb_release_count;
+extern int mock_window_set_bg_count;
+extern bool mock_speaker_muted;
+extern int mock_speaker_play_notes_count;
+extern uint32_t mock_speaker_last_num_notes;
+extern uint8_t mock_speaker_last_volume;
 extern int mock_inbox_received_count;
 extern int mock_inbox_dropped_count;
 extern int mock_outbox_sent_count;

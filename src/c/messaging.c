@@ -3,6 +3,7 @@
 #include "data.h"
 #include "complication.h"
 #include "main.h"
+#include "crt.h"
 
 // Data flow, phone → watch: the watch sends a trigger AppMessage (launch
 // with a stale cache, the :00/:30 tick, a settings push that newly needs
@@ -101,6 +102,8 @@ static const MessageField s_settings_fields[] = {
      &s_settings_disconnect_vibe, 0},
     {&MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, PERSIST_KEY_SETTINGS_WEATHER_WINDOW,
      &s_settings_weather_window, 0},
+    {&MESSAGE_KEY_SETTINGS_CRT, PERSIST_KEY_SETTINGS_CRT, &s_settings_crt, 0},
+    {&MESSAGE_KEY_SETTINGS_CRT_SOUND, PERSIST_KEY_SETTINGS_CRT_SOUND, &s_settings_crt_sound, 0},
 };
 
 // The slot persist keys are deliberately not sequential (SLOT_6 landed after
@@ -209,6 +212,11 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     if (s_settings_fields[i].target == &s_settings_weather_window &&
         *s_settings_fields[i].target != old) {
       window_changed = true;
+    }
+    // The CRT overlay repaints outside the canvas's snapshot gate, so a toggle
+    // needs its own dirty-mark (units/window only schedule fetches).
+    if (s_settings_fields[i].target == &s_settings_crt && *s_settings_fields[i].target != old) {
+      crt_apply_setting_change();
     }
     persist_write_int_if_changed(s_settings_fields[i].persist_key, *s_settings_fields[i].target);
   }

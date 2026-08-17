@@ -6,7 +6,7 @@ FORMAT_SRCS = $(wildcard src/c/*.c src/c/*.h) \
               $(wildcard test/pkjs/*.js) \
               test/test_watchface.c test/pebble_mock.c test/pebble.h
 
-.PHONY: format format-check test test-js build visual-check visual-baseline
+.PHONY: format format-check test test-js build screenshots visual-check visual-baseline
 
 format:
 	clang-format -i $(FORMAT_SRCS)
@@ -24,6 +24,10 @@ test-js:
 # Requires the pebble tool on PATH (SDK auto-resolves under ~/.pebble-sdk).
 build: format-check
 	pebble build
+
+# Store captures: five scripted emulator screenshots under screenshots/.
+screenshots:
+	tools/update_screenshots.sh
 
 # --- Visual gate ------------------------------------------------------------
 # Pixel-gates the rendered face against a committed capture: build, launch on

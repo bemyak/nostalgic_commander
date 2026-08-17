@@ -8,6 +8,7 @@
 #include "../src/c/status.c"
 #include "../src/c/drawing.c"
 #include "../src/c/messaging.c"
+#include "../src/c/crt.c"
 #include "../src/c/main.c"
 
 void tearDown(void) {}
@@ -45,6 +46,8 @@ static void reset_all_state(void) {
   s_settings_dow_position = 0;
   s_settings_disconnect_vibe = 1;
   s_settings_weather_window = 12;
+  s_settings_crt = 0;
+  s_settings_crt_sound = 0;
 
   s_battery_level = 100;
   s_battery_charging = false;
@@ -77,6 +80,8 @@ static void reset_all_state(void) {
   s_fmt_short = -1;
 
   s_shown_time[0] = '\0';
+  s_flash_phase = CRT_FLASH_IDLE;
+  s_crt_layer = NULL;
   s_canvas_layer = NULL;
   s_main_window = NULL;
   s_time_layer = NULL;
@@ -3513,6 +3518,7 @@ void test_init_should_subscribe_services(void) {
   TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_connection_subscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_health_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
 }
 
 void test_init_should_register_appmessage_handlers(void) {
@@ -3738,6 +3744,271 @@ void test_inbox_should_land_every_field_of_a_full_weather_payload(void) {
   TEST_ASSERT_EQUAL_INT(4, s_lo_hour_tmrw);
 }
 
+// --- CRT shader (crt.c) ------------------------------------------------------
+
+// The mock GContext is opaque by design; the capture mock ignores it, so the
+// tests pass any stable pointer.
+static char s_fake_ctx_storage;
+static GContext* s_fake_ctx = (GContext*)&s_fake_ctx_storage;
+
+void test_crt_should_not_capture_the_framebuffer_while_disabled(void) {
+  s_settings_crt = 0;
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[0]);  // untouched
+}
+
+void test_crt_should_round_the_corners_and_keep_the_centre(void) {
+  s_settings_crt = 1;
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));  // opaque white
+  crt_update_proc(NULL, s_fake_ctx);
+
+  TEST_ASSERT_EQUAL_INT(1, mock_fb_capture_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_fb_release_count);
+
+  // Corner pixels: the arc's "outside" clamps to black..
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[0]);          // (0,0)
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[199]);        // (199,0)
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * 200]);  // (0,227)
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * 200 + 199]);
+
+  // Centre pixel: untouched white (vignette full, CA zero, warp identity).
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * 200 + 100]);
+}
+
+void test_crt_vignette_should_dither_the_falloff(void) {
+  s_settings_crt = 1;
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
+  crt_update_proc(NULL, s_fake_ctx);
+
+  // Mid-falloff strip (y=113, x=3..10): neighbour columns reach different
+  // quantized levels because the Bayer thresholds modulate the rounding — a
+  // banded ramp would paint one flat value per width band.
+  uint8_t* row = &mock_framebuffer[113 * 200];
+  bool saw_step = false;
+  for (int x = 4; x < 11; x++) {
+    if (row[x] != row[x - 1]) saw_step = true;
+  }
+  TEST_ASSERT_TRUE(saw_step);
+  // All rim pixels keep opaque alpha; the bulk darken (Bayer rounding can
+  // legitimately wave a borderline pixel back to full white at t=15).
+  int darkened = 0;
+  for (int x = 2; x < 11; x++) {
+    TEST_ASSERT_EQUAL_HEX8(0xC0, row[x] & 0xC0);
+    if ((row[x] & 0x3F) < 0x3F) darkened++;
+  }
+  TEST_ASSERT_TRUE(darkened >= 7);
+}
+
+void test_crt_ca_should_pull_red_from_the_left(void) {
+  s_settings_crt = 1;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));  // opaque black
+  // A lone red pixel in the CA zone; at (180, 110) the shift is 1: dest(180)
+  // resamples its red channel from (179) — the colour shears one px over the
+  // void, and the now-empty source spot stays resampled black.
+  mock_framebuffer[110 * 200 + 179] = 0xF0;  // opaque red
+  crt_update_proc(NULL, s_fake_ctx);
+
+  uint8_t* row = &mock_framebuffer[110 * 200];
+  TEST_ASSERT_TRUE(crt_ca_shift(180, 110, 200, 228) > 0);
+  TEST_ASSERT_EQUAL_HEX8(3, (row[180] >> 4) & 3);  // R pulled in from the left
+  TEST_ASSERT_EQUAL_HEX8(0, (row[180] >> 2) & 3);  // ...while G and B stay black
+  TEST_ASSERT_EQUAL_HEX8(0, row[180] & 3);
+  TEST_ASSERT_EQUAL_HEX8(0xC0, row[179]);  // vacated: dest(179)'s R came from (178)
+}
+
+void test_crt_warp_should_pull_the_top_row_inward(void) {
+  // Row 20: exactly at the vignette's d=20 boundary (full brightness), and
+  // the inset is 3px there. White stripes at columns 54..63 and the mirrored
+  // 136..145: the warp pulls their outer edge pixels off the stripes while
+  // their centres survive (CA is white-transparent well inside a stripe).
+  s_settings_crt = 1;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int x = 54; x <= 63; x++) mock_framebuffer[20 * 200 + x] = 0xFF;
+  for (int x = 136; x <= 145; x++) mock_framebuffer[20 * 200 + x] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+
+  TEST_ASSERT_TRUE(crt_warp_inset(20, 228) >= 3);
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[20 * 200 + 56]);  // stripe centre
+  TEST_ASSERT_TRUE(mock_framebuffer[20 * 200 + 54] != 0xFF);      // left edge pulled in
+  TEST_ASSERT_TRUE(mock_framebuffer[20 * 200 + 145] != 0xFF);     // right edge, mirroring
+}
+
+void test_crt_pure_geometry_should_match_the_spec(void) {
+  // Warp: max inset at the extreme rows, none in the middle.
+  TEST_ASSERT_EQUAL_INT(CRT_WARP_MAX_PX, crt_warp_inset(0, 228));
+  TEST_ASSERT_EQUAL_INT(CRT_WARP_MAX_PX, crt_warp_inset(227, 228));
+  TEST_ASSERT_EQUAL_INT(0, crt_warp_inset(113, 228));
+
+  // CA: zero at the centre, full shift at the corners, monotone along x.
+  TEST_ASSERT_EQUAL_INT(0, crt_ca_shift(100, 113, 200, 228));
+  TEST_ASSERT_EQUAL_INT(CRT_CA_MAX_SHIFT, crt_ca_shift(0, 0, 200, 228));
+  TEST_ASSERT_EQUAL_INT(CRT_CA_MAX_SHIFT, crt_ca_shift(199, 227, 200, 228));
+  TEST_ASSERT_TRUE(crt_ca_shift(190, 113, 200, 228) >= crt_ca_shift(160, 113, 200, 228));
+
+  // Vignette: black boundary, full brightness outside the depth, rising
+  // inward — smoothstep midpoint (x=6 of 12) sits below the half-way mark.
+  TEST_ASSERT_EQUAL_INT(0, crt_vignette_q8(0, 113, 200, 228));
+  TEST_ASSERT_EQUAL_INT(256, crt_vignette_q8(CRT_VIGNETTE_PX, 113, 200, 228));
+  TEST_ASSERT_EQUAL_INT(256, crt_vignette_q8(100, 113, 200, 228));
+  int mid = crt_vignette_q8(CRT_VIGNETTE_PX / 2, 113, 200, 228);
+  TEST_ASSERT_TRUE(mid > 0 && mid < 160);
+}
+
+void test_crt_strike_should_jitter_rows_and_decay(void) {
+  // Idle: no jitter anywhere.
+  for (int y = 0; y < 228; y++) TEST_ASSERT_EQUAL_INT(0, crt_strike_offset(y, CRT_FLASH_IDLE));
+  TEST_ASSERT_EQUAL_INT(0, crt_strike_offset(42, CRT_FLASH_PHASES));
+
+  for (int phase = 0; phase < CRT_FLASH_PHASES; phase++) {
+    int amp = 0;
+    bool saw_flip = false;
+    int prev = crt_strike_offset(0, phase);
+    for (int y = 0; y < 228; y++) {
+      int off = crt_strike_offset(y, phase);
+      if (abs(off) > amp) amp = abs(off);
+      if (prev * off < 0) saw_flip = true;  // rows jitter in both directions
+      prev = off;
+      // Deterministic per (y, phase).
+      TEST_ASSERT_EQUAL_INT(off, crt_strike_offset(y, phase));
+    }
+    TEST_ASSERT_EQUAL_INT(s_strike_amp_px[phase], amp);
+    TEST_ASSERT_TRUE(saw_flip);
+    // Non-increasing decay overall; plateaus are fine (smoother steps).
+    if (phase > 0) TEST_ASSERT_TRUE(amp <= s_strike_amp_px[phase - 1]);
+  }
+  TEST_ASSERT_TRUE(s_strike_amp_px[0] > s_strike_amp_px[CRT_FLASH_PHASES - 1]);
+}
+
+void test_crt_strike_should_slide_rows_and_boost_ca(void) {
+  s_settings_crt = 1;
+  s_flash_phase = 0;  // amp 6, CA boost 3
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  // A white bar through the strike zone: cols 50..90 on row 60. Both the
+  // warp (1px) and vignette (well above 16) leave it alone; only the strike
+  // moves it, plus CA-from-boosted neighbours bleeding at the edges.
+  int y = 60;
+  for (int x = 50; x <= 90; x++) mock_framebuffer[y * 200 + x] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+
+  // Bar interior survives every offset; far flank stays void.
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[y * 200 + 70]);
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[y * 200 + 30]);
+
+  // The bar's centroid follows crt_strike_offset's row shift.
+  int off = crt_strike_offset(y, 0);
+  int first = -1, last = -1;
+  for (int x = 30; x < 120; x++) {
+    if (mock_framebuffer[y * 200 + x] != 0xC0) {
+      if (first < 0) first = x;
+      last = x;
+    }
+  }
+  int centroid = (first + last) / 2;
+  TEST_ASSERT_INT_WITHIN(2, 70 - off, centroid);
+}
+
+void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
+  s_settings_crt = 1;
+
+  crt_backlight_handler(true);  // sound toggle off: nothing
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_notes_count);
+
+  s_settings_crt_sound = 1;
+  mock_speaker_muted = true;  // system mute / Quiet Time wins
+  crt_backlight_handler(true);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_notes_count);
+
+  mock_speaker_muted = false;
+  crt_backlight_handler(true);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_notes_count);
+  TEST_ASSERT_EQUAL_UINT(sizeof(s_strike_notes) / sizeof(SpeakerNote), mock_speaker_last_num_notes);
+  TEST_ASSERT_EQUAL_UINT8(70, mock_speaker_last_volume);
+}
+
+void test_crt_strike_notes_should_form_a_falling_woomp(void) {
+  // The woomp runs inside the strike's decay window: 250-400ms after the
+  // opener. Its hum notes fall in pitch and only lose amplitude.
+  unsigned total = 0;
+  int n = sizeof(s_strike_notes) / sizeof(SpeakerNote);
+  for (int i = 0; i < n; i++) total += s_strike_notes[i].duration_ms;
+  TEST_ASSERT_TRUE(total >= 250 && total <= 400);
+  for (int i = 2; i < n; i++) {
+    TEST_ASSERT_TRUE(s_strike_notes[i].midi_note < s_strike_notes[i - 1].midi_note);
+    TEST_ASSERT_TRUE(s_strike_notes[i].velocity <= s_strike_notes[i - 1].velocity);
+  }
+}
+
+void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
+  mock_mark_dirty_count = 0;
+
+  crt_backlight_handler(false);  // backlight turning off starts nothing
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+
+  crt_backlight_handler(true);  // toggle off starts nothing
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+
+  s_settings_crt = 1;
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  crt_backlight_handler(true);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(1, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_UINT32(CRT_FLASH_TICK_MS, mock_timer_last_ms);
+  TEST_ASSERT_NOT_NULL(mock_timer_callback);
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > 0);
+
+  // Drive the re-arming tick chain to completion; the chain must stop.
+  int frames = 0;
+  while (s_flash_phase != CRT_FLASH_IDLE) {
+    mock_timer_callback(NULL);
+    frames++;
+    TEST_ASSERT_TRUE(frames <= CRT_FLASH_PHASES);  // no lost idle edge
+  }
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES, frames);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES, mock_timer_register_count);
+}
+
+void test_crt_setting_push_should_redraw_the_overlay(void) {
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT, 1);
+  mock_mark_dirty_count = 0;
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt);
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT));
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > 0);
+
+  // A repeat push with the same value keeps the overlay paint budget flat.
+  mock_mark_dirty_count = 0;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
+}
+
+void test_crt_toggle_off_should_force_a_full_repaint(void) {
+  // The shader's pixels live in the shared framebuffer; marking only the
+  // overlay dirty would leave them standing until the next minute render.
+  // Toggling off re-applies the window background, dirtying the whole tree.
+  // The mock's window_create returns NULL; the branch under test needs a
+  // non-null window.
+  static char fake_window;
+  s_main_window = (Window*)&fake_window;
+  s_settings_crt = 1;
+  mock_window_set_bg_count = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_EQUAL_INT(0, mock_window_set_bg_count);  // on: overlay mark only
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT, 0);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_TRUE(mock_window_set_bg_count > 0);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_render_gate_should_go_silent_when_nothing_changes);
@@ -3896,5 +4167,18 @@ int main(void) {
   RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
   RUN_TEST(test_mock_geometry_should_truncate_at_device_width);
   RUN_TEST(test_mock_persist_should_keep_distant_keys_independent);
+  RUN_TEST(test_crt_should_not_capture_the_framebuffer_while_disabled);
+  RUN_TEST(test_crt_should_round_the_corners_and_keep_the_centre);
+  RUN_TEST(test_crt_vignette_should_dither_the_falloff);
+  RUN_TEST(test_crt_ca_should_pull_red_from_the_left);
+  RUN_TEST(test_crt_warp_should_pull_the_top_row_inward);
+  RUN_TEST(test_crt_pure_geometry_should_match_the_spec);
+  RUN_TEST(test_crt_strike_should_jitter_rows_and_decay);
+  RUN_TEST(test_crt_strike_should_slide_rows_and_boost_ca);
+  RUN_TEST(test_crt_sound_should_play_only_when_enabled_and_unmuted);
+  RUN_TEST(test_crt_strike_notes_should_form_a_falling_woomp);
+  RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);
+  RUN_TEST(test_crt_setting_push_should_redraw_the_overlay);
+  RUN_TEST(test_crt_toggle_off_should_force_a_full_repaint);
   return UNITY_END();
 }

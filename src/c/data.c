@@ -58,6 +58,8 @@ int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default), 0 = silenced
 int s_settings_weather_window = 12;    // hours ahead; 0 = in-progress hour only ("Now")
+int s_settings_crt = 0;                // 1 = CRT effect on (off by default)
+int s_settings_crt_sound = 0;          // 1 = degauss sound at backlight-on (off by default)
 
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
     [SLOT_IDX_TOP_LEFT] = {.box_rect = SLOT_RECT_TOP_LEFT, .source = DATA_SOURCE_WEATHER},

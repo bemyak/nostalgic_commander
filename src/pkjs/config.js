@@ -80,6 +80,10 @@ module.exports = [
                      ['1', 'Turbo Vision (light grey)'], ['2', 'Norton (EGA blue)'],
                      ['3', 'Dark (black)'], ['4', 'Navigator (dark grey)']
                    ])),
+            select('SETTINGS_CRT', 'CRT effect', '0', labeledOptions([['1', 'On'], ['0', 'Off']])),
+            select(
+                'SETTINGS_CRT_SOUND', 'CRT degauss sound', '0',
+                labeledOptions([['1', 'On'], ['0', 'Off']])),
             select(
                 'SETTINGS_UNITS', 'Units', '0',
                 labeledOptions([['0', 'Imperial'], ['1', 'Metric']])),

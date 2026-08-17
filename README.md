@@ -19,13 +19,16 @@ pipeline, test harness, much of the runtime — is upstream's work. See
 
 ## Gallery
 
-| Norton | Turbo Vision | Dark |
+| Minimal | Time & system | Weather |
 |---|---|---|
-| ![Norton](screenshots/01_theme_ega.png) | ![Turbo Vision](screenshots/02_theme_dialog.png) | ![Dark](screenshots/03_theme_shadow.png) |
+| ![Minimal layout](screenshots/00_minimal.png) | ![Time and system complications](screenshots/01_time_system.png) | ![Weather complications](screenshots/02_weather.png) |
 
-| Complication combo | | Minimal layout |
-|---|---|---|
-| ![Complication layout A](screenshots/04_config1.png) | ![Complication layout B](screenshots/05_config2.png) | ![Minimal](screenshots/06_minimal.png) |
+| Dark | Navigator |
+|---|---|
+| ![Dark theme](screenshots/04_theme_dark.png) | ![Navigator theme](screenshots/05_theme_navigator.png) |
+
+The captures are scripted: `make screenshots` rebuilds all of them from the
+emulator (`tools/update_screenshots.sh`).
 
 ## Features
 
