@@ -29,6 +29,7 @@ typedef enum {
   DATA_SOURCE_BT_QT = 32,
   DATA_SOURCE_WIND = 34,
   DATA_SOURCE_HUM_PCP = 35,
+  DATA_SOURCE_WEEK_NUMBER = 33,
   // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES), 33 (ARROWS font test).
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
@@ -103,6 +104,7 @@ extern bool s_quick_view_active;
 
 extern int s_date_day;
 extern int s_beats;
+extern int s_week_number;
 
 // The date as last formatted by refresh_state(); drawn on the canvas so the
 // weekday can carry its own color. The short form drops the year so it fits a
@@ -121,6 +123,9 @@ extern int s_settings_date_format;
 extern int s_settings_short_date_format;
 extern int s_settings_dow_position;
 extern int s_settings_disconnect_vibe;
+// Persisted like the other settings but read only phone-side: it sizes the
+// reduction window for the UV/PCP maxima, which happens before the wire.
+extern int s_settings_weather_window;
 
 // Face geometry (margins, slot rects, TIME window, clock layer) lives in
 // layout.h.
@@ -196,4 +201,5 @@ typedef enum {
 // is also the signal not to accent it.
 int date_dow_offset(int dow_position, const char* formatted);
 int compute_beats(time_t utc);
+int iso_week_number(int year, int yday, int wday);
 void to_upper_str(char* str);

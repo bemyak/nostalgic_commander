@@ -44,6 +44,7 @@ static void reset_all_state(void) {
   s_settings_short_date_format = 0;
   s_settings_dow_position = 0;
   s_settings_disconnect_vibe = 1;
+  s_settings_weather_window = 12;
 
   s_battery_level = 100;
   s_battery_charging = false;
@@ -61,6 +62,7 @@ static void reset_all_state(void) {
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_date_day = 10;
   s_beats = 0;
+  s_week_number = 1;
   s_date_display[0] = '\0';
   s_short_date_display[0] = '\0';
   s_quick_view_active = false;
@@ -897,6 +899,7 @@ void test_get_source_label_should_return_correct_labels(void) {
   TEST_ASSERT_EQUAL_STRING("HUM", get_source_label(DATA_SOURCE_HUMIDITY));
   TEST_ASSERT_EQUAL_STRING("PCP", get_source_label(DATA_SOURCE_WEATHER_PCP));
   TEST_ASSERT_EQUAL_STRING("BEAT", get_source_label(DATA_SOURCE_BEATS));
+  TEST_ASSERT_EQUAL_STRING("WEEK", get_source_label(DATA_SOURCE_WEEK_NUMBER));
   // Both date sources title the same window; one shows the day, one the date.
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_DATE));
   TEST_ASSERT_EQUAL_STRING("DATE", get_source_label(DATA_SOURCE_SHORT_DATE));
@@ -913,7 +916,7 @@ void test_registry_rows_should_be_unique_and_resolve(void) {
   // resolves to a row with a real formatter. EMPTY is the one source allowed
   // to format nothing at all.
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
-  TEST_ASSERT_EQUAL_INT(27, count);  // one row per live enum value
+  TEST_ASSERT_EQUAL_INT(28, count);  // one row per live enum value
   for (int i = 0; i < count; i++) {
     const ComplicationSpec* row = &s_complication_specs[i];
     TEST_ASSERT_NOT_NULL(row->label);
@@ -2136,6 +2139,32 @@ void test_compute_beats_should_map_the_bmt_day_to_0_999(void) {
   TEST_ASSERT_EQUAL_INT(763, compute_beats(1785000000));  // no overflow at modern timestamps
 }
 
+void test_iso_week_number_should_be_exact_iso_8601(void) {
+  // Vectors verified against a reference calendar: year, 0-based yday, wday
+  // (Sunday = 0) → week. The boundary rows are the ragged edge of ISO: early
+  // January can be W52/W53 'of last year', late December W01 'of next year'.
+  TEST_ASSERT_EQUAL_INT(53, iso_week_number(2021, 0, 5));    // 2021-01-01 Fri
+  TEST_ASSERT_EQUAL_INT(53, iso_week_number(2020, 365, 4));  // 2020-12-31 Thu (leap, W53 year)
+  TEST_ASSERT_EQUAL_INT(52, iso_week_number(2019, 362, 0));  // 2019-12-29 Sun
+  TEST_ASSERT_EQUAL_INT(1, iso_week_number(2019, 363, 1));   // 2019-12-30 Mon → W01/2020
+  TEST_ASSERT_EQUAL_INT(1, iso_week_number(2020, 0, 3));     // 2020-01-01 Wed
+  TEST_ASSERT_EQUAL_INT(53, iso_week_number(2015, 364, 4));  // 2015-12-31 Thu
+  TEST_ASSERT_EQUAL_INT(53, iso_week_number(2016, 0, 5));    // 2016-01-01 Fri → W53/2015
+  TEST_ASSERT_EQUAL_INT(52, iso_week_number(2017, 0, 0));    // 2017-01-01 Sun → W52/2016
+  TEST_ASSERT_EQUAL_INT(1, iso_week_number(2018, 364, 1));   // 2018-12-31 Mon → W01/2019
+  TEST_ASSERT_EQUAL_INT(52, iso_week_number(2018, 363, 0));  // 2018-12-30 Sun
+  TEST_ASSERT_EQUAL_INT(34, iso_week_number(2026, 228, 1));  // mid-year sanity
+  TEST_ASSERT_EQUAL_INT(1, iso_week_number(2004, 0, 4));     // 2004-01-01 Thu: Jan 1 in W01
+  TEST_ASSERT_EQUAL_INT(53, iso_week_number(2009, 361, 1));  // Thu-year, W53 though not Dec-31
+}
+
+void test_get_source_data_should_format_the_iso_week(void) {
+  s_week_number = 7;
+  char buf[8];
+  get_source_data(DATA_SOURCE_WEEK_NUMBER, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("W07", buf);
+}
+
 void test_get_source_data_should_format_beats(void) {
   char buf[16];
   int percent = -1;
@@ -3226,6 +3255,29 @@ void test_inbox_units_change_should_trigger_weather_refetch(void) {
   TEST_ASSERT_EQUAL_INT(writes, mock_outbox_write_count());
 }
 
+void test_inbox_weather_window_change_should_trigger_weather_refetch(void) {
+  mock_persist_reset();
+
+  // 12h -> 2h: the phone's reduction window changed, so the maxima must be
+  // re-asked, not wait for the :00/:30 tick.
+  s_settings_weather_window = 12;
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, "2");
+  int before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(2, s_settings_weather_window);
+  TEST_ASSERT_EQUAL_INT(2, persist_read_int(PERSIST_KEY_SETTINGS_WEATHER_WINDOW));
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
+
+  // Same window again: no refetch
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, "2");
+  before = mock_outbox_sends;
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
+}
+
 void test_refresh_state_should_never_request_weather(void) {
   // Regression for the :00/:30 feedback loop: every weather reply ends in
   // refresh_state(); when the fetch trigger lived there, each reply re-armed
@@ -3768,6 +3820,8 @@ int main(void) {
   RUN_TEST(test_high_low_stub_order_should_follow_the_layout);
   RUN_TEST(test_hi_lo_captions_should_centre_over_the_strip_halves);
   RUN_TEST(test_compute_beats_should_map_the_bmt_day_to_0_999);
+  RUN_TEST(test_iso_week_number_should_be_exact_iso_8601);
+  RUN_TEST(test_get_source_data_should_format_the_iso_week);
   RUN_TEST(test_get_source_data_should_format_beats);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
@@ -3812,6 +3866,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
   RUN_TEST(test_inbox_should_parse_and_persist_disconnect_vibe_setting);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
+  RUN_TEST(test_inbox_weather_window_change_should_trigger_weather_refetch);
   RUN_TEST(test_refresh_state_should_never_request_weather);
   RUN_TEST(test_request_weather_should_send_exactly_the_trigger_key);
   RUN_TEST(test_refresh_state_should_refresh_the_hi_lo_phase_hour);

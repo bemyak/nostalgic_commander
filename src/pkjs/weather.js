@@ -1,9 +1,10 @@
 'use strict';
 
-// The UV complication shows the peak over the coming window, not a calendar
-// day max (which is mostly about the past by evening) and not the instant
-// value (which reads 0 whenever the sun is low). PCP rides the same window.
-var UV_WINDOW_HOURS = 12;
+// The UV and PCP complications show the peak over the coming window, not a
+// calendar day max (which is mostly about the past by evening) and not the
+// instant value (which reads 0 whenever the sun is low). How wide the window
+// is, is a setting; this is its shipped default.
+var DEFAULT_WINDOW_HOURS = 12;
 
 // One row per value the watch consumes. The AppMessage dict, the sentinel
 // fallback for anything unparsable, and the cached-payload completeness check
@@ -83,10 +84,22 @@ function unitsFromClaySettings(settings) {
 // here instead of becoming a bogus reading.)
 function num(value) { return typeof value === 'number' && isFinite(value) ? value : undefined; }
 
+// The forecast-window select ships hours as strings; 0 is the page's "Now".
+// Before the first settings save the key is absent, so: shipped default. A
+// value off the select (a hand-edited store) parses or falls back.
+function windowHoursFromClaySettings(settings) {
+  var raw = settings ? settings['SETTINGS_WEATHER_WINDOW'] : undefined;
+  if (raw === undefined) return DEFAULT_WINDOW_HOURS;
+  var hours = parseInt(raw, 10);
+  return isNaN(hours) ? DEFAULT_WINDOW_HOURS : hours;
+}
+
 // Parse one Open-Meteo forecast response into a complete payload: every
 // WEATHER_FIELDS key present, unparsable values at their sentinel. `nowMs`
-// pins "now" for the UV/PCP window (tests pass a fixed instant).
-function parseForecast(json, nowMs) {
+// pins "now" for the UV/PCP window (tests pass a fixed instant);
+// `windowHours` sizes it — 0 reads the in-progress hour alone.
+function parseForecast(json, nowMs, windowHours) {
+  if (windowHours === undefined) windowHours = DEFAULT_WINDOW_HOURS;
   var out = sentinelPayload();
   var current = json.current || {};
 
@@ -114,7 +127,7 @@ function parseForecast(json, nowMs) {
     // The API nulls probability where no precip is forecast at all, so a
     // window of nulls still reads "no data".
     var windowStart = nowMs - 3600 * 1000;
-    var windowEnd = nowMs + UV_WINDOW_HOURS * 3600 * 1000;
+    var windowEnd = nowMs + windowHours * 3600 * 1000;
     var uvArr = hourly.uv_index || [];
     var pcpArr = hourly.precipitation_probability || [];
     for (var i = 0; i < hourly.time.length; i++) {
@@ -196,7 +209,8 @@ function parseAqi(json) {
 
 module.exports = {
   WEATHER_FIELDS : WEATHER_FIELDS,
-  UV_WINDOW_HOURS : UV_WINDOW_HOURS,
+  DEFAULT_WINDOW_HOURS : DEFAULT_WINDOW_HOURS,
+  windowHoursFromClaySettings : windowHoursFromClaySettings,
   sentinelPayload : sentinelPayload,
   isCompleteWeatherPayload : isCompleteWeatherPayload,
   WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,

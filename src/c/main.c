@@ -131,6 +131,8 @@ void refresh_state(void) {
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
   s_beats = compute_beats(temp);
+  s_week_number =
+      iso_week_number(tick_time->tm_year + 1900, tick_time->tm_yday, tick_time->tm_wday);
 
   static char s_time_buffer[8];
   strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M",

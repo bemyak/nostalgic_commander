@@ -99,6 +99,8 @@ static const MessageField s_settings_fields[] = {
     {&MESSAGE_KEY_SETTINGS_DOW_POSITION, PERSIST_KEY_SETTINGS_DOW, &s_settings_dow_position, 0},
     {&MESSAGE_KEY_SETTINGS_DISCONNECT_VIBE, PERSIST_KEY_SETTINGS_DISCONNECT_VIBE,
      &s_settings_disconnect_vibe, 0},
+    {&MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, PERSIST_KEY_SETTINGS_WEATHER_WINDOW,
+     &s_settings_weather_window, 0},
 };
 
 // The slot persist keys are deliberately not sequential (SLOT_6 landed after
@@ -191,9 +193,11 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   }
 
   // Settings: Clay sends strings; tuple_get_int() accepts those and ints.
-  // Units is the one receipt with an immediate follow-up — the weather feed
-  // has to be re-asked in the new unit — so it's flagged on the way past.
+  // Units and the forecast window are the receipts with an immediate
+  // follow-up — both change what the phone's reduction computes — so they're
+  // flagged on the way past.
   bool units_changed = false;
+  bool window_changed = false;
   for (unsigned i = 0; i < sizeof(s_settings_fields) / sizeof(s_settings_fields[0]); i++) {
     Tuple* tuple = dict_find(iterator, *s_settings_fields[i].message_key);
     if (!tuple) continue;
@@ -201,6 +205,10 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     *s_settings_fields[i].target = tuple_get_int(tuple);
     if (s_settings_fields[i].target == &s_settings_units && *s_settings_fields[i].target != old) {
       units_changed = true;
+    }
+    if (s_settings_fields[i].target == &s_settings_weather_window &&
+        *s_settings_fields[i].target != old) {
+      window_changed = true;
     }
     persist_write_int_if_changed(s_settings_fields[i].persist_key, *s_settings_fields[i].target);
   }
@@ -220,10 +228,10 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int_if_changed(s_slot_keys[i].persist_key, s_complication_slots[i].source);
   }
 
-  // A weather reply carries no SLOT_*/UNITS keys and changes no assignments,
-  // so it never re-arms a request.
+  // A weather reply carries no SLOT_*/SETTINGS_* keys and changes no
+  // assignments, so it never re-arms a request.
   bool needs_weather = any_slot_needs_weather();
-  if (needs_weather && (units_changed || !needed_weather || slots_changed)) {
+  if (needs_weather && (units_changed || window_changed || !needed_weather || slots_changed)) {
     request_weather();
   }
 

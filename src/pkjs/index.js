@@ -128,7 +128,9 @@ function getWeather(attempt) {
         xhr.onload = function() {
           if (xhr.status === 200) {
             try {
-              forecast = weather.parseForecast(JSON.parse(this.responseText), Date.now());
+              forecast = weather.parseForecast(
+                  JSON.parse(this.responseText), Date.now(),
+                  weather.windowHoursFromClaySettings(settings));
             } catch (e) {
               failedReason = 'parse error: ' + e;
             }

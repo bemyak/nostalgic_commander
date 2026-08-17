@@ -42,6 +42,7 @@ int s_lo_hour_tmrw = -1;
 int s_wall_hour = 0;
 int s_date_day = 10;
 int s_beats = 0;
+int s_week_number = 1;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
 
@@ -56,6 +57,7 @@ int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 int s_settings_disconnect_vibe = 1;    // 1 = buzz on phone disconnect (default), 0 = silenced
+int s_settings_weather_window = 12;    // hours ahead; 0 = in-progress hour only ("Now")
 
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
     [SLOT_IDX_TOP_LEFT] = {.box_rect = SLOT_RECT_TOP_LEFT, .source = DATA_SOURCE_WEATHER},
@@ -221,6 +223,35 @@ void format_high_low(char* buf, size_t len) {
 int compute_beats(time_t utc) {
   int bmt_seconds = (int)((utc + 3600) % 86400);
   return (bmt_seconds * 1000) / 86400;
+}
+
+static bool is_leap_year(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+// 53 when Jan 1 is Thursday — or Wednesday in a leap year — (wday: Sunday = 0).
+static int iso_week_count(int year, int jan1_wday) {
+  if (jan1_wday == 4) return 53;
+  if (is_leap_year(year) && jan1_wday == 3) return 53;
+  return 52;
+}
+
+// ISO 8601 week number (Monday-start; W1 holds the year's first Thursday) —
+// newlib's strftime has no %V, so it's computed. Arguments come straight from
+// struct tm: yday 0-based, wday Sunday = 0, year the full year. The boundary
+// cases are the definition working as specced: early January can read W52/W53
+// (of the previous year), late December W01 (of the next).
+int iso_week_number(int year, int yday, int wday) {
+  int iso_wday = ((wday + 6) % 7) + 1;  // Monday = 1 .. Sunday = 7
+  int week = (yday + 11 - iso_wday) / 7;
+  int jan1_wday = (((wday - yday) % 7) + 7) % 7;
+  if (week < 1) {
+    // Step Jan 1 back over the previous year to learn its own Jan 1 weekday.
+    int prev_jan1 = (((jan1_wday - (is_leap_year(year - 1) ? 2 : 1)) % 7) + 7) % 7;
+    return iso_week_count(year - 1, prev_jan1);
+  }
+  if (week > iso_week_count(year, jan1_wday)) return 1;
+  return week;
 }
 
 void to_upper_str(char* str) {

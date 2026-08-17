@@ -221,6 +221,11 @@ static void fmt_beats(char* buf, int len, int* percent) {
   snprintf(buf, len, "@%03d", s_beats);
 }
 
+static void fmt_week_number(char* buf, int len, int* percent) {
+  (void)percent;
+  snprintf(buf, len, "W%02d", s_week_number);
+}
+
 static const ComplicationSpec s_complication_specs[] = {
     {.source = DATA_SOURCE_BATTERY,
      .health_metric = HEALTH_METRIC_NONE,
@@ -317,6 +322,12 @@ static const ComplicationSpec s_complication_specs[] = {
      .format = fmt_beats,
      .backs = DATA_SOURCE_BEATS,
      .draw = draw_beats_complication},
+    {.source = DATA_SOURCE_WEEK_NUMBER,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "WEEK",
+     .format = fmt_week_number,
+     .backs = DATA_SOURCE_WEEK_NUMBER,
+     .draw = draw_plain_complication},
     {.source = DATA_SOURCE_SHORT_DATE,
      .health_metric = HEALTH_METRIC_NONE,
      .label = "DATE",

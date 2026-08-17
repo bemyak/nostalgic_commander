@@ -9,6 +9,10 @@ const weather = require('../../src/pkjs/weather.js');
 
 const NOW = Date.UTC(2026, 7, 8, 12, 30);
 
+// parseForecast's third parameter is the forecast-window width in hours; the
+// tests here pass it explicitly wherever the width itself is the point, and
+// otherwise rely on the 12h default.
+
 // Consecutive API-style hour stamps; ISO strings positionally match the
 // "YYYY-MM-DDTHH:MM" shape the parser slices.
 function isoHours(startMs, count) {
@@ -97,10 +101,41 @@ test('UV and PCP are maxima over the coming window, including the in-progress ho
   const out = weather.parseForecast(json, NOW);
   assert.equal(out.WEATHER_UV, 8);    // 6.3 at 15:00 also in-window, but 8 wins
   assert.equal(out.WEATHER_PCP, 42);  // nulls ignored, 42.4 rounded
+
+  // Explicit 12 must behave exactly like the default.
+  assert.equal(weather.parseForecast(json, NOW, 12).WEATHER_UV, 8);
   // And the out-of-window spike at 05:00 was indeed excluded: without idx 12,
   // 6.3 stands, not 9.
   delete json.hourly.uv_index[12];
   assert.equal(weather.parseForecast(json, NOW).WEATHER_UV, 6);
+});
+
+test('a "Now" window reads the in-progress hour only', () => {
+  const json = fullResponse();
+  json.hourly.uv_index[12] = 3;
+  const out = weather.parseForecast(json, NOW, 0);
+  assert.equal(out.WEATHER_UV, 3);    // the 12:00 bucket alone; 15:00's 6.3 excluded
+  assert.equal(out.WEATHER_PCP, -1);  // the 42.4 sits at 13:00 — just out of reach
+});
+
+test('short windows bound the maxima tightly', () => {
+  const out2 = weather.parseForecast(fullResponse(), NOW, 2);
+  assert.equal(out2.WEATHER_PCP, 42);  // 13:00 inside a 2h window
+  assert.equal(out2.WEATHER_UV, 0);    // the in-window hours read UV 0; 15:00's 6.3 stays out
+  const out24 = weather.parseForecast(fullResponse(), NOW, 24);
+  assert.equal(out24.WEATHER_UV, 6);  // 15:00 well inside a 24h window
+});
+
+test('windowHoursFromClaySettings: 12h default in every no-settings shape', () => {
+  assert.equal(weather.windowHoursFromClaySettings(undefined), 12);
+  assert.equal(weather.windowHoursFromClaySettings({}), 12);  // no Clay save yet
+  assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: 'bogus'}), 12);
+});
+
+test('windowHoursFromClaySettings: the select values read through, string or numeric', () => {
+  assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: '2'}), 2);
+  assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: 24}), 24);
+  assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: '0'}), 0);  // Now
 });
 
 test('extremes sink together when any one is missing', () => {

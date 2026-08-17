@@ -61,14 +61,15 @@ function claySlotOptionIds() {
 }
 
 // The s_settings_* initializers in data.c, keyed like Clay messageKeys
-// (s_settings_theme → SETTINGS_THEME).
+// (s_settings_theme → SETTINGS_THEME). Seven keys: the phone-side weather
+// window is persisted watch-side too, though only the phone reads it.
 function cBootSettings() {
   const src = readRepoFile('src/c/data.c');
   const boots = new Map();
   for (const m of src.matchAll(/int (s_settings_[a-z_]+)\s*=\s*(\d+)\s*;/g)) {
     boots.set(m[1].slice('s_'.length).toUpperCase(), m[2]);
   }
-  assert.equal(boots.size, 6, 's_settings_* initializers not parsed — pattern drift?');
+  assert.equal(boots.size, 7, 's_settings_* initializers not parsed — pattern drift?');
   return boots;
 }
 

@@ -70,6 +70,7 @@ const EXPECTED_PERSIST = new Map([
   ['SETTINGS_SHORT_DATE_FORMAT', 'PERSIST_KEY_SETTINGS_SHORT_DATE'],
   ['SETTINGS_DOW_POSITION', 'PERSIST_KEY_SETTINGS_DOW'],
   ['SETTINGS_DISCONNECT_VIBE', 'PERSIST_KEY_SETTINGS_DISCONNECT_VIBE'],
+  ['SETTINGS_WEATHER_WINDOW', 'PERSIST_KEY_SETTINGS_WEATHER_WINDOW'],
   ['SLOT_1', 'PERSIST_KEY_SLOT_1'],
   ['SLOT_2', 'PERSIST_KEY_SLOT_2'],
   ['SLOT_3', 'PERSIST_KEY_SLOT_3'],
@@ -165,8 +166,8 @@ const EXPECTED_SOURCE_LABELS = [
   ['DATA_SOURCE_WEATHER', 'Weather'],
   ['DATA_SOURCE_TEMP_HIGH_LOW', 'Next High / Low temperatures'],
   ['DATA_SOURCE_WIND', 'Wind'],
-  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (next 12h max)'],
-  ['DATA_SOURCE_AQI_UV', 'AQI UV Index (next 12h max)'],
+  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (window max)'],
+  ['DATA_SOURCE_AQI_UV', 'AQI UV Index (window max)'],
   ['DATA_SOURCE_FULL_DATE', 'Date'],
   ['DATA_SOURCE_WEATHER_FULL', 'Full Weather'],
   ['DATA_SOURCE_STEPS_BAR', 'Steps Progress'],
@@ -174,10 +175,11 @@ const EXPECTED_SOURCE_LABELS = [
   ['DATA_SOURCE_BLUETOOTH', 'Bluetooth Status'],
   ['DATA_SOURCE_QUIET_TIME', 'Quiet Time'],
   ['DATA_SOURCE_WEATHER_TEMP', 'Temperature'],
-  ['DATA_SOURCE_WEATHER_PCP', 'Precipitation (next 12h max)'],
+  ['DATA_SOURCE_WEATHER_PCP', 'Precipitation (window max)'],
   ['DATA_SOURCE_HUMIDITY', 'Humidity'],
   ['DATA_SOURCE_AQI', 'Air Quality (AQI)'],
-  ['DATA_SOURCE_UV', 'UV Index (next 12h max)'],
+  ['DATA_SOURCE_UV', 'UV Index (window max)'],
+  ['DATA_SOURCE_WEEK_NUMBER', 'Week Number'],
 ];
 
 test('every slot option id Clay offers exists in ComplicationDataSource', () => {
@@ -224,6 +226,13 @@ const EXPECTED_SETTINGS_OPTIONS = {
     ['2', 'Hidden (1970-12-31)'],
   ],
   SETTINGS_DISCONNECT_VIBE: [['1', 'On'], ['0', 'Off']],
+  SETTINGS_WEATHER_WINDOW: [
+    ['0', 'Now'],
+    ['2', '2 hours'],
+    ['8', '8 hours'],
+    ['12', '12 hours'],
+    ['24', '24 hours'],
+  ],
 };
 
 test('every settings select offers exactly the pinned value ↔ label pairs', () => {
@@ -238,7 +247,7 @@ test('every settings select offers exactly the pinned value ↔ label pairs', ()
   }
   assert.deepEqual(
       Object.keys(actual).sort(), Object.keys(EXPECTED_SETTINGS_OPTIONS).sort(),
-      'the six settings selects drifted');
+      'the seven settings selects drifted');
   for (const [key, expected] of Object.entries(EXPECTED_SETTINGS_OPTIONS)) {
     assert.deepEqual(actual[key], expected, `option pair drift in ${key}`);
   }

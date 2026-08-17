@@ -19,8 +19,8 @@ var OPTION_LABELS = {
   5: 'Weather',
   30: 'Next High / Low temperatures',
   34: 'Wind',
-  35: 'Humidity + Precipitation (next 12h max)',
-  18: 'AQI UV Index (next 12h max)',
+  35: 'Humidity + Precipitation (window max)',
+  18: 'AQI UV Index (window max)',
   23: 'Date',
   27: 'Full Weather',
   24: 'Steps Progress',
@@ -28,16 +28,17 @@ var OPTION_LABELS = {
   9: 'Bluetooth Status',
   31: 'Quiet Time',
   3: 'Temperature',
-  28: 'Precipitation (next 12h max)',
+  28: 'Precipitation (window max)',
   26: 'Humidity',
   16: 'Air Quality (AQI)',
-  17: 'UV Index (next 12h max)',
+  17: 'UV Index (window max)',
+  33: 'Week Number',
 };
 
 var TOP_VALUES = ['20', '0', '32', '22', '21', '1', '2', '6', '10', '5', '30', '34', '35', '18'];
 var CENTER_VALUES = ['23', '27', '24', '25'];
 var BOTTOM_VALUES =
-    ['20', '0', '9', '31', '21', '1', '2', '6', '10', '3', '28', '34', '26', '16', '17'];
+    ['20', '0', '9', '31', '21', '1', '2', '6', '10', '3', '28', '34', '26', '16', '17', '33'];
 // The narrow bottom slots have no unit-bearing caption stub; wind's units ride
 // its label there.
 var BOTTOM_LABEL_OVERRIDES = {34: 'Wind (m/s or mph)'};
@@ -82,6 +83,10 @@ module.exports = [
             select(
                 'SETTINGS_UNITS', 'Units', '0',
                 labeledOptions([['0', 'Imperial'], ['1', 'Metric']])),
+            select('SETTINGS_WEATHER_WINDOW', 'Weather forecast window', '12', labeledOptions([
+                     ['0', 'Now'], ['2', '2 hours'], ['8', '8 hours'], ['12', '12 hours'],
+                     ['24', '24 hours']
+                   ])),
             select('SETTINGS_DATE_FORMAT', 'Date format', '0', labeledOptions([
                      ['0', 'ISO (1970-12-31)'], ['1', 'DOS (31-12-1970)'],
                      ['2', 'Text (DEC 31st, 1970)'], ['3', 'Short (no year)']
