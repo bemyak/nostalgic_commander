@@ -6,6 +6,23 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-20
+
+### Added
+
+- **CRT effect** setting (off by default): the face is rendered as a tube
+  screen. Corner arcs and a vignette falloff dim the edges (ordered dithering
+  keeps the ramp smooth at 4 gray levels), chromatic aberration grows with
+  the distance from the centre — the red channel reads from the left of each
+  pixel, blue from the right — and the top and bottom rows warp inward up to
+  5px. It runs as one per-pixel pass over the captured framebuffer in a
+  topmost layer; off means the pass never runs.
+- **Degauss strike** when the backlight turns on: the image wobbles sideways
+  with decaying amplitude while the channel separation balloons, over eight
+  frames (~700 ms). Timed in wide gaps so the sound pipeline keeps up.
+- **CRT degauss sound** setting (off by default): a falling low woomp over
+  the strike. Honors system mute and Quiet Time. Only plays with the CRT
+  effect on.
 ## [1.6.0] - 2026-08-17
 
 ### Added
@@ -207,7 +224,8 @@ A full battery pass — the face:
 
 - Old tuiface store thumbnail — `screenshots/` covers store imagery.
 
-[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/bemyak/nostalgic_commander/compare/v1.4.0...v1.4.1
