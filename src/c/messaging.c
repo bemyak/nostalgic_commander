@@ -148,7 +148,7 @@ static void clamp_weather_values(void) {
   clamp_int_bounded(&s_temp_high_tmrw, -999, -99, 999);
   clamp_int_bounded(&s_weather_cond_code, -1, 0, 99);  // WMO table is < 100
   clamp_int_bounded(&s_weather_aqi, -1, 0, 500);
-  clamp_int_bounded(&s_weather_uv, -1, 0, 11);  // WMO UV is 1..11
+  clamp_int_bounded(&s_weather_uv, -1, 0, 99);  // UV is open-ended (WHO top band is "11+")
   clamp_int_bounded(&s_weather_humidity, -1, 0, 100);
   clamp_int_bounded(&s_weather_pcp, -1, 0, 100);
   clamp_int_bounded(&s_precip_now, -1, 0, 999);

@@ -107,8 +107,7 @@ shoot() {
 
   local settings=(SETTINGS_THEME=$theme SETTINGS_UNITS=$units
     SETTINGS_DATE_FORMAT=$date_fmt SETTINGS_SHORT_DATE_FORMAT=$short_fmt
-    SETTINGS_DOW_POSITION=$dow SETTINGS_WEATHER_WINDOW=$window
-    SETTINGS_DISCONNECT_VIBE=0)
+    SETTINGS_DOW_POSITION=$dow SETTINGS_WEATHER_WINDOW=$window)
   # Slot args are listed in key order 1,2,6,3,4,5 (top row, center, bottom row).
   local order=(1 2 6 3 4 5)
   local i slot

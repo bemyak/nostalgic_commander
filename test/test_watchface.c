@@ -3018,12 +3018,28 @@ void test_inbox_should_clamp_garbage_weather_ints(void) {
 
   TEST_ASSERT_EQUAL_INT(999, s_weather_temp);
   TEST_ASSERT_EQUAL_INT(0, s_weather_aqi);
-  TEST_ASSERT_EQUAL_INT(11, s_weather_uv);
+  TEST_ASSERT_EQUAL_INT(99, s_weather_uv);
   TEST_ASSERT_EQUAL_INT(360, s_weather_wind_direction);
   TEST_ASSERT_EQUAL_INT(999, s_weather_wind_speed);
   TEST_ASSERT_EQUAL_INT(23, s_hi_hour_today);
   // The untouched-sentinel rule: an absent field must keep its sentinel.
   TEST_ASSERT_EQUAL_INT(-1, s_weather_humidity);
+}
+
+void test_inbox_should_not_clamp_uv_above_11(void) {
+  // The WHO scale's top band is literally "11+"; Open-Meteo returns 12-16 in
+  // the tropics. The clamp guards layout, not the scale — a real 12 must
+  // survive to the formatter and the cache.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 32);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 12);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(12, s_weather_uv);
+  TEST_ASSERT_EQUAL_INT(12, persist_read_int(PERSIST_KEY_WEATHER_UV));
 }
 
 void test_inbox_should_parse_narrow_width_weather_ints(void) {
@@ -3654,11 +3670,15 @@ void test_dropped_weather_request_should_retry_a_bounded_number_of_times(void) {
   s_weather_request_retries = 0;
   int before = mock_outbox_sends;
 
-  // Each failure schedules one retry; the mock timer never fires, so drive it.
+  // Each failure arms a one-shot 5s retry; the mock timer never fires on its
+  // own, so the test drives the armed callback.
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
-  weather_retry_callback(NULL);
+  TEST_ASSERT_EQUAL_UINT32(WEATHER_REQUEST_RETRY_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(weather_retry_callback, mock_timer_callback);
+  mock_timer_callback(NULL);
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
-  weather_retry_callback(NULL);
+  TEST_ASSERT_EQUAL_PTR(weather_retry_callback, mock_timer_callback);
+  mock_timer_callback(NULL);
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);  // exhausted: no third
 
   TEST_ASSERT_EQUAL_INT(WEATHER_REQUEST_MAX_RETRIES, s_weather_request_retries);
@@ -3666,6 +3686,36 @@ void test_dropped_weather_request_should_retry_a_bounded_number_of_times(void) {
 
   outbox_sent_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+}
+
+void test_answered_weather_request_should_rearm_the_retry_budget(void) {
+  // Burn the budget: two failures cap the counter, the third doesn't even
+  // arm. Without the reset in weather_request_answered() the 5s retry then
+  // stayed dead for the rest of the app's life.
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  int arms = mock_timer_register_count;
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_EQUAL_INT(WEATHER_REQUEST_MAX_RETRIES, s_weather_request_retries);
+  TEST_ASSERT_EQUAL_INT(arms, mock_timer_register_count);
+
+  // A landed payload proves the loop works — the budget must come back.
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+
+  // A fresh failure arms the 5s retry again, and firing it re-sends.
+  int sends = mock_outbox_sends;
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_EQUAL_INT(1, s_weather_request_retries);
+  TEST_ASSERT_EQUAL_INT(arms + 1, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_UINT32(WEATHER_REQUEST_RETRY_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(weather_retry_callback, mock_timer_callback);
+  mock_timer_callback(NULL);
+  TEST_ASSERT_EQUAL_INT(sends + 1, mock_outbox_sends);
 }
 
 void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
@@ -4740,6 +4790,7 @@ int main(void) {
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_should_clamp_garbage_weather_ints);
+  RUN_TEST(test_inbox_should_not_clamp_uv_above_11);
   RUN_TEST(test_inbox_should_parse_narrow_width_weather_ints);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
   RUN_TEST(test_inbox_should_parse_and_persist_wind_direction);
@@ -4778,6 +4829,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);
   RUN_TEST(test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown);
   RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
+  RUN_TEST(test_answered_weather_request_should_rearm_the_retry_budget);
   RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
   RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);
   RUN_TEST(test_init_should_fetch_weather_when_the_cache_is_stale);
