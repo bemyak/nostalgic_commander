@@ -156,8 +156,9 @@ void crt_backlight_handler(bool on);
 // a notification/alarm/modal/quick view — see the crt_app_focus_* handlers.
 void crt_play_strike_sound(void);
 // App Focus service callbacks (subscribed in main.c): track whether
-// anything covers the face. They gate the strike sound only; the visual
-// strike runs regardless.
+// anything covers the face. While covered, the backlight handler primes no
+// strike and the sound gate stays shut; a cover arms a one-shot that eats
+// the next in-focus backlight-on, so the dismissal's flash cannot strike.
 void crt_app_focus_will_handler(bool in_focus);
 void crt_app_focus_did_handler(bool in_focus);
 // the overlay dirty; turning off repaints — the OFF frame is painted by the

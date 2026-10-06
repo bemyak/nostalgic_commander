@@ -19,8 +19,13 @@ static AppTimer* s_flash_timer = NULL;  // latest tick arm — cancelled on retr
 static bool s_strike_pending = false;
 // Updated by the App Focus service (subscribed in main.c): a notification,
 // alarm, modal, quick view or a launched app covering the face drops it.
-// Gates the strike sound only — the visual strike is unaffected.
+// Gates the strike sound and the backlight handler's priming — a covered
+// tube starts nothing and stays silent.
 static bool s_app_in_focus = true;
+// A cover's close pumps the backlight once, in no guaranteed order against
+// focus returning; that flash belongs to the cover. Armed when the cover
+// appears, eaten by the next in-focus backlight-on.
+static bool s_cover_suppresses_strike = false;
 
 static void crt_flash_tick(void* data);
 
@@ -541,9 +546,16 @@ static void crt_flash_tick(void* data) {
 }
 
 void crt_backlight_handler(bool on) {
-  // Backlight-only gating: the flash is the strike of a tube warming up;
-  // backlight-off transitions and a disabled effect start nothing.
-  if (!on || !s_settings_crt) return;
+  // Gating: the flash is the strike of a tube warming up. Backlight-off
+  // transitions, a disabled effect, and a covered face start nothing — a
+  // cover pumps the backlight too, and its flashes belong to the cover.
+  if (!on || !s_settings_crt || !s_app_in_focus) return;
+  // The dismissal's backlight-on may land after focus returns — it belongs
+  // to the cover too: eat the one-shot a cover armed, prime nothing.
+  if (s_cover_suppresses_strike) {
+    s_cover_suppresses_strike = false;
+    return;
+  }
   // Prime, don't strike: the overlay proc starts sound + chain after the wake
   // frame. A mid-strike backlight-on cancels the old chain and re-primes.
   if (s_flash_timer) {
@@ -641,8 +653,12 @@ void crt_play_strike_sound(void) {
 }
 
 void crt_app_focus_will_handler(bool in_focus) {
-  // A cover is ABOUT to appear: silence immediately, not after the animation.
-  if (!in_focus) s_app_in_focus = false;
+  // A cover is ABOUT to appear: silence immediately, not after the animation,
+  // and arm the one-shot that eats the dismissal's backlight-on.
+  if (!in_focus) {
+    s_app_in_focus = false;
+    s_cover_suppresses_strike = true;
+  }
 }
 
 void crt_app_focus_did_handler(bool in_focus) {

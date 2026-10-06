@@ -90,6 +90,7 @@ static void reset_all_state(void) {
   s_scene_cache = NULL;
   s_flash_phase = CRT_FLASH_IDLE;
   s_flash_timer = NULL;
+  s_cover_suppresses_strike = false;
   s_strike_pending = false;
   s_app_in_focus = true;
   s_crt_layer = NULL;
@@ -450,7 +451,7 @@ void test_battery_bar_should_fill_with_the_status_color(void) {
   // yellow, then red — the chip's band and this fill paint from one reading.
   s_complication_slots[5].source = DATA_SOURCE_BATTERY_BAR;
 
-  int levels[] = {100, 39, 19};
+  int levels[] = {100, 24, 14};
   GColor fills[] = {s_active_theme->text_primary, s_active_theme->status_yellow,
                     s_active_theme->status_red};
 
@@ -1326,14 +1327,14 @@ void test_battery_band_and_color_should_agree_at_every_level(void) {
     }
   }
 
-  // The boundaries themselves: 40 still quiet, 39 yellow, 20 yellow, 19 red.
-  s_battery_level = 40;
+  // The boundaries themselves: 25 still quiet, 24 yellow, 15 yellow, 14 red.
+  s_battery_level = 25;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
-  s_battery_level = 39;
+  s_battery_level = 24;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
-  s_battery_level = 20;
+  s_battery_level = 15;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
-  s_battery_level = 19;
+  s_battery_level = 14;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
 
   // On the charger the ladder steps aside: chip band and bar fill read green
@@ -2442,24 +2443,24 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_TEMP_HIGH_LOW));
 
   // Battery: quiet while healthy — the chip bands and the bar paints only
-  // once the charge wants a charger (>=40 plain, 20-39 yellow, <=19 red)
+  // once the charge wants a charger (>=25 plain, 15-24 yellow, <=14 red)
   s_battery_level = 100;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 40;  // boundary: still quiet
+  s_battery_level = 25;  // boundary: still quiet
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY));
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 39;  // boundary: yellow
+  s_battery_level = 24;  // boundary: yellow
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 20;
+  s_battery_level = 15;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY));
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
-  s_battery_level = 19;  // boundary: red
+  s_battery_level = 14;  // boundary: red
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY));
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_BATTERY_BAR));
 
@@ -4407,23 +4408,88 @@ void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   TEST_ASSERT_EQUAL_UINT8(CRT_STRIKE_VOLUME, mock_speaker_last_volume);
 }
 
-void test_crt_sound_should_stay_silent_while_the_face_is_covered(void) {
+void test_crt_strike_should_ignore_backlight_while_the_face_is_covered(void) {
   s_settings_crt = 1;
   s_settings_crt_sound = 1;
 
-  // A notification covering the face: will_focus(false) fires as the cover
-  // starts, so backlight-on primes the visual strike but the sound stays off.
+  // A notification covering the face fires will_focus(false); the cover's
+  // backlight flash belongs to the cover: never primed, never started, and
+  // silent.
   crt_app_focus_will_handler(false);
   crt_backlight_handler(true);
-  crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);  // visual strike runs regardless
-  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
 
-  // Cover fully closed (did_focus is the completed transition): the next
-  // backlight-on is audible again.
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_eat_the_dismissals_backlight(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  // Focus-first dismissal order: did_focus(true) lands before the cover's
+  // closing backlight-on. That flash belongs to the cover — the one-shot the
+  // cover armed eats it: consumed, never primed, never started, and silent.
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_TRUE(s_app_in_focus);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  // Guard against the one-shot latching shut: with the dismissal's flash
+  // eaten, the next backlight-on primes and plays as always.
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+  crt_backlight_handler(true);  // the dismissal's: eaten
+  TEST_ASSERT_FALSE(s_strike_pending);
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_UINT32(CRT_FLASH_TICK_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  // Backlight-first dismissal order: the cover's flash lands while the face
+  // is still covered — gated, and it must NOT consume the one-shot. The
+  // first in-focus backlight-on is still eaten; the one after it strikes.
+  crt_app_focus_will_handler(false);
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+  TEST_ASSERT_FALSE(s_strike_pending);
+
   crt_app_focus_did_handler(true);
   crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  TEST_ASSERT_FALSE(s_strike_pending);
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
 }
 
@@ -4742,7 +4808,10 @@ int main(void) {
   RUN_TEST(test_crt_warp_should_spread_steps_across_rows);
   RUN_TEST(test_crt_strike_should_jitter_rows_and_decay);
   RUN_TEST(test_crt_sound_should_play_only_when_enabled_and_unmuted);
-  RUN_TEST(test_crt_sound_should_stay_silent_while_the_face_is_covered);
+  RUN_TEST(test_crt_strike_should_ignore_backlight_while_the_face_is_covered);
+  RUN_TEST(test_crt_strike_should_eat_the_dismissals_backlight);
+  RUN_TEST(test_crt_strike_should_fire_on_the_backlight_after_the_dismissal);
+  RUN_TEST(test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight);
   RUN_TEST(test_crt_strike_pcm_should_thunk_fall_and_never_click);
   RUN_TEST(test_crt_strike_pcm_should_fit_the_speaker_budget);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);

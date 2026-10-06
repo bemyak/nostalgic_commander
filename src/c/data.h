@@ -37,8 +37,8 @@ typedef enum {
 // Charge bands, as percentages. Above LOW the battery is healthy; at or below
 // CRIT it is critical. Both the color logic and the decision to draw a status
 // band read these, so a bar and a band can never disagree about one reading.
-#define BATTERY_LOW_PCT 39
-#define BATTERY_CRIT_PCT 19
+#define BATTERY_LOW_PCT 24
+#define BATTERY_CRIT_PCT 14
 
 // Goals are constants, not settings — the face has an opinion (AGENTS.md),
 // and every progress readout shares these.
