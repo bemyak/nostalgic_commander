@@ -6,8 +6,16 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Phosphor theme: white values and green chrome on dark green glass, in the
+  spirit of the IBM 5151.
+- Amber theme: white values and amber chrome on maroon glass, after the amber
+  monochrome monitors.
+
 ### Changed
 
+- Norton is listed first in the theme setting.
 - Cloudy reads `CLDY` (was `CLD`).
 - Weather older than 2 hours shows `--`.
 - A change of units or forecast window discards the readings in the old units

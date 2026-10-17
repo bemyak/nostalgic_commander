@@ -28,15 +28,19 @@ extern const WatchTheme* s_active_theme;
 // Derived from center_bg rather than stored on the theme: there is exactly one
 // right answer per theme, so a stored copy is a second place to keep correct
 // and a way for the pass to separate ink against a level the screen is not
-// showing. 0 covers Black and every non-grey ground alike; nothing needs to
-// tell those apart, since both mean "no separation, take the dark curve".
+// showing. 0 covers Black and every ground without a level (Norton's blue)
+// alike; nothing needs to tell those apart, since both mean "no separation,
+// take the dark curve".
 uint8_t theme_ground_level(const WatchTheme* t);
 
-// Every theme is a DOS one, built from the canonical CGA/EGA 16.
+// The DOS themes keep to the canonical CGA/EGA 16; Phosphor and Amber are a
+// monitor's single phosphor.
 extern const WatchTheme s_theme_panel;      // Norton Commander's blue panel
 extern const WatchTheme s_theme_shadow;     // the same panel, in shadow
 extern const WatchTheme s_theme_dialog;     // the Turbo Vision dialog box
 extern const WatchTheme s_theme_navigator;  // DOS Navigator's default screen
+extern const WatchTheme s_theme_phosphor;   // the IBM 5151's green phosphor
+extern const WatchTheme s_theme_amber;      // the amber monitors' phosphor
 
 // The theme setting's values, equal to the option values of the theme select in
 // src/pkjs/config.js. Anything else falls back to Norton.
@@ -45,6 +49,8 @@ enum {
   THEME_SETTING_PANEL = 2,
   THEME_SETTING_SHADOW = 3,
   THEME_SETTING_NAVIGATOR = 4,
+  THEME_SETTING_PHOSPHOR = 5,
+  THEME_SETTING_AMBER = 6,
 };
 const WatchTheme* determine_theme(int theme_setting);
 void apply_theme(void);

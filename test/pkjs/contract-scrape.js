@@ -65,6 +65,19 @@ function claySlotOptionIds() {
   return ids;
 }
 
+// theme.h's THEME_SETTING_* enum, name → value: the theme select's option
+// values, which the watch maps to palettes in determine_theme.
+function themeSettingValues() {
+  const header = readRepoFile('src/c/theme.h');
+  const values = new Map();
+  for (const m of header.matchAll(/(THEME_SETTING_[A-Z]+)\s*=\s*(\d+)/g)) {
+    assert.ok(!values.has(m[1]), `duplicate enum member ${m[1]}`);
+    values.set(m[1], String(m[2]));
+  }
+  assert.ok(values.size > 0, 'THEME_SETTING_* enum not parsed — pattern drift?');
+  return values;
+}
+
 // The s_settings_* initializers in data.c, keyed like Clay messageKeys
 // (s_settings_theme → SETTINGS_THEME). Ten keys: the phone-side weather
 // window is persisted watch-side too, though only the phone reads it.
@@ -107,5 +120,6 @@ module.exports = {
   dataSourceIds,
   clayOptionLabels,
   claySlotOptionIds,
+  themeSettingValues,
   cBootDefaults,
 };

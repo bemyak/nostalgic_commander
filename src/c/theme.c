@@ -64,9 +64,50 @@ const WatchTheme s_theme_navigator = {.center_bg = GColorDarkGray,
                                       .status_yellow = GColorIcterine,
                                       .status_red = GColorSunsetOrange};
 
+// An IBM 5151 monochrome display, green phosphor on glass that glows even
+// where nothing is drawn, so the ground is dark green rather than black. On
+// that glow green-on-green is too faint to read at a glance, so values take
+// the brightest tier, white, and the bright green carries titles and frames.
+// Status stays in color on purpose, utility over looks. Red is Melon because
+// FF5555 is only about 2.9:1 on dark green and red-on-green is the color-blind
+// clash. Cold is PictonBlue, a blue rather than cyan, which sits too close to
+// green.
+const WatchTheme s_theme_phosphor = {.center_bg = GColorDarkGreen,
+                                     .accent_cold = GColorPictonBlue,
+                                     .frame = GColorScreaminGreen,
+                                     .text_primary = GColorWhite,
+                                     .text_secondary = GColorScreaminGreen,
+                                     .mark = GColorIcterine,
+                                     .status_ink = GColorBlack,
+                                     .status_green = GColorScreaminGreen,
+                                     .status_yellow = GColorIcterine,
+                                     .status_red = GColorMelon};
+
+// The amber sibling of Phosphor: the monochrome monitors of the era came in
+// amber too, and their glass glowed the same way, so the ground is the darkest
+// warm tone the palette has. That is maroon, there being no darker warm one.
+// Values are white and the amber carries titles and frames, for the same
+// legibility as Phosphor, since amber-on-maroon is too faint to read at a
+// glance. Status stays in color. Red is Melon because FF5555 is only about
+// 4.8:1 on maroon and reads as the ground's own hue. Cold is ElectricBlue,
+// the one blue clear of both the amber and the ground.
+const WatchTheme s_theme_amber = {.center_bg = GColorBulgarianRose,
+                                  .accent_cold = GColorElectricBlue,
+                                  .frame = GColorChromeYellow,
+                                  .text_primary = GColorWhite,
+                                  .text_secondary = GColorChromeYellow,
+                                  .mark = GColorIcterine,
+                                  .status_ink = GColorBlack,
+                                  .status_green = GColorScreaminGreen,
+                                  .status_yellow = GColorIcterine,
+                                  .status_red = GColorMelon};
+
 uint8_t theme_ground_level(const WatchTheme* t) {
   if (gcolor_equal(t->center_bg, GColorLightGray)) return 2;
   if (gcolor_equal(t->center_bg, GColorDarkGray)) return 1;
+  // Not grey, but a level-1 field all the same: (0,1,0) takes the same curve.
+  if (gcolor_equal(t->center_bg, GColorDarkGreen)) return 1;
+  if (gcolor_equal(t->center_bg, GColorBulgarianRose)) return 1;
   return 0;
 }
 
@@ -80,6 +121,10 @@ const WatchTheme* determine_theme(int theme_setting) {
       return &s_theme_shadow;
     case THEME_SETTING_NAVIGATOR:
       return &s_theme_navigator;
+    case THEME_SETTING_PHOSPHOR:
+      return &s_theme_phosphor;
+    case THEME_SETTING_AMBER:
+      return &s_theme_amber;
     default:  // anything unrecognized, a stale 0 included, falls back to Norton
       return &s_theme_panel;
   }

@@ -73,6 +73,14 @@ test('wind carries its units only in the narrow bottom slots', () => {
   assert.equal(windLabel('SLOT_3'), 'Wind (m/s or mph)');
 });
 
+test('the theme select offers values 1-6, Norton first, Norton by default', () => {
+  const theme = findSelect('SETTINGS_THEME');
+  assert.deepEqual(theme.options.map(o => String(o.value)).sort(), ['1', '2', '3', '4', '5', '6']);
+  assert.equal(String(theme.options[0].value), '2');
+  assert.equal(theme.options[0].label, 'Norton (EGA blue)');
+  assert.equal(String(theme.defaultValue), '2');
+});
+
 test('the test-sound row is an action pair: hidden CHIME_TEST input + keyless button', () => {
   // The flag lives on a keyed input (input manipulator serializes .val) that
   // the page hides via customFn; the button must NOT carry a messageKey — the

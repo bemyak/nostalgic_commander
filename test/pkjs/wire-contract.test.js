@@ -215,15 +215,16 @@ test('the Clay label ↔ enum name join holds on both sides', () => {
 // The settings selects' value↔label pairs are the second hand-written
 // semantic join: permuting 'Imperial' ↔ 'Metric' (or DOS ↔ ISO) passes every
 // other test while users get swapped behavior, so the pairs are pinned here
-// verbatim. The theme SELECT's id↔name mirroring into theme.c's switch stays
-// hand-maintained — the (value, label) pin plus the boot-defaults pin below
-// is the agreed coverage.
+// verbatim. The theme SELECT's values are checked against theme.h's
+// THEME_SETTING_* enum below; which palette each id names stays hand-maintained.
 const EXPECTED_SETTINGS_OPTIONS = {
   SETTINGS_THEME: [
-    ['1', 'Turbo Vision (light grey)'],
     ['2', 'Norton (EGA blue)'],
+    ['1', 'Turbo Vision (light grey)'],
     ['3', 'Dark (black)'],
     ['4', 'Navigator (dark grey)'],
+    ['5', 'Phosphor (green)'],
+    ['6', 'Amber (maroon)'],
   ],
   SETTINGS_UNITS: [['0', 'Imperial'], ['1', 'Metric']],
   SETTINGS_DATE_FORMAT: [
@@ -270,6 +271,15 @@ test('every settings select offers exactly the pinned value ↔ label pairs', ()
   }
 });
 
+function findThemeValues() {
+  for (const section of config) {
+    for (const item of section.items || []) {
+      if (item.messageKey === 'SETTINGS_THEME') return item.options.map(o => String(o.value));
+    }
+  }
+  assert.fail('SETTINGS_THEME select missing');
+}
+
 test('the units select\'s values carry the same semantics as data.h\'s defines', () => {
   // The join that actually decides C behavior: the option value labeled
   // 'Metric' must be data.h's UNITS_METRIC, likewise Imperial.
@@ -282,6 +292,11 @@ test('the units select\'s values carry the same semantics as data.h\'s defines',
   const options = new Map(EXPECTED_SETTINGS_OPTIONS.SETTINGS_UNITS.map(([v, l]) => [l, v]));
   assert.equal(defines.get('UNITS_IMPERIAL'), options.get('Imperial'));
   assert.equal(defines.get('UNITS_METRIC'), options.get('Metric'));
+});
+
+test('the theme select\'s values are exactly the THEME_SETTING_* enum values', () => {
+  const offered = findThemeValues();
+  assert.deepEqual([...offered].sort(), [...scrape.themeSettingValues().values()].sort());
 });
 
 test('the C boot defaults equal the Clay shipped defaults', () => {
