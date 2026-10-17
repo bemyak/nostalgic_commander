@@ -16,6 +16,8 @@ All notable changes to Nostalgic Commander. Format follows
 ### Changed
 
 - Norton is listed first in the theme setting.
+- CRT chromatic aberration keeps the corner slots' text crisp: their title and
+  value rows shift red and blue by whole pixels instead of blending them.
 - Cloudy reads `CLDY` (was `CLD`).
 - Weather older than 2 hours shows `--`.
 - A change of units or forecast window discards the readings in the old units

@@ -1,5 +1,6 @@
 #include <pebble.h>
 #include "crt.h"
+#include "drawing.h"
 #include "layout.h"
 #include "main.h"
 #include "theme.h"
@@ -98,6 +99,51 @@ static inline int crt_ca_t3_h2(int xy_sum) {
 static inline int crt_ca_shift_v2(int xy_sum) {
   return xy_sum < CRT_CA_R2V_X2Q8 ? 0 : 1;
 }
+// A text box spans its window between the side strokes and the bottom stroke,
+// each cleared by one flat px so the whole-pixel taps never read a stroke, and
+// from two flat rows above the title's ink (the 16px cell's ink sits in its
+// lower 10 rows, so it starts 2 above the window's origin row) down to its
+// bottom clearance. Neighbours' strokes (the stub above the next row's titles)
+// stay outside by the same margins.
+#define TEXT_BOX_PAD_X (WINDOW_BORDER_PX + 1)
+#define TEXT_BOX_TOP_DY (-4)
+
+static CrtTextBox make_text_box(GRect window, int y1) {
+  CrtTextBox b = {.x0 = window.origin.x + TEXT_BOX_PAD_X,
+                  .x1 = window.origin.x + window.size.w - TEXT_BOX_PAD_X,
+                  .y0 = window.origin.y + TEXT_BOX_TOP_DY,
+                  .y1 = y1};
+  // Doubled offsets of the box centre from the screen's, the same units as
+  // the pass's per-pixel ones, so the shift is the ramp evaluated there.
+  int dx = b.x0 + b.x1 - 1 - (SCREEN_W - 1);
+  int dy = b.y0 + b.y1 - 1 - (SCREEN_H - 1);
+  int xy_sum = (dx * dx * 256) / ((SCREEN_W - 1) * (SCREEN_W - 1)) +
+               (dy * dy * 256) / ((SCREEN_H - 1) * (SCREEN_H - 1));
+  b.left = dx < 0;
+  b.sh = (crt_ca_t3_h2(xy_sum) + 1) / 3;
+  b.sv = crt_ca_shift_v2(xy_sum);
+  return b;
+}
+
+// Built on first use: the layout is fixed (Quick View hides the bottom row, it
+// does not move anything), so the table is too. Only the four corner slots are
+// boxes; the middle slots, the TIME window and the clock keep the ramp. Boxes
+// sharing a row band run left to right, which the pass relies on.
+static const CrtTextBox* text_boxes(void) {
+  static CrtTextBox boxes[CRT_TEXT_BOXES];
+  static bool built = false;
+  if (!built) {
+    const GRect windows[CRT_TEXT_BOXES] = {SLOT_RECT_TOP_LEFT, SLOT_RECT_TOP_RIGHT,
+                                           SLOT_RECT_BOTTOM_LEFT, SLOT_RECT_BOTTOM_RIGHT};
+    for (int i = 0; i < CRT_TEXT_BOXES; i++) {
+      boxes[i] =
+          make_text_box(windows[i], windows[i].origin.y + windows[i].size.h - TEXT_BOX_PAD_X);
+    }
+    built = true;
+  }
+  return boxes;
+}
+
 // The vignette falloff over edge-depth d, Q8; smoothstep gamma-lifted by 0.7 —
 // 4 levels quantize the raw smoothstep into a noticed black cliff near the rim
 // (hardware A/B: the fade 'started too sharp'). Lifting the low half softens
@@ -161,6 +207,11 @@ int crt_ca_shift3(int x, int y, int w, int h) {
   int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
   int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
   return crt_ca_t3_h2(xq + yq);
+}
+
+int crt_text_boxes(const CrtTextBox** boxes) {
+  *boxes = text_boxes();
+  return CRT_TEXT_BOXES;
 }
 
 // Distance toward the nearest frame edge, counting around the corner arcs.
@@ -269,6 +320,17 @@ static int clear_of_ground(int v, int src, int gnd_lo, int gnd_hi, int bg_level)
 // own turn, read for ±s_v offsets below/above.
 static uint8_t s_vraw_ring[3][SCREEN_W];
 
+// A text box's row of CA, from the raw source rows: R and B are exact copies
+// `sh` whole px over (R from the right on the left half), G is the pixel's own.
+static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, const uint8_t* brow,
+                        const CrtTextBox* b, int boost) {
+  int sh = b->sh + boost;
+  int dr = b->left ? sh : -sh;
+  for (int x = b->x0; x < b->x1; x++) {
+    out[x] = GCOLOR8_ALPHA | (rrow[x + dr] & 0x30) | (row[x] & 0x0C) | (brow[x - dr] & 0x03);
+  }
+}
+
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
   static uint8_t row_ca[SCREEN_W];
   // Per-column: was the pixel grey as DRAWN? Stage 2 decides it from the raw
@@ -299,6 +361,9 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
                      ? (s_strike_amp_px[flash_phase] + 1) / 2
                      : 0;
   const int h1sq = (h - 1) * (h - 1);
+  // The boxes are laid out for the face's own frame; any other buffer has none.
+  const CrtTextBox* boxes = text_boxes();
+  const int n_boxes = (w == SCREEN_W && h == SCREEN_H) ? CRT_TEXT_BOXES : 0;
   // The field's own grey level, or 0 for a theme without one. Stage 2 keys
   // both of its content rules off it: ink/field separation runs only when
   // there is a grey field to separate against, and it is the reference that
@@ -333,9 +398,10 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
         memcpy(s_vraw_ring[y_next % 3], fb + (size_t)y_next * stride, w);
       }
 
-      // 1) CA from raw sources: horizontal fringe takes a two-tap weighted
-      //    sample per shifted channel (thirds-of-a-px pull); vertical
-      //    fringe samples ring rows toward/away from the centreline.
+      // 1) CA from raw sources: outside the text boxes the horizontal fringe
+      //    takes a two-tap weighted sample per shifted channel (thirds-of-a-px
+      //    pull); vertical fringe samples ring rows toward/away from the
+      //    centreline.
       const bool top = y * 2 < h - 1;
       // Sampling signs: left half pulls R from the right; top half pulls R
       // from below. Mirrors across both centrelines. Forward reads (below on
@@ -357,7 +423,23 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       // neighbour. Both halves only read rows already captured into the ring.
       const uint8_t* const rrows[2] = {s_vraw_ring[y % 3], s_vraw_ring[ry1 % 3]};
       const uint8_t* const brows[2] = {s_vraw_ring[y % 3], s_vraw_ring[by1 % 3]};
+      // The boxes this row crosses, left to right: inside one, CA is a single
+      // whole-pixel shift for the span, so the per-pixel work is skipped.
+      const CrtTextBox* row_boxes[CRT_TEXT_BOXES];
+      int n_row_boxes = 0;
+      for (int i = 0; i < n_boxes; i++) {
+        if (y >= boxes[i].y0 && y < boxes[i].y1) row_boxes[n_row_boxes++] = &boxes[i];
+      }
+      int next_box = 0;
+      int next_box_x = n_row_boxes ? row_boxes[0]->x0 : -1;
       for (int x = 0; x < w; x++) {
+        if (x == next_box_x) {
+          const CrtTextBox* b = row_boxes[next_box++];
+          ca_box_span(row_ca, row, rrows[b->sv], brows[b->sv], b, ca_boost);
+          x = b->x1 - 1;
+          next_box_x = next_box < n_row_boxes ? row_boxes[next_box]->x0 : -1;
+          continue;
+        }
         bool left = x * 2 < w - 1;
         int xy_sum = s_ca_xq[x] + yterm;
         // Horizontal pull in THIRDS: the rung (0/4), plus the element-offset

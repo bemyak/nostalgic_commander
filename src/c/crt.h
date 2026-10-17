@@ -77,25 +77,38 @@ extern Layer* s_crt_layer;
 // axes map onto), not pixels.
 #define CRT_CORNER_RADIUS 14
 #define CRT_WARP_R2_K 8
-// CA zones by elliptical radius, in the xq+yq units stage 1 already computes:
-// 0 at the centre, 256 at a mid-edge, 512 in a corner. Inside R2 the image is
-// clean; past it each channel separates, up to 1+1/3px — expressed in THIRDS
-// (0..4) because stage 1 samples fractionally, and a per-half ±1 third in the
-// pass cancels the panel's built-in element offset (the stripe does not
-// mirror: −1 left, +1 right) so the centre converges instead of carrying a
-// 2/3px floor.
+// CA has two regimes. The four corner slots (crt.c's text_boxes: each one's
+// title and value rows) take ONE constant whole-pixel shift per box, evaluated
+// at the box centre: R and B are exact copies of the source one or more whole
+// px over, never a blend, so glyphs keep their edges. Everywhere else (the
+// middle slots, the TIME window and its clock, frames, ground, rim) CA is the
+// radial ramp below, fractional because a whole-pixel step there would put a
+// hard oval on the glass.
 //
-// Horizontal RAMPS from 0 to 4 thirds rather than stepping: a step puts a hard
-// oval on the glass — a 1+1/3px shift appearing between one pixel and the
-// next — and where that oval crosses a complication's text it cuts the word in
-// half. RAMP_SHIFT sets the width: 4 thirds over (4 << SHIFT) units of r², so
-// 5 spans 128 and saturates just inside a mid-edge. A shift, not a divide —
-// stage 1 runs this per pixel.
+// The ramp's trouble was where that oval crossed a complication's text: a
+// 1+1/3px shift appearing between one pixel and the next cuts the word in
+// half. Inside a box that cannot happen. The shift steps only at a box edge,
+// and the boxes are inset to flat ground (a frame stroke and a pixel of air
+// clear of every glyph), so the step lands where there is nothing to cut.
+//
+// The ramp: zones by elliptical radius, in the xq+yq units stage 1 already
+// computes: 0 at the centre, 256 at a mid-edge, 512 in a corner. Inside R2
+// the image is clean; past it each channel separates, up to 1+1/3px —
+// expressed in THIRDS (0..4) because outside a box stage 1 samples
+// fractionally, and a per-half ±1 third in the pass cancels the panel's
+// built-in element offset (the stripe does not mirror: −1 left, +1 right) so
+// the centre converges instead of carrying a 2/3px floor. A box shift is the
+// ramp at its centre rounded to whole px, (t3 + 1) / 3: 0 or 1.
+//
+// Horizontal RAMPS from 0 to 4 thirds rather than stepping. RAMP_SHIFT sets
+// the width: 4 thirds over (4 << SHIFT) units of r², so 5 spans 128 and
+// saturates just inside a mid-edge. A shift, not a divide — stage 1 runs this
+// per pixel.
 //
 // Vertical still steps: its shift is whole rows (the ring samples y±1, there
 // is no fractional row), so there is nothing between 0 and 1 to ramp through.
 // Its jump is 1px against the horizontal's 1+1/3, and it was not the visible
-// edge.
+// edge. A box takes the vertical shift at its centre, too.
 #define CRT_CA_R2_Q8 170
 #define CRT_CA_R2V_Q8 170
 #define CRT_CA_RAMP_SHIFT 5
@@ -117,6 +130,17 @@ extern Layer* s_crt_layer;
 #define CRT_FLASH_TICK_MS 90
 #define CRT_FLASH_PHASES 8
 #define CRT_FLASH_IDLE (-1)
+
+// One text box: columns x0..x1-1 and rows y0..y1-1 of the face, taking a
+// constant CA of `sh` px across and `sv` rows down (before the strike's boost,
+// which adds whole px to `sh`). `left` picks the half whose pull direction it
+// uses: R from the right on the left half, mirrored on the right.
+typedef struct {
+  int x0, x1, y0, y1;
+  int sh, sv;
+  bool left;
+} CrtTextBox;
+#define CRT_TEXT_BOXES 4
 
 // Pure pieces, unit-tested (all integer, fixed point):
 
@@ -142,6 +166,9 @@ int crt_warp_sx(int x, int y, int w, int h);
 // CA per-channel displacement in THIRDS of a px at (x,y): 0 inside the dead
 // zone, ramping to 4 past it — see the CRT_CA_* zone map above.
 int crt_ca_shift3(int x, int y, int w, int h);
+// The text box table of the face, left to right within each row band; returns
+// its length.
+int crt_text_boxes(const CrtTextBox** boxes);
 #endif
 
 // The whole pass over an 8-bit GColor8 framebuffer (0xAARRGGBB packed bytes,

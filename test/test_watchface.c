@@ -4710,6 +4710,279 @@ void test_crt_ca_ladder_should_be_monotone_and_mirror_symmetric(void) {
   }
 }
 
+// The text box table, pinned: the four corner slots, with the whole-pixel
+// shifts the ramp gives at each box centre. The middle slots, the TIME window
+// and the clock are not boxes: they keep the ramp.
+void test_crt_text_boxes_should_pin_the_default_layout(void) {
+  static const CrtTextBox want[CRT_TEXT_BOXES] = {
+      {11, 98, 4, 41, 1, 1, true},        // top left
+      {102, 189, 4, 41, 1, 1, false},     // top right
+      {11, 68, 180, 217, 1, 1, true},     // bottom left
+      {132, 189, 180, 217, 1, 1, false},  // bottom right
+  };
+  const CrtTextBox* boxes;
+  TEST_ASSERT_EQUAL_INT(CRT_TEXT_BOXES, crt_text_boxes(&boxes));
+  for (int i = 0; i < CRT_TEXT_BOXES; i++) {
+    TEST_ASSERT_EQUAL_INT(want[i].x0, boxes[i].x0);
+    TEST_ASSERT_EQUAL_INT(want[i].x1, boxes[i].x1);
+    TEST_ASSERT_EQUAL_INT(want[i].y0, boxes[i].y0);
+    TEST_ASSERT_EQUAL_INT(want[i].y1, boxes[i].y1);
+    TEST_ASSERT_EQUAL_INT(want[i].sh, boxes[i].sh);
+    TEST_ASSERT_EQUAL_INT(want[i].sv, boxes[i].sv);
+    TEST_ASSERT_EQUAL(want[i].left, boxes[i].left);
+  }
+}
+
+// Quick View hides the bottom slot row; nothing reflows and the framebuffer
+// keeps its size, so the table (built from the layout alone) stays put.
+void test_crt_text_boxes_should_not_move_with_quick_view(void) {
+  const CrtTextBox* boxes;
+  crt_text_boxes(&boxes);
+  CrtTextBox before[CRT_TEXT_BOXES];
+  memcpy(before, boxes, sizeof(before));
+
+  s_quick_view_active = true;
+  s_settings_crt = 1;
+  s_active_theme = &s_theme_shadow;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  crt_update_proc(NULL, s_fake_ctx);
+
+  crt_text_boxes(&boxes);
+  for (int i = 0; i < CRT_TEXT_BOXES; i++) {
+    TEST_ASSERT_EQUAL_INT(before[i].x0, boxes[i].x0);
+    TEST_ASSERT_EQUAL_INT(before[i].x1, boxes[i].x1);
+    TEST_ASSERT_EQUAL_INT(before[i].y0, boxes[i].y0);
+    TEST_ASSERT_EQUAL_INT(before[i].y1, boxes[i].y1);
+    TEST_ASSERT_EQUAL_INT(before[i].sh, boxes[i].sh);
+    TEST_ASSERT_EQUAL_INT(before[i].sv, boxes[i].sv);
+  }
+}
+
+static bool rects_overlap(GRect a, GRect b) {
+  return a.origin.x < b.origin.x + b.size.w && b.origin.x < a.origin.x + a.size.w &&
+         a.origin.y < b.origin.y + b.size.h && b.origin.y < a.origin.y + a.size.h;
+}
+
+// Every glyph the canvas draws, whatever source a slot offers, must be clear
+// of its text box's edge by a px, and no side stroke may come within a px of
+// one: a step in CA at a box edge lands on flat ground only.
+void test_crt_text_boxes_should_keep_glyphs_and_strokes_off_their_edges(void) {
+  // What config.js offers each slot group.
+  static const int top[] = {0, 32, 22, 21, 1, 2, 6, 10, 5, 30, 34, 35, 18};
+  static const int bottom[] = {0, 9, 31, 21, 1, 2, 6, 10, 3, 28, 34, 26, 16, 17, 33};
+  static const struct {
+    int slot;
+    const int* sources;
+    int count;
+  } offers[] = {
+      {SLOT_IDX_TOP_LEFT, top, 13},
+      {SLOT_IDX_TOP_RIGHT, top, 13},
+      {SLOT_IDX_BOTTOM_LEFT, bottom, 15},
+      {SLOT_IDX_BOTTOM_RIGHT, bottom, 15},
+  };
+  const CrtTextBox* boxes;
+  crt_text_boxes(&boxes);
+  test_apply_theme();
+  for (unsigned o = 0; o < sizeof(offers) / sizeof(offers[0]); o++) {
+    for (int k = 0; k < offers[o].count; k++) {
+      for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = DATA_SOURCE_EMPTY;
+      s_complication_slots[offers[o].slot].source = offers[o].sources[k];
+      mock_text_runs_reset();
+      mock_fill_rect_reset();
+      s_scene_cache_valid = false;
+      canvas_update_proc(NULL, NULL);
+      TEST_ASSERT_TRUE(mock_text_run_count < MOCK_MAX_TEXT_RUNS);
+
+      for (int i = 0; i < mock_text_run_count; i++) {
+        if (strcmp(mock_text_runs[i], "TIME") == 0) continue;  // not a box
+        GRect run = mock_text_run_boxes[i];
+        // Centred or left-aligned, the ink is the string's cells; a 16px
+        // cell's ink sits in its lower 10 rows.
+        int ink_w = strlen(mock_text_runs[i]) * VGA16_CHAR_W;
+        if (ink_w > run.size.w) ink_w = run.size.w;
+        GRect ink = GRect(run.origin.x + (run.size.w - ink_w) / 2, run.origin.y + VGA16_CELL_H - 10,
+                          ink_w, 10);
+        bool inside = false;
+        for (int b = 0; b < CRT_TEXT_BOXES; b++) {
+          inside |= ink.origin.x > boxes[b].x0 && ink.origin.x + ink.size.w < boxes[b].x1 &&
+                    ink.origin.y > boxes[b].y0 && ink.origin.y + ink.size.h < boxes[b].y1;
+        }
+        char msg[96];
+        snprintf(msg, sizeof(msg), "source %d run \"%s\" at (%d,%d)", offers[o].sources[k],
+                 mock_text_runs[i], run.origin.x, run.origin.y);
+        TEST_ASSERT_TRUE_MESSAGE(inside, msg);
+      }
+      for (int i = 0; i < mock_fill_rect_count; i++) {
+        GRect stroke = mock_fill_rects[i];
+        if (stroke.size.w != WINDOW_BORDER_PX || stroke.size.h <= WINDOW_BORDER_PX) continue;
+        for (int b = 0; b < CRT_TEXT_BOXES; b++) {
+          GRect halo = GRect(boxes[b].x0 - 1, boxes[b].y0 - 1, boxes[b].x1 - boxes[b].x0 + 2,
+                             boxes[b].y1 - boxes[b].y0 + 2);
+          TEST_ASSERT_FALSE(rects_overlap(stroke, halo));
+        }
+      }
+    }
+  }
+  // Bottom stroke of each box's window.
+  const GRect windows[CRT_TEXT_BOXES] = {SLOT_RECT_TOP_LEFT, SLOT_RECT_TOP_RIGHT,
+                                         SLOT_RECT_BOTTOM_LEFT, SLOT_RECT_BOTTOM_RIGHT};
+  for (int b = 0; b < CRT_TEXT_BOXES; b++) {
+    GRect w = windows[b];
+    TEST_ASSERT_TRUE(boxes[b].y1 + 1 <= w.origin.y + w.size.h - WINDOW_BORDER_PX);
+  }
+}
+
+static uint32_t s_lcg_state;
+static uint32_t lcg(void) {
+  s_lcg_state = s_lcg_state * 1664525u + 1013904223u;
+  return s_lcg_state >> 16;
+}
+
+// A box with no shift is an exact copy: the span fill on a hand-made box,
+// every pixel of it, random colour.
+void test_crt_text_box_at_shift_zero_should_copy_every_pixel(void) {
+  const CrtTextBox box = {.x0 = 11, .x1 = 189, .y0 = 0, .y1 = 1, .sh = 0, .sv = 0, .left = false};
+  s_lcg_state = 11;
+  uint8_t row[SCREEN_W], out[SCREEN_W];
+  for (int x = 0; x < SCREEN_W; x++) row[x] = 0xC0 | (lcg() & 0x3F);
+  memset(out, 0, sizeof(out));
+  ca_box_span(out, row, row, row, &box, 0);
+  for (int x = 0; x < SCREEN_W; x++) {
+    TEST_ASSERT_EQUAL_HEX8(x >= box.x0 && x < box.x1 ? row[x] : 0, out[x]);
+  }
+}
+
+// At shift 1, R and B are exact copies of the source channel one px over (R
+// from the right on the left half, mirrored on the right) — no intermediate
+// level — and G is the pixel's own.
+void test_crt_text_box_at_shift_one_should_copy_channels_one_pixel_over(void) {
+  const CrtTextBox* boxes;
+  crt_text_boxes(&boxes);
+  s_lcg_state = 23;
+  int tested = 0;
+  for (int b = 0; b < CRT_TEXT_BOXES; b++) {
+    if (boxes[b].sh != 1) continue;
+    tested++;
+    uint8_t row[SCREEN_W], rrow[SCREEN_W], brow[SCREEN_W], out[SCREEN_W];
+    for (int x = 0; x < SCREEN_W; x++) {
+      row[x] = 0xC0 | (lcg() & 0x3F);
+      rrow[x] = 0xC0 | (lcg() & 0x3F);
+      brow[x] = 0xC0 | (lcg() & 0x3F);
+    }
+    memset(out, 0, sizeof(out));
+    ca_box_span(out, row, rrow, brow, &boxes[b], 0);
+    int dr = boxes[b].left ? 1 : -1;
+    for (int x = boxes[b].x0; x < boxes[b].x1; x++) {
+      TEST_ASSERT_EQUAL_INT((rrow[x + dr] >> 4) & 3, (out[x] >> 4) & 3);
+      TEST_ASSERT_EQUAL_INT((row[x] >> 2) & 3, (out[x] >> 2) & 3);
+      TEST_ASSERT_EQUAL_INT(brow[x - dr] & 3, out[x] & 3);
+      TEST_ASSERT_EQUAL_HEX8(0xC0, out[x] & 0xC0);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0, out[boxes[b].x0 - 1]);
+    TEST_ASSERT_EQUAL_HEX8(0, out[boxes[b].x1]);
+  }
+  TEST_ASSERT_EQUAL_INT(CRT_TEXT_BOXES, tested);
+}
+
+// The strike adds its boost to a box's shift in whole px, the same across the
+// span.
+void test_crt_text_box_should_grow_by_the_strike_boost_in_whole_pixels(void) {
+  const CrtTextBox* boxes;
+  crt_text_boxes(&boxes);
+  for (int b = 0; b < CRT_TEXT_BOXES; b++) {
+    for (int boost = 0; boost <= 3; boost++) {
+      uint8_t row[SCREEN_W], out[SCREEN_W];
+      memset(row, 0xC0, sizeof(row));
+      memset(out, 0, sizeof(out));
+      // One white column at the box centre; R and B each land on one column.
+      int c = (boxes[b].x0 + boxes[b].x1) / 2;
+      row[c] = 0xFF;
+      ca_box_span(out, row, row, row, &boxes[b], boost);
+      int sh = boxes[b].sh + boost;
+      int r_at = -1, b_at = -1;
+      for (int x = boxes[b].x0; x < boxes[b].x1; x++) {
+        if ((out[x] >> 4) & 3) {
+          TEST_ASSERT_EQUAL_INT(-1, r_at);
+          TEST_ASSERT_EQUAL_INT(3, (out[x] >> 4) & 3);
+          r_at = x;
+        }
+        if (out[x] & 3) {
+          TEST_ASSERT_EQUAL_INT(-1, b_at);
+          TEST_ASSERT_EQUAL_INT(3, out[x] & 3);
+          b_at = x;
+        }
+      }
+      TEST_ASSERT_EQUAL_INT(boxes[b].left ? c - sh : c + sh, r_at);
+      TEST_ASSERT_EQUAL_INT(boxes[b].left ? c + sh : c - sh, b_at);
+    }
+  }
+}
+
+// The middle slots, the TIME window and the clock are not boxes: a one-pixel
+// white column at the screen's axis still takes the fractional ramp with its
+// per-half element correction there (rows 100, 120 and 156), and a whole-pixel
+// pull, not a copy, in the bottom-centre row where the ramp has stepped to 2
+// thirds (row 198). Values pinned from the pass.
+void test_crt_pass_should_keep_the_ramp_in_the_middle_slots_and_clock(void) {
+  s_active_theme = &s_theme_shadow;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 100] = 0xFF;
+  crt_apply_framebuffer(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE);
+  static const int rows[] = {100, 120, 156};
+  for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+    const uint8_t* out = &mock_framebuffer[rows[i] * SCREEN_W];
+    TEST_ASSERT_EQUAL_HEX8(0xC1, out[99]);
+    TEST_ASSERT_EQUAL_HEX8(0xEE, out[100]);
+    TEST_ASSERT_EQUAL_HEX8(0xD0, out[101]);
+  }
+  const uint8_t* out = &mock_framebuffer[198 * SCREEN_W];
+  TEST_ASSERT_EQUAL_HEX8(0xD0, out[99]);
+  TEST_ASSERT_EQUAL_HEX8(0xCC, out[100]);
+  TEST_ASSERT_EQUAL_HEX8(0xF0, out[101]);
+}
+
+// And a shift-one box through the pass: columns of random grey, uniform down
+// each, in the top-right box's left end (the warp is still near the identity
+// there): R comes from the column to the left, B from the right.
+void test_crt_pass_should_shift_a_box_by_whole_pixels(void) {
+  static uint8_t src[SCREEN_W * SCREEN_H];
+  s_active_theme = &s_theme_shadow;
+  s_lcg_state = 9;
+  uint8_t level[SCREEN_W];
+  for (int x = 0; x < SCREEN_W; x++) level[x] = lcg() & 3;
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      src[y * SCREEN_W + x] = 0xC0 | (level[x] << 4) | (level[x] << 2) | level[x];
+    }
+  }
+  memcpy(mock_framebuffer, src, sizeof(src));
+  crt_apply_framebuffer(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE);
+  for (int y = 18; y <= 36; y++) {
+    for (int x = 102; x <= 107; x++) {
+      uint8_t p = mock_framebuffer[y * SCREEN_W + x];
+      TEST_ASSERT_EQUAL_INT(level[x - 1], (p >> 4) & 3);
+      TEST_ASSERT_EQUAL_INT(level[x], (p >> 2) & 3);
+      TEST_ASSERT_EQUAL_INT(level[x + 1], p & 3);
+    }
+  }
+}
+
+// Outside the boxes CA is still the fractional ramp: a one-pixel white column
+// in the gap between the top boxes (row 22) takes the blended path (the same
+// bytes the ramp gave before boxes existed), while the box beside it, at
+// column 102, holds a whole-pixel copy with no 1/3 level in it.
+void test_crt_pass_should_blend_fractionally_outside_the_boxes(void) {
+  s_active_theme = &s_theme_shadow;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 100] = 0xFF;
+  crt_apply_framebuffer(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE);
+  const uint8_t* out = &mock_framebuffer[22 * SCREEN_W];
+  TEST_ASSERT_EQUAL_HEX8(0xE0, out[99]);
+  TEST_ASSERT_EQUAL_HEX8(0xCC, out[100]);
+  TEST_ASSERT_EQUAL_HEX8(0xE0, out[101]);
+  TEST_ASSERT_EQUAL_HEX8(0xC0, out[102]);
+}
+
 void test_crt_pure_geometry_should_match_the_spec(void) {
   // Warp: identity at the screen centre, calibrated ≈5px pull at mid-edges,
   // growing smoothly toward the corners (radial — was rank-1 in y).
@@ -5167,6 +5440,36 @@ void test_crt_strike_should_widen_the_channel_separation(void) {
   s_flash_phase = 0;  // strongest boost
   int strike = ca_channel_separation();
   TEST_ASSERT_TRUE(abs(strike) >= abs(idle) + 256);
+}
+
+// A one-pixel column through the top-right box, R-minus-B centroid on row 22
+// in Q8: the box's own 1px pull each way, plus the strike's boost, in whole px.
+static int box_channel_separation(void) {
+  s_active_theme = &s_theme_shadow;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 106] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+  const uint8_t* row = &mock_framebuffer[22 * SCREEN_W];
+  int r_sum = 0, b_sum = 0, r_mass = 0, b_mass = 0;
+  for (int x = 88; x < 127; x++) {
+    int r = (row[x] >> 4) & 3, b = row[x] & 3;
+    r_sum += r * x;
+    b_sum += b * x;
+    r_mass += r;
+    b_mass += b;
+  }
+  TEST_ASSERT_TRUE(r_mass > 0 && b_mass > 0);
+  return (r_sum * 256) / r_mass - (b_sum * 256) / b_mass;
+}
+
+void test_crt_strike_should_pull_a_box_apart_by_the_boost_in_whole_pixels(void) {
+  s_settings_crt = 1;
+  for (int phase = CRT_FLASH_IDLE; phase < CRT_FLASH_PHASES; phase++) {
+    s_flash_phase = phase;
+    int boost = phase < 0 ? 0 : (s_strike_amp_px[phase] + 1) / 2;
+    // The warp's 1.02x pull on the pair leaves the tolerance at a third of a px.
+    TEST_ASSERT_INT_WITHIN(96, 2 * (1 + boost) * 256, box_channel_separation());
+  }
 }
 
 void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
@@ -6034,6 +6337,15 @@ int main(void) {
   RUN_TEST(test_crt_ca_should_never_split_a_feature_into_two_ghosts);
   RUN_TEST(test_crt_ca_onset_should_cut_at_the_dead_zone);
   RUN_TEST(test_crt_ca_ladder_should_be_monotone_and_mirror_symmetric);
+  RUN_TEST(test_crt_text_boxes_should_pin_the_default_layout);
+  RUN_TEST(test_crt_text_boxes_should_not_move_with_quick_view);
+  RUN_TEST(test_crt_text_boxes_should_keep_glyphs_and_strokes_off_their_edges);
+  RUN_TEST(test_crt_text_box_at_shift_zero_should_copy_every_pixel);
+  RUN_TEST(test_crt_text_box_at_shift_one_should_copy_channels_one_pixel_over);
+  RUN_TEST(test_crt_text_box_should_grow_by_the_strike_boost_in_whole_pixels);
+  RUN_TEST(test_crt_pass_should_keep_the_ramp_in_the_middle_slots_and_clock);
+  RUN_TEST(test_crt_pass_should_shift_a_box_by_whole_pixels);
+  RUN_TEST(test_crt_pass_should_blend_fractionally_outside_the_boxes);
   RUN_TEST(test_crt_pure_geometry_should_match_the_spec);
   RUN_TEST(test_crt_warp_should_spread_steps_across_rows);
   RUN_TEST(test_crt_strike_should_jitter_rows_and_decay);
@@ -6054,6 +6366,7 @@ int main(void) {
   RUN_TEST(test_crt_setting_change_should_disarm_a_pending_cover_suppression);
   RUN_TEST(test_crt_pass_should_follow_the_row_stride);
   RUN_TEST(test_crt_strike_should_widen_the_channel_separation);
+  RUN_TEST(test_crt_strike_should_pull_a_box_apart_by_the_boost_in_whole_pixels);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);
   RUN_TEST(test_crt_setting_push_should_redraw_the_overlay);
   RUN_TEST(test_crt_sound_off_push_should_free_the_strike_pcm);
