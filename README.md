@@ -53,6 +53,11 @@ emulator (`tools/update_screenshots.sh`).
 - **Colors only when something needs attention**: temperature runs
   red-hot / blue-cold, AQI and UV go yellow then red past their thresholds,
   battery goes yellow then red as it drains — and green on the charger.
+- **CRT effect** (off by default): a pincushion warp, vignette and chromatic
+  aberration over the whole face, a degauss strike on wake, and an optional
+  degauss sound.
+- **Hourly chime** (off by default): the IBM BIOS POST beep on the hour, at a
+  volume you pick. It stays silent while the watch is muted or in Quiet Time.
 - **Weather without an API key** — data comes from
   [Open-Meteo](https://open-meteo.com) via your phone's location, refreshed
   every 30 minutes.
@@ -72,6 +77,9 @@ deliberately few:
 | Day of week | Before date, after date, hidden |
 | CRT effect | On, off (default) |
 | CRT degauss sound | On, off (default) |
+| Hourly chime | On, off (default) |
+| Chime volume | 5% (default), 10%, 25%, 50%, 75%, 100% |
+| Test sound | Button: closes the page and beeps the watch at the saved volume |
 | Slots 1–6 | Data source per slot, or Empty |
 
 That's the whole surface. Good defaults over knobs; if a behavior isn't
@@ -108,8 +116,8 @@ pebble install --phone <ip>           # install to a paired phone
 ```
 
 Run the unit tests (host-only, no SDK needed — requires `clang-format`,
-`gcc`, and node ≥ 18 for `node --test`; `test/unity` is a submodule, so clone
-with `--recurse-submodules`):
+`gcc`, and node 24 (what CI runs) for `node --test`; `test/unity` is a
+submodule, so clone with `--recurse-submodules`):
 
 ```sh
 make test

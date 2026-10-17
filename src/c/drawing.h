@@ -91,6 +91,11 @@ void request_ui_redraw(void);
 // state globals.
 void reset_ui_snapshot(void);
 
+// Window-unload teardown, called before main.c destroys the canvas layer:
+// frees the scene cache and clears s_canvas_layer, so a late event cannot
+// dirty a freed layer. Idempotent.
+void canvas_deinit(void);
+
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
 GFont vga_font_16(void);
 GFont vga_font_64(void);

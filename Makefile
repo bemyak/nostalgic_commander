@@ -41,11 +41,12 @@ screenshots:
 # Pixel-gates the rendered face against a committed capture: build, launch on
 # the emery emulator, screenshot immediately (before any weather fetch can
 # land), mask the moving regions on both images, require the rest identical.
+TMP ?= $(or $(TMPDIR),/tmp)
 VISUAL_DIR = test/visual
 VISUAL_BASELINE = $(VISUAL_DIR)/baseline.png
-VISUAL_SHOT = /tmp/nc_visual_current.png
-VISUAL_BASE_MASKED = /tmp/nc_visual_baseline_masked.png
-VISUAL_DIFF = /tmp/nc_visual_diff.png
+VISUAL_SHOT = $(TMP)/nc_visual_current.png
+VISUAL_BASE_MASKED = $(TMP)/nc_visual_baseline_masked.png
+VISUAL_DIFF = $(TMP)/nc_visual_diff.png
 
 # Mask rects ("x0,y0 x1,y1", inclusive) — exactly the regions that move
 # between runs, derived by diffing consecutive captures; everything else is

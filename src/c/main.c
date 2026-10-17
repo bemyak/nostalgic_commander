@@ -149,7 +149,7 @@ void refresh_state(void) {
   // string here would schedule a render and defeat the gate on every inbox
   // message. On a MINUTE_UNIT tick the string always differs — the 1440/day
   // floor is unaffected. s_shown_time is file-scope (see main_window_load).
-  if (strcmp(time_str, s_shown_time) != 0) {
+  if (s_time_layer && strcmp(time_str, s_shown_time) != 0) {
     strncpy(s_shown_time, time_str, sizeof(s_shown_time) - 1);
     text_layer_set_text(s_time_layer, time_str);
   }
@@ -173,12 +173,14 @@ void refresh_state(void) {
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   (void)units_changed;
+  // Quiet Time has no OS event, so it is polled on the minute tick.
   s_quiet_time_active = quiet_time_is_active();
+  weather_expire(time(NULL));
   refresh_state();
   // Fetch on the tick edge only. refresh_state() also runs from
   // inbox_received_callback; triggering there too re-armed the fetch on
   // every reply for the whole of minutes :00/:30.
-  if (tick_time->tm_min % 30 == 0 && any_slot_needs_weather()) {
+  if (weather_fetch_due(tick_time->tm_min, any_slot_needs_weather())) {
     request_weather();
   }
   chime_on_tick(tick_time);
@@ -186,16 +188,20 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
 
 // A weather request that loses the race with the phone's JS runtime is
 // dropped silently, and nothing on the phone side fetches on its own. Bounded
-// retry, reset on the first successful send. The outbox only ever carries the
+// retry: every fresh request and every successful send starts the budget
+// over; only the retry timer spends from it. The outbox only ever carries the
 // weather trigger, so no message discrimination is needed.
 #define WEATHER_REQUEST_RETRY_MS 5000
 #define WEATHER_REQUEST_MAX_RETRIES 2
 
 static int s_weather_request_retries = 0;
+static AppTimer* s_weather_retry_timer = NULL;
 
 static void weather_retry_callback(void* data) {
   (void)data;
-  request_weather();
+  s_weather_retry_timer = NULL;
+  s_weather_request_retries++;
+  request_weather_retry();
 }
 
 static void outbox_sent_callback(DictionaryIterator* iterator, void* context) {
@@ -204,12 +210,12 @@ static void outbox_sent_callback(DictionaryIterator* iterator, void* context) {
   s_weather_request_retries = 0;
 }
 
-// The counter must also clear when an answer lands: outbox_sent covers the
-// SEND, but a momentary double failure leaves the counter capped — and the
-// 5s retry path then stays dead for the rest of the app's life. An arrived
-// payload is proof the loop works; reset here too.
-void weather_request_answered(void) {
+void weather_retries_reset(void) {
   s_weather_request_retries = 0;
+  if (s_weather_retry_timer) {
+    app_timer_cancel(s_weather_retry_timer);
+    s_weather_retry_timer = NULL;
+  }
 }
 
 static void outbox_failed_callback(DictionaryIterator* iterator, AppMessageResult reason,
@@ -220,13 +226,12 @@ static void outbox_failed_callback(DictionaryIterator* iterator, AppMessageResul
     APP_LOG(APP_LOG_LEVEL_ERROR, "Weather request failed (%d); retries exhausted", (int)reason);
     return;
   }
-  s_weather_request_retries++;
-  // One-shot timers free themselves on firing, so the handle is deliberately
-  // discarded. A second failure inside the window arms a second timer and
-  // both fire — the counter bounds the total sends anyway. A NULL return
-  // (timer pool exhausted) silently drops this retry — acceptable at the
-  // weather-request failure rate.
-  app_timer_register(WEATHER_REQUEST_RETRY_MS, weather_retry_callback, NULL);
+  // A second failure inside the window supersedes the armed retry. A NULL
+  // return (timer pool exhausted) silently drops this retry — acceptable at
+  // the weather-request failure rate.
+  if (s_weather_retry_timer) app_timer_cancel(s_weather_retry_timer);
+  s_weather_retry_timer =
+      app_timer_register(WEATHER_REQUEST_RETRY_MS, weather_retry_callback, NULL);
 }
 
 static void battery_callback(BatteryChargeState state) {
@@ -253,6 +258,7 @@ static time_t s_last_throttled_health_refresh;
 
 static void health_handler(HealthEventType event, void* context) {
   (void)context;
+  if (!any_slot_shows_health()) return;
   // SignificantUpdate = the applib health cache was invalidated (day
   // rollover, subscribe); rare, load-bearing, never throttled. HeartRateUpdate
   // bypasses the throttle too: a posted reading is already fresh, and stale
@@ -326,9 +332,15 @@ static void main_window_load(Window* window) {
 
 static void main_window_unload(Window* window) {
   (void)window;
+  unobstructed_area_service_unsubscribe();
   text_layer_destroy(s_time_layer);
-  layer_destroy(s_crt_layer);
-  layer_destroy(s_canvas_layer);
+  s_time_layer = NULL;
+  Layer* crt_layer = s_crt_layer;
+  Layer* canvas_layer = s_canvas_layer;
+  crt_deinit();
+  canvas_deinit();
+  layer_destroy(crt_layer);
+  layer_destroy(canvas_layer);
 }
 
 static void init(void) {
@@ -367,7 +379,10 @@ static void init(void) {
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_sent(outbox_sent_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
-  app_message_open(256, 64);
+  AppMessageResult opened = app_message_open(APP_MESSAGE_INBOX_SIZE, APP_MESSAGE_OUTBOX_SIZE);
+  if (opened != APP_MSG_OK) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "app_message_open failed (%d)", (int)opened);
+  }
 
   // Restore cached weather; hit the network only if the cache is stale and
   // something actually shows weather. && short-circuits left to right, so the
@@ -379,9 +394,19 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  tick_timer_service_unsubscribe();
+  battery_state_service_unsubscribe();
+  backlight_service_unsubscribe();
+  app_focus_service_unsubscribe();
+  connection_service_unsubscribe();
+#if defined(PBL_HEALTH)
+  health_service_events_unsubscribe();
+#endif
+  crt_deinit();
+  window_destroy(s_main_window);
+  canvas_deinit();
   fonts_unload_custom_font(s_vga_16);
   fonts_unload_custom_font(s_vga_64);
-  window_destroy(s_main_window);
 }
 
 #ifndef TEST_ENV

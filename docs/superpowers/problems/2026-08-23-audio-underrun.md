@@ -46,15 +46,15 @@ update is.
 
 Refs from PebbleOS main (local tree):
 
-1. `src/fw/drivers/speaker/sf32lb52/audio.c: audio_start()` — PA enable pulse
+1. `drivers/speaker/sf32lb52/audio.c: audio_start()` — PA enable pulse
    (GPIO high-low-high, 200 µs each). The audible "pop" prefix is likely this.
 2. `include/pbl/drivers/speaker/sf32lb52/audio_definitions.h:17` —
    `CIRCULAR_BUF_SIZE_MS 128`: the app-writable playback ring holds **128 ms**.
-3. `src/fw/drivers/speaker/sf32lb52/audec.c` — codec playback via DMA with two
+3. `drivers/speaker/sf32lb52/audec.c` — codec playback via DMA with two
    half-buffers; each half-buffer IRQ calls, from ISR context,
    `system_task_add_callback_from_isr_droppable(...)` (**droppable** by name);
    its own comment: a dropped refill is only retried at the NEXT half-buffer IRQ.
-4. `src/fw/services/speaker/speaker_service.c:302-306` — `prv_audio_trans_cb`
+4. `fw/services/speaker/speaker_service.c:302-306` — `prv_audio_trans_cb`
    then re-queues the real refill through `system_task_add_callback`
    (system task again).
 5. Track mixing (`track_player.c`) runs in that refill chain; per-sample work
@@ -111,7 +111,7 @@ ones, and the mechanism is simpler than DMA arbitration.
 tasks, which is worse than sharing one:
 
 - `display_update()` runs on **KernelMain**, priority `tskIDLE_PRIORITY + 3`
-  (`src/fw/main.c:157-166`). Chain: `compositor_render_app()` →
+  (`fw/main.c:157-166`). Chain: `compositor_render_app()` →
   `prv_compositor_flush()` (asserts KernelMain, `compositor.c:202`) →
   `compositor_display_update()` (`compositor_display.c:157`) → `display_update()`
   (`drivers/display/sf32lb/display_jdi.c:418`).

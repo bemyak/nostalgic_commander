@@ -18,6 +18,15 @@ const scrape = require('./contract-scrape.js');
 
 const readRepoFile = scrape.readRepoFile;
 
+// A sentinel cell is a literal or one of data.h's named weather sentinels.
+function sentinelValue(cell) {
+  if (/^-?\d+$/.test(cell)) return Number(cell);
+  const def =
+      readRepoFile('src/c/data.h').match(new RegExp('#define ' + cell + ' \\(?(-?\\d+)\\)?'));
+  assert.ok(def, `${cell} is not defined in data.h`);
+  return Number(def[1]);
+}
+
 // The rows of a MessageField table: {&MESSAGE_KEY_<NAME>, PERSIST_KEY_<NAME>,
 // &target (or NULL for the slot table), <sentinel>[, wrapped across lines]}.
 // Scoped to one table so identically-shaped rows elsewhere don't pollute it.
@@ -28,12 +37,12 @@ function parseCMessageRows(messagingC, arrayName) {
   const start = tableMatch.index;
   const table = messagingC.slice(start, messagingC.indexOf('};', start));
   const rowRe =
-      /\{&MESSAGE_KEY_([A-Z0-9_]+),\s*(PERSIST_KEY_[A-Z0-9_]+),\s*(?:&[A-Za-z0-9_.]+|NULL),\s*(-?\d+)\s*\}/g;
+      /\{&MESSAGE_KEY_([A-Z0-9_]+),\s*(PERSIST_KEY_[A-Z0-9_]+),\s*(?:&[A-Za-z0-9_.]+|NULL),\s*(-?\d+|WEATHER_[A-Z_]+)\s*\}/g;
   const rows = new Map();
   let m;
   while ((m = rowRe.exec(table)) !== null) {
     assert.ok(!rows.has(m[1]), `duplicate C row for ${m[1]}`);
-    rows.set(m[1], {persist: m[2], sentinel: Number(m[3])});
+    rows.set(m[1], {persist: m[2], sentinel: sentinelValue(m[3])});
   }
   assert.ok(rows.size > 0, `${arrayName}: row regex matched nothing — pattern drift?`);
   return rows;
@@ -64,6 +73,7 @@ const EXPECTED_PERSIST = new Map([
   ['WEATHER_LO_HOUR_TODAY', 'PERSIST_KEY_WEATHER_LO_HOUR_TODAY'],
   ['WEATHER_HI_HOUR_TOMORROW', 'PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW'],
   ['WEATHER_LO_HOUR_TOMORROW', 'PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW'],
+  ['WEATHER_FETCHED_AT', 'PERSIST_KEY_WEATHER_TIMESTAMP'],
   ['SETTINGS_THEME', 'PERSIST_KEY_SETTINGS_THEME'],
   ['SETTINGS_UNITS', 'PERSIST_KEY_SETTINGS_UNITS'],
   ['SETTINGS_DATE_FORMAT', 'PERSIST_KEY_SETTINGS_DATE_FORMAT'],
@@ -169,8 +179,8 @@ const EXPECTED_SOURCE_LABELS = [
   ['DATA_SOURCE_WEATHER', 'Weather'],
   ['DATA_SOURCE_TEMP_HIGH_LOW', 'Next High / Low temperatures'],
   ['DATA_SOURCE_WIND', 'Wind'],
-  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (window max)'],
-  ['DATA_SOURCE_AQI_UV', 'AQI UV Index (window max)'],
+  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (PCP window max)'],
+  ['DATA_SOURCE_AQI_UV', 'AQI + UV Index (UV window max)'],
   ['DATA_SOURCE_FULL_DATE', 'Date'],
   ['DATA_SOURCE_WEATHER_FULL', 'Full Weather'],
   ['DATA_SOURCE_STEPS_BAR', 'Steps Progress'],

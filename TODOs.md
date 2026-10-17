@@ -13,17 +13,6 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   weather 1-2 s later (screenshot injected state with no sleep). Health/
   battery/BT/time via `emu-steps/sleep/heart-rate/battery/bt-connection/
   set-time`. Only the Clay config page still needs a phone.
-- [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
-  health reads and weather fetches are slot-gated, event-driven renders are
-  snapshot-gated, persistence writes are compare-before-write, bar fills
-  paint as rects, forecast+AQI fetch in parallel, AppMessage buffers
-  shrunk. Plan: [docs/superpowers/plans/2026-07-30-perf-battery.md](docs/superpowers/plans/2026-07-30-perf-battery.md).
-  Implemented 2026-07-30; host tests green, emulator gates pending above.
-- [x] Handle Timeline Quick View (UnobstructedArea API): honest occlusion —
-  the face subscribes to `.did_change` and simply omits the covered bottom
-  slot row while a Quick View is up (covered slot windows are simply never
-  drawn on the canvas), restoring on dismissal. No reflow, by decision.
-  Emulator check pending alongside the perf pass.
 
 ## Deferred
 
@@ -35,6 +24,16 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
 
 ## Done
 
+- [x] Performance & battery pass: killed the :00/:30 weather fetch loop,
+  health reads and weather fetches are slot-gated, event-driven renders are
+  snapshot-gated, persistence writes are compare-before-write, bar fills
+  paint as rects, forecast+AQI fetch in parallel, AppMessage buffers
+  shrunk. Plan: [docs/superpowers/plans/2026-07-30-perf-battery.md](docs/superpowers/plans/2026-07-30-perf-battery.md).
+  Implemented 2026-07-30.
+- [x] Handle Timeline Quick View (UnobstructedArea API): honest occlusion —
+  the face subscribes to `.did_change` and simply omits the covered bottom
+  slot row while a Quick View is up (covered slot windows are simply never
+  drawn on the canvas), restoring on dismissal. No reflow, by decision.
 - [x] Quiet Time indicator: new combined phone-status window
   `DATA_SOURCE_BT_QT = 32` (caption `BT/QT`, `[x][z]`, one checkbox inked per
   state) — top slots only; at ≥93 px the title splits into `BT`/`QT` caption

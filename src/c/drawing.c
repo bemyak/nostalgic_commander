@@ -5,29 +5,40 @@
 #include "status.h"
 #include "theme.h"
 
-void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
+// Borders as filled rects — graphics_draw_line is anti-aliased with round
+// caps, which softens the corners; fill rects stay pixel-sharp. Every border
+// is drawn inside the rect, so the frame stays within w x h. The top line
+// drops so the title centres on it; the verticals start there too, or they
+// would stick up past the corners. Draws the two verticals and the bottom in
+// the frame color; the caller draws its own top line.
+static void draw_frame_sides(GContext* ctx, GRect rect) {
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
   int h = rect.size.h;
-
-  graphics_context_set_fill_color(ctx, s_active_theme->frame);
-
-  // Borders as filled rects — graphics_draw_line is anti-aliased with round
-  // caps, which softens the corners; fill rects stay pixel-sharp. Every border
-  // is drawn inside the rect, so the frame stays within w x h.
-  // The top line drops so the title centres on it; the verticals start there
-  // too, or they would stick up past the corners.
   int top = y + TITLE_BORDER_DROP;
   int side_h = h - TITLE_BORDER_DROP;
 
-  // Vertical borders
+  graphics_context_set_fill_color(ctx, s_active_theme->frame);
   graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, side_h), 0, GCornerNone);
   graphics_fill_rect(ctx, GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, side_h), 0,
                      GCornerNone);
-
-  // Bottom border
   graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+}
+
+// The 16px title cell straddling the top line of the window whose origin row
+// is `y`.
+static GRect title_cell_rect(int x, int y, int w) {
+  return GRect(x, y - VGA16_CELL_H / 2, w, VGA16_CELL_H);
+}
+
+void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
+  int x = rect.origin.x;
+  int y = rect.origin.y;
+  int w = rect.size.w;
+  int top = y + TITLE_BORDER_DROP;
+
+  draw_frame_sides(ctx, rect);
 
   // Top border (solid, with title gap)
   int title_width = strlen(title) * VGA16_CHAR_W + 4;  // one cell per char + padding
@@ -37,23 +48,27 @@ void draw_ascii_window(GContext* ctx, GRect rect, const char* title) {
   int gap_left = x_mid - title_width / 2 - 3;
   int gap_right = x_mid + title_width / 2 + 3;
 
-  graphics_fill_rect(ctx, GRect(x, top, gap_left - x + 1, WINDOW_BORDER_PX), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(x, top, gap_left - x, WINDOW_BORDER_PX), 0, GCornerNone);
   graphics_fill_rect(ctx, GRect(gap_right, top, x + w - gap_right, WINDOW_BORDER_PX), 0,
                      GCornerNone);
 
   // Title cell straddles the top border
   graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
-  graphics_draw_text(ctx, title, vga_font_16(),
-                     GRect(gap_left, y - VGA16_CELL_H / 2, gap_right - gap_left, VGA16_CELL_H),
+  graphics_draw_text(ctx, title, vga_font_16(), title_cell_rect(gap_left, y, gap_right - gap_left),
                      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
+// The rect `cells` glyph cells wide, centred in the span [x, x + w) on the
+// shared value row of the window at `box_rect`.
+static GRect value_row_rect(GRect box_rect, int x, int w, int cells) {
+  return GRect(x + (w - cells * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
+               cells * VGA16_CHAR_W, VALUE_ROW_H);
 }
 
 // The centred rect a monospace value occupies inside its window: a whole number
 // of glyph cells wide, sitting on the shared value row.
 static GRect vga16_value_rect(GRect box_rect, const char* value) {
-  int w = strlen(value) * VGA16_CHAR_W;
-  return GRect(box_rect.origin.x + (box_rect.size.w - w) / 2, box_rect.origin.y + VALUE_ROW_DY, w,
-               VALUE_ROW_H);
+  return value_row_rect(box_rect, box_rect.origin.x, box_rect.size.w, strlen(value));
 }
 
 // A status band spans the whole cell, the way a DOS list highlights a row,
@@ -163,7 +178,7 @@ void draw_weather_complication(GContext* ctx, GRect box_rect, ComplicationDataSo
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
 
   int total = strlen(buf);
-  bool has_reading = s_weather_temp != -999;
+  bool has_reading = s_weather_temp != WEATHER_TEMP_NONE;
   const char* space = strchr(buf, ' ');
   int cond_len = (has_reading && space) ? (int)(space - buf) : 0;
   int unit_at = total, unit_len = 0;
@@ -270,12 +285,11 @@ static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool h
 
   int filled = has_reading ? (fill_percent * bar_cells) / 100 : 0;
 
-  GRect row = GRect(band.origin.x + (band.size.w - cells * VGA16_CHAR_W) / 2,
-                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+  GRect row = value_row_rect(box_rect, band.origin.x, band.size.w, cells);
 
   // The fill is a solid block: one rect, not a glyph run. The track stays
   // glyphs — ░ is a dither pattern, not a color. Rect geometry is the ink box
-  // the █ run occupied; pixel-identity is screenshot-gated, not assumed.
+  // of a █ run.
   if (filled > 0) {
     graphics_context_set_fill_color(ctx, fill);
     graphics_fill_rect(ctx, GRect(row.origin.x, band.origin.y, filled * VGA16_CHAR_W, VGA16_CELL_H),
@@ -320,8 +334,7 @@ void draw_short_date_complication(GContext* ctx, GRect box_rect, ComplicationDat
 static void draw_status_field(GContext* ctx, GRect box_rect, int x, int w, const char* text,
                               bool banded, GColor band) {
   int len = strlen(text);
-  GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
-                    len * VGA16_CHAR_W, VALUE_ROW_H);
+  GRect row = value_row_rect(box_rect, x, w, len);
 
   if (banded) {
     GRect fill = status_band_rect(box_rect);
@@ -373,11 +386,8 @@ static void draw_hinted_half(GContext* ctx, GRect box_rect, int x, int w, const 
                              bool banded, GColor band) {
   int at = 0, ulen = 0;
   if (!banded && trailing_unit_span(text, &at, &ulen)) {
-    int len = strlen(text);
-    GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
-                      len * VGA16_CHAR_W, VALUE_ROW_H);
-    draw_accented_value(ctx, row, text, at, ulen, s_active_theme->text_primary,
-                        s_active_theme->mark);
+    draw_accented_value(ctx, value_row_rect(box_rect, x, w, strlen(text)), text, at, ulen,
+                        s_active_theme->text_primary, s_active_theme->mark);
     return;
   }
   draw_status_field(ctx, box_rect, x, w, text, banded, band);
@@ -454,11 +464,11 @@ typedef struct {
 } FullWeatherField;
 
 static const FullWeatherField s_full_weather_fields[] = {
-    {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, -999},
+    {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, WEATHER_TEMP_NONE},
     // 4 cells since the unit letter always shows: "+22C"/"103F" fit whole.
-    {DATA_SOURCE_WEATHER_TEMP, 4, "TMP", &s_weather_temp, -999},
-    {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, -1},
-    {DATA_SOURCE_WEATHER_PCP, 4, "PCP", &s_weather_pcp, -1},
+    {DATA_SOURCE_WEATHER_TEMP, 4, "TMP", &s_weather_temp, WEATHER_TEMP_NONE},
+    {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, WEATHER_NONE},
+    {DATA_SOURCE_WEATHER_PCP, 4, "PCP", &s_weather_pcp, WEATHER_NONE},
 };
 
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
@@ -492,8 +502,7 @@ void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationD
       // a band — draw_status_field's color is fill-only, so the chip draws
       // its run directly. A missing reading stays quiet on the ground.
       int len = strlen(buf);
-      GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
-                        len * VGA16_CHAR_W, VALUE_ROW_H);
+      GRect row = value_row_rect(box_rect, x, w, len);
       draw_run(
           ctx, row, 0, buf, len,
           *field->reading != field->sentinel ? s_active_theme->mark : s_active_theme->text_primary);
@@ -502,9 +511,7 @@ void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationD
     } else {
       // A calm chip keeps its trailing unit's shortkey accent over the same
       // ground row.
-      int len = strlen(buf);
-      GRect row = GRect(x + (w - len * VGA16_CHAR_W) / 2, box_rect.origin.y + VALUE_ROW_DY,
-                        len * VGA16_CHAR_W, VALUE_ROW_H);
+      GRect row = value_row_rect(box_rect, x, w, strlen(buf));
       int unit_at = 0, unit_len = 0;
       bool has_unit = trailing_unit_span(buf, &unit_at, &unit_len);
       draw_accented_value(ctx, row, buf, has_unit ? unit_at : -1, unit_len,
@@ -522,22 +529,15 @@ static void draw_captioned_bar(GContext* ctx, GRect rect, ComplicationDataSource
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
-  int h = rect.size.h;
   int top = y + TITLE_BORDER_DROP;
   int strip_x = x + (w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
 
-  graphics_context_set_fill_color(ctx, s_active_theme->frame);
-
   // Full frame: the top border's stubs flank the caption block, which takes
   // the rest of the top line — a window whose title is the whole header row.
-  int side_h = h - TITLE_BORDER_DROP;
-  graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, side_h), 0, GCornerNone);
-  graphics_fill_rect(ctx, GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, side_h), 0,
-                     GCornerNone);
-  graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+  draw_frame_sides(ctx, rect);
   // Half a cell of air between each stub and the nearest caption *ink* — not
   // the chip edge: PCP's caption is narrower than its chip, so measuring
-  // from the block edge parked the right stub noticeably far.
+  // from the block edge would park the right stub noticeably far.
   const int pad = VGA16_CHAR_W / 2;
   const FullWeatherField* last = &s_full_weather_fields[FULL_WEATHER_NUM_FIELDS - 1];
   int last_caption_end = strip_x + (FULL_WEATHER_STRIP_CELLS - last->cells) * VGA16_CHAR_W +
@@ -555,10 +555,10 @@ static void draw_captioned_bar(GContext* ctx, GRect rect, ComplicationDataSource
     const FullWeatherField* field = &s_full_weather_fields[i];
     int w_px = field->cells * VGA16_CHAR_W;
     int len = strlen(field->caption);
-    graphics_draw_text(ctx, field->caption, vga_font_16(),
-                       GRect(chip_x + (w_px - len * VGA16_CHAR_W) / 2, y - VGA16_CELL_H / 2,
-                             len * VGA16_CHAR_W, VGA16_CELL_H),
-                       GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    graphics_draw_text(
+        ctx, field->caption, vga_font_16(),
+        title_cell_rect(chip_x + (w_px - len * VGA16_CHAR_W) / 2, y, len * VGA16_CHAR_W),
+        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
     chip_x += w_px;
 
     // Frame continuation between neighbouring captions, 2px of air from each
@@ -593,16 +593,9 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
   int x = rect.origin.x;
   int y = rect.origin.y;
   int w = rect.size.w;
-  int h = rect.size.h;
   int top = y + TITLE_BORDER_DROP;
 
-  graphics_context_set_fill_color(ctx, s_active_theme->frame);
-
-  graphics_fill_rect(ctx, GRect(x, top, WINDOW_BORDER_PX, h - TITLE_BORDER_DROP), 0, GCornerNone);
-  graphics_fill_rect(ctx,
-                     GRect(x + w - WINDOW_BORDER_PX, top, WINDOW_BORDER_PX, h - TITLE_BORDER_DROP),
-                     0, GCornerNone);
-  graphics_fill_rect(ctx, GRect(x, y + h - WINDOW_BORDER_PX, w, WINDOW_BORDER_PX), 0, GCornerNone);
+  draw_frame_sides(ctx, rect);
 
   const int pad = VGA16_CHAR_W / 2;
   int left_x = x + left_cx - (int)strlen(left) * VGA16_CHAR_W / 2;
@@ -619,12 +612,11 @@ static void draw_split_caption_window(GContext* ctx, GRect rect, const char* lef
 
   graphics_context_set_text_color(ctx, s_active_theme->text_secondary);
   graphics_draw_text(ctx, left, vga_font_16(),
-                     GRect(left_x, y - VGA16_CELL_H / 2, strlen(left) * VGA16_CHAR_W, VGA16_CELL_H),
+                     title_cell_rect(left_x, y, strlen(left) * VGA16_CHAR_W), GTextOverflowModeFill,
+                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, right, vga_font_16(),
+                     title_cell_rect(right_x, y, strlen(right) * VGA16_CHAR_W),
                      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(
-      ctx, right, vga_font_16(),
-      GRect(right_x, y - VGA16_CELL_H / 2, strlen(right) * VGA16_CHAR_W, VGA16_CELL_H),
-      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
 }
 
 void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
@@ -655,8 +647,7 @@ void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSourc
     return;
   }
   int cells = 1 + (speed[0] ? 1 + (int)strlen(speed) : 0);
-  GRect row = GRect(box_rect.origin.x + (box_rect.size.w - cells * VGA16_CHAR_W) / 2,
-                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+  GRect row = value_row_rect(box_rect, box_rect.origin.x, box_rect.size.w, cells);
   graphics_context_set_text_color(ctx, ink);
   graphics_draw_text(ctx, arrow, vga_font_16(),
                      GRect(row.origin.x, row.origin.y, VGA16_CHAR_W, row.size.h),
@@ -720,8 +711,7 @@ void draw_heart_rate_complication(GContext* ctx, GRect box_rect, ComplicationDat
   // so — like the bar's shade runs — it takes an explicit one-cell span
   // instead of draw_run.
   int cells = (int)strlen(buf) + 1;
-  GRect row = GRect(box_rect.origin.x + (box_rect.size.w - cells * VGA16_CHAR_W) / 2,
-                    box_rect.origin.y + VALUE_ROW_DY, cells * VGA16_CHAR_W, VALUE_ROW_H);
+  GRect row = value_row_rect(box_rect, box_rect.origin.x, box_rect.size.w, cells);
   draw_run(ctx, row, 0, buf, strlen(buf), get_source_color(DATA_SOURCE_HEART_RATE));
   graphics_context_set_text_color(ctx, s_active_theme->mark);
   graphics_draw_text(
@@ -836,27 +826,29 @@ static bool quick_view_covers_slot(int index) {
 // content hasn't changed. The window engine bg-fills and re-runs every
 // layer's proc on each pass, so during strike ticks the scene gets painted
 // from scratch every 90ms — glyphs and frames were the non-pass half of the
-// ~93ms blocked stretch that starved the stock FW's 128ms audio ring
-// (measured 2026-08-23). Redrawn only via request_ui_redraw()/invalidation.
+// ~93ms blocked stretch that starved the stock FW's 128ms audio ring.
+// Redrawn only via request_ui_redraw()/invalidation.
 // HEAP, not .bss: apps have a 64KB virtual_size window and 45.6KB of static
-// cache blows straight through it; the heap had ~54KB free at measure time.
-#define CANVAS_CACHE_BYTES (200 * 228)
+// cache blows straight through it.
+#define CANVAS_CACHE_BYTES (SCREEN_W * SCREEN_H)
 static uint8_t* s_scene_cache = NULL;
 static bool s_scene_cache_valid = false;
 
-// Row-wise copy through GBitmapDataRowInfo: a straight w*h memcpy assumed
-// stride == width and scattered the image (the driver's row stride is not
-// 200). Cache layout stays row-major within the reported column range.
+// Row-wise copy through GBitmapDataRowInfo, which gives each row's data
+// pointer and valid column range regardless of the driver's row stride. The
+// cache itself is packed row-major at SCREEN_W bytes per row.
 static void cache_rows_from(GBitmap* fb) {
-  for (int y = 0; y < 228; y++) {
+  for (int y = 0; y < SCREEN_H; y++) {
     GBitmapDataRowInfo row = gbitmap_get_data_row_info(fb, y);
-    memcpy(s_scene_cache + y * 200 + row.min_x, row.data + row.min_x, row.max_x - row.min_x + 1);
+    memcpy(s_scene_cache + y * SCREEN_W + row.min_x, row.data + row.min_x,
+           row.max_x - row.min_x + 1);
   }
 }
 static void cache_rows_to(GBitmap* fb) {
-  for (int y = 0; y < 228; y++) {
+  for (int y = 0; y < SCREEN_H; y++) {
     GBitmapDataRowInfo row = gbitmap_get_data_row_info(fb, y);
-    memcpy(row.data + row.min_x, s_scene_cache + y * 200 + row.min_x, row.max_x - row.min_x + 1);
+    memcpy(row.data + row.min_x, s_scene_cache + y * SCREEN_W + row.min_x,
+           row.max_x - row.min_x + 1);
   }
 }
 
@@ -864,6 +856,13 @@ static void cache_rows_to(GBitmap* fb) {
 // the next render repaints and re-snapshots instead of blitting.
 void canvas_invalidate_cache(void) {
   s_scene_cache_valid = false;
+}
+
+void canvas_deinit(void) {
+  free(s_scene_cache);
+  s_scene_cache = NULL;
+  s_scene_cache_valid = false;
+  s_canvas_layer = NULL;
 }
 
 void canvas_update_proc(Layer* layer, GContext* ctx) {
@@ -874,16 +873,14 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
 
   // Cache hit: blit and done. Capture-then-write ONLY here — the framebuffer
   // may not be drawn into by SDK draw calls while captured, so the live-draw
-  // path stays capture-free until after it paints (learned the hard way:
-  // capturing first produced a black interior and snapshotted that).
+  // path stays capture-free until after it paints (capturing first yields a
+  // black interior, which would then be snapshotted).
   if (s_scene_cache && s_scene_cache_valid) {
     GBitmap* fb = graphics_capture_frame_buffer(ctx);
     if (fb) {
-      // Per-render glyph/frame painting was ~half the ~93ms blocked stretch
-      // that starved stock FW's 128ms audio ring during strike ticks
-      // (measured 2026-08-23). The snapshot holds bg+canvas content only —
-      // the clock draws after us, the CRT overlay after it; neither is in
-      // the cache, both reapply on top. Byte-identical to a live redraw.
+      // The snapshot holds bg+canvas content only — the clock draws after us,
+      // the CRT overlay after it; neither is in the cache, both reapply on
+      // top. Byte-identical to a live redraw.
       cache_rows_to(fb);
       graphics_release_frame_buffer(ctx, fb);
       return;

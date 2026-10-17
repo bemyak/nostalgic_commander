@@ -27,7 +27,7 @@ rejected it gets deleted (git history remembers). Proposals welcome — see
 > **Platform note (June 2026):** touchscreen interactions are off the table
 > for watchfaces. PebbleOS reserves the touch sensor for watchapps — a
 > watchface's `touch_service_subscribe()` silently no-ops (see
-> `src/fw/applib/touch_service.c` in
+> `fw/applib/touch_service.c` in
 > [coredevices/PebbleOS](https://github.com/coredevices/PebbleOS): "Touch is
 > reserved for watchapps; watchfaces must not consume it"). Note that
 > `touch_service_is_enabled()` still returns true on watchfaces, so don't

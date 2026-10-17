@@ -51,12 +51,46 @@
 #define PERSIST_KEY_SETTINGS_CHIME_VOLUME 1037
 
 #define WEATHER_CACHE_MAX_AGE_S (30 * 60)
+// Weather older than this reads as no data.
+#define WEATHER_STALE_AGE_S (2 * 60 * 60)
+// How far ahead of the watch clock a payload's fetch time may claim to be.
+#define WEATHER_STAMP_FUTURE_SLACK_S 60
+// The weather fetch rides this minute edge of the hour clock.
+#define WEATHER_FETCH_PERIOD_MIN 30
 
+#define APP_MESSAGE_INBOX_SIZE 256
+#define APP_MESSAGE_OUTBOX_SIZE 64
+
+typedef enum {
+  WEATHER_AGE_FRESH,         // every reading usable
+  WEATHER_AGE_PREVIOUS_DAY,  // fetched on an earlier local day: the day-bound
+                             // HI/LO readings no longer describe today
+  WEATHER_AGE_STALE,         // no reading usable (too old, or no/impossible stamp)
+} WeatherAge;
+
+// Persists the weather readings under s_weather_stamp.
 void save_weather_cache(void);
 bool load_weather_cache(void);
 void load_settings(void);
 
+// Pure decisions, kept apart from the state they steer.
+WeatherAge weather_age(time_t stamp, time_t now);
+// The time to stamp a payload with: the phone's fetch time when sane,
+// otherwise `now`.
+time_t weather_stamp_for(int32_t fetched_at, time_t now);
+bool weather_fetch_due(int minute, bool needs_weather);
+bool weather_fetch_after_settings(bool needs_weather, bool units_changed, bool window_changed,
+                                  bool needed_weather, bool slots_changed);
+
+// Applies weather_age() to the held readings.
+void weather_expire(time_t now);
+// Every weather reading back to its sentinel, and the cache marked unusable.
+void weather_discard(void);
+
+// A fresh request; the retry budget starts over.
 void request_weather(void);
+// A retry-timer send; spends from the budget main.c counts.
+void request_weather_retry(void);
 int tuple_get_int(Tuple* tuple);
 void inbox_received_callback(DictionaryIterator* iterator, void* context);
 void inbox_dropped_callback(AppMessageResult reason, void* context);

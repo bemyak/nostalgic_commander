@@ -2,12 +2,6 @@
 #include "complication.h"
 #include "drawing.h"  // drawer prototypes the table references
 
-// The registry, rows ordered by enum value (retired ids are documented in
-// data.h's enum). A NULL format means "read through the `backs` source":
-// the two progress bars mirror their plain counterpart's reading so the
-// render gate's per-slot snapshot hears their changes. A "" label marks a
-// frame-stub window — its captions come from the FRAME_* renderer in
-// drawing.c, not the title slot.
 // Per-source value formatters, wired into the registry table below. Each
 // receives buf/len pre-cleared and percent pre-zeroed by get_source_data.
 // Shared helpers (temperature, wind, HI/LO, dates, the WMO table) live back
@@ -128,7 +122,7 @@ static void fmt_active_minutes(char* buf, int len, int* percent) {
 
 // A reading whose only states are "there" and "--"; AQI and UV share it.
 static void fmt_sentinel_reading(char* buf, int len, int value) {
-  if (value == -1) {
+  if (value == WEATHER_NONE) {
     snprintf(buf, len, "--");
   } else {
     snprintf(buf, len, "%d", value);
@@ -156,7 +150,7 @@ static void fmt_aqi_uv(char* buf, int len, int* percent) {
 }
 
 static void fmt_humidity(char* buf, int len, int* percent) {
-  if (s_weather_humidity == -1) {
+  if (s_weather_humidity == WEATHER_NONE) {
     snprintf(buf, len, "--");
   } else {
     snprintf(buf, len, "%d%%", s_weather_humidity);
@@ -191,7 +185,7 @@ static void fmt_weather_pcp(char* buf, int len, int* percent) {
       int mm = s_precip_now / 10;
       snprintf(buf, len, "%dmm", mm > 99 ? 99 : mm);
     }
-  } else if (s_weather_pcp == -1) {
+  } else if (s_weather_pcp == WEATHER_NONE) {
     snprintf(buf, len, "--");
   } else {
     snprintf(buf, len, "%d%%", s_weather_pcp);
@@ -226,6 +220,12 @@ static void fmt_week_number(char* buf, int len, int* percent) {
   snprintf(buf, len, "W%02d", s_week_number);
 }
 
+// The registry, rows ordered by enum value (retired ids are documented in
+// data.h's enum). A NULL format means "read through the `backs` source":
+// the two progress bars mirror their plain counterpart's reading so the
+// render gate's per-slot snapshot hears their changes. A "" label marks a
+// frame-stub window — its captions come from the FRAME_* renderer in
+// drawing.c, not the title slot.
 static const ComplicationSpec s_complication_specs[] = {
     {.source = DATA_SOURCE_BATTERY,
      .health_metric = HEALTH_METRIC_NONE,
@@ -322,12 +322,6 @@ static const ComplicationSpec s_complication_specs[] = {
      .format = fmt_beats,
      .backs = DATA_SOURCE_BEATS,
      .draw = draw_beats_complication},
-    {.source = DATA_SOURCE_WEEK_NUMBER,
-     .health_metric = HEALTH_METRIC_NONE,
-     .label = "WEEK",
-     .format = fmt_week_number,
-     .backs = DATA_SOURCE_WEEK_NUMBER,
-     .draw = draw_plain_complication},
     {.source = DATA_SOURCE_SHORT_DATE,
      .health_metric = HEALTH_METRIC_NONE,
      .label = "DATE",
@@ -395,6 +389,12 @@ static const ComplicationSpec s_complication_specs[] = {
      .backs = DATA_SOURCE_BT_QT,
      .draw = draw_bt_qt_complication,
      .frame = FRAME_BT_QT},
+    {.source = DATA_SOURCE_WEEK_NUMBER,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "WEEK",
+     .format = fmt_week_number,
+     .backs = DATA_SOURCE_WEEK_NUMBER,
+     .draw = draw_plain_complication},
     {.source = DATA_SOURCE_WIND,
      .health_metric = HEALTH_METRIC_NONE,
      .label = "WIND",
@@ -451,6 +451,14 @@ bool any_slot_monitors_health(int metric) {
   for (int i = 0; i < NUM_SLOTS; i++) {
     const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);
     if (spec && spec->health_metric == metric) return true;
+  }
+  return false;
+}
+
+bool any_slot_shows_health(void) {
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);
+    if (spec && spec->health_metric != HEALTH_METRIC_NONE) return true;
   }
   return false;
 }

@@ -7,7 +7,7 @@ work lives in [TODOs.md](TODOs.md); unvetted ideas in [IDEAS.md](IDEAS.md).
 
 On volumes under 100 the beep comes out as a loud click followed by the
 quieter tone ("BE-BOOP"). Root cause is `audec_start()` in PebbleOS
-(`src/fw/drivers/speaker/sf32lb52/audec.c`): the requested digital volume is
+(`drivers/speaker/sf32lb52/audec.c`): the requested digital volume is
 applied only after the DAC path is already un-muted, so the codec power-up
 transients always leave at full gain; only at 100 does the tone itself mask
 them. Fix prepared in the firmware tree (`drivers/speaker: apply volume
@@ -32,6 +32,15 @@ every displayed metric is re-read every tick and on `HealthEventHeartRateUpdate`
 On stock PT2 firmware, animating frames while the strike sound plays starves
 the audio refill path (128 ms ring, droppable system-task refills,
 KernelMain/KernelBG priority inversion). The watchface side mitigates: the
-sound is a 110 ms thunk that fits the ring and starts after the wake frame.
+sound is a 110 ms thunk that fits the ring, starts after the wake frame, and
+fades out over its last samples.
 Full analysis and firmware fix candidates:
 [2026-08-23-audio-underrun](docs/superpowers/problems/2026-08-23-audio-underrun.md).
+
+A pop at stop can remain after the fade. It comes from the firmware stop path:
+`audec_stop` (`drivers/speaker/sf32lb52/audec.c`, ~409-435) and `audio_stop`
+(`drivers/speaker/sf32lb52/audio.c`, ~40-47) turn the PLL off first, then close
+the analog DAC and VCM while the PA is still on, with no ramp. `audec_start`
+clears `RAMP_EN`. Suggested firmware fix: drop `pa_ctrl` before `audec_stop`,
+mute the DAC path before the DMA stop, and move the PLL off to the end.
+Unverified on hardware.

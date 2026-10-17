@@ -86,12 +86,15 @@ The module map:
 | Path | Role |
 |------|------|
 | `src/c/main.c` | Lifecycle: window, layers, service subscriptions, settings load |
+| `src/c/main.h` | What `main.c` exports: window and clock-layer handles, `refresh_state`, `weather_retries_reset` |
 | `src/c/layout.h` | All face geometry: margins, slot rects, TIME window, clock layer |
-| `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, shared value helpers |
+| `src/c/data.c`/`.h` | All state (globals), `ComplicationDataSource` enum, weather no-data macros, shared value helpers |
 | `src/c/complication.c`/`.h` | The registry (`ComplicationSpec` table) and its per-source formatters |
 | `src/c/theme.c`/`.h` | DOS/EGA palettes, theme selection |
 | `src/c/status.c`/`.h` | Per-source severity policy (`get_source_color`), sole picker of status colors |
 | `src/c/drawing.c`/`.h` | Canvas rendering: ASCII windows, slot refresh |
+| `src/c/crt.c`/`.h` | CRT overlay layer: per-pixel warp, vignette and chromatic aberration pass, degauss strike and its sound |
+| `src/c/chime.c`/`.h` | Hourly POST-beep chime: due/volume gate and the speaker call |
 | `src/c/messaging.c`/`.h` | AppMessage: weather requests, inbox parsing, persistence |
 | `src/pkjs/index.js` | Phone side: Clay config, geolocation, Open-Meteo fetches |
 | `src/pkjs/config.js` | Clay settings page, as code (pinned by `test/pkjs/config.test.js`) |

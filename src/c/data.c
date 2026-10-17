@@ -20,27 +20,28 @@ int s_active_minutes = -1;
 
 // Weather readings — pushed by the phone; messaging.c's field table owns the
 // wire contract for every one of them (keys, persistence, sentinels).
-int s_weather_temp = -999;
-int s_weather_cond_code = -1;  // WMO weather code; -1 indicates no data
-int s_weather_aqi = -1;
-int s_weather_uv = -1;
-int s_weather_humidity = -1;
-int s_weather_wind_direction = -1;  // meteo bearing, degrees FROM; -1 indicates no data
-int s_weather_wind_speed = -1;      // in the settings unit (mph/m/s); -1 indicates no data
-int s_weather_pcp = -1;
-int s_precip_now = -1;  // tenths of mm over the past hour; -1 indicates no data
-int s_temp_high = -999;
-int s_temp_low = -999;
-int s_temp_high_tmrw = -999;
-int s_temp_low_tmrw = -999;
-int s_hi_hour_today = -1;  // event hours 0-23; -1 unknown
-int s_lo_hour_today = -1;
-int s_hi_hour_tmrw = -1;
-int s_lo_hour_tmrw = -1;
+int s_weather_temp = WEATHER_TEMP_NONE;
+int s_weather_cond_code = WEATHER_NONE;  // WMO weather code
+int s_weather_aqi = WEATHER_NONE;
+int s_weather_uv = WEATHER_NONE;
+int s_weather_humidity = WEATHER_NONE;
+int s_weather_wind_direction = WEATHER_NONE;  // meteo bearing, degrees FROM
+int s_weather_wind_speed = WEATHER_NONE;      // in the settings unit (mph/m/s)
+int s_weather_pcp = WEATHER_NONE;
+int s_precip_now = WEATHER_NONE;  // tenths of mm over the past hour
+int s_temp_high = WEATHER_TEMP_NONE;
+int s_temp_low = WEATHER_TEMP_NONE;
+int s_temp_high_tmrw = WEATHER_TEMP_NONE;
+int s_temp_low_tmrw = WEATHER_TEMP_NONE;
+int s_hi_hour_today = WEATHER_NONE;  // event hours 0-23
+int s_lo_hour_today = WEATHER_NONE;
+int s_hi_hour_tmrw = WEATHER_NONE;
+int s_lo_hour_tmrw = WEATHER_NONE;
+int s_weather_stamp = 0;
 
 // Clock-derived state.
 int s_wall_hour = 0;
-int s_date_day = 10;
+int s_date_day = 1;
 int s_beats = 0;
 int s_week_number = 1;
 char s_date_display[64] = "";
@@ -76,7 +77,7 @@ ComplicationSlot s_complication_slots[NUM_SLOTS] = {
 // unit letter and signs negatives only, metric always signs and letters
 // (Celsius crosses zero as a matter of course).
 void format_temp(char* buf, size_t len, int temp, bool with_unit) {
-  if (temp == -999) {
+  if (temp == WEATHER_TEMP_NONE) {
     snprintf(buf, len, "--");
   } else if (s_settings_units == UNITS_METRIC) {
     snprintf(buf, len, with_unit ? "%+dC" : "%+d", temp);
@@ -96,7 +97,7 @@ typedef struct {
 
 static const WmoCond s_wmo_conds[] = {
     {0, 0, "SUN", false},   {1, 3, "CLDY", false},  {45, 48, "FOG", false},
-    {51, 55, "RAIN", true}, {61, 65, "RAIN", true}, {80, 82, "RAIN", true},
+    {51, 57, "RAIN", true}, {61, 67, "RAIN", true}, {80, 82, "RAIN", true},
     {71, 77, "SNOW", true}, {85, 86, "SNOW", true}, {95, 99, "TSTM", true},
 };
 
@@ -198,8 +199,8 @@ int high_low_displayed_high(void) {
 
 void format_high_low(char* buf, size_t len) {
   // Either pair incomplete sinks the readout: a half-number reads as data.
-  if (s_temp_high == -999 || s_temp_low == -999 || s_temp_high_tmrw == -999 ||
-      s_temp_low_tmrw == -999) {
+  if (s_temp_high == WEATHER_TEMP_NONE || s_temp_low == WEATHER_TEMP_NONE ||
+      s_temp_high_tmrw == WEATHER_TEMP_NONE || s_temp_low_tmrw == WEATHER_TEMP_NONE) {
     snprintf(buf, len, "-- --");
     return;
   }

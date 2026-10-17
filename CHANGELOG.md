@@ -9,6 +9,32 @@ All notable changes to Nostalgic Commander. Format follows
 ### Changed
 
 - Cloudy reads `CLDY` (was `CLD`).
+- Weather older than 2 hours shows `--`.
+- A change of units or forecast window discards the readings in the old units
+  and always fetches again. The phone's cached reply is replayed only for the
+  units and window it was fetched with.
+- The UV and precipitation window follows the clock at the location, not the
+  phone's.
+- Coordinates sent to Open-Meteo are rounded to 2 decimals.
+- Clearer settings labels: `Humidity + Precipitation (PCP window max)` and
+  `AQI + UV Index (UV window max)`.
+
+### Fixed
+
+- Freezing drizzle and freezing rain read `RAIN`.
+- The degauss no longer plays while the face is sliding in after returning from
+  a menu or app.
+- UV above 11 shows its value instead of 11.
+- Yesterday's high and low are not shown as today's after midnight.
+- An empty reply from the weather API no longer replaces good data with `--`.
+- Garbage values from the phone show `--` instead of a plausible number.
+- The degauss sound fades out instead of clicking at the end.
+- The hourly chime does not sound twice when the clocks fall back, and volume 0
+  is silent.
+- A CRT wake is no longer swallowed after a cover event with the effect off.
+- The first wake after dismissing a notification strikes again. It was lost
+  when the backlight was still on at the dismissal.
+- Health events no longer wake the face when no slot shows health data.
 
 ## [1.9.0] - 2026-08-30
 
@@ -323,7 +349,8 @@ A full battery pass — the face:
 
 - Old tuiface store thumbnail — `screenshots/` covers store imagery.
 
-[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/bemyak/nostalgic_commander/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/bemyak/nostalgic_commander/compare/v1.5.0...v1.6.0

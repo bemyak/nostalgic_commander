@@ -35,8 +35,8 @@ pebble install --emulator emery
 ```
 
 Before opening a PR, make sure `make test` passes (CI runs it; it includes
-the format check). Two things will silently corrupt saved data or collide
-installs if you get them wrong:
+the format check). One thing will silently corrupt saved data if you get it
+wrong:
 
 - Don't renumber `ComplicationDataSource` values or reuse a `PERSIST_KEY_*`
   constant — both are on-disk identifiers.
@@ -56,9 +56,10 @@ Forking? The identity smear, in one sweep:
 - State globals are `s_`-prefixed; most live in `data.c` (declared in
   `data.h`), with `theme.c` owning `s_active_theme` and `main.c` owning the
   window/layer handles. No accessor layer — that's idiomatic for Pebble C.
-- "No data" sentinels vary by type and are declared where they're consumed:
-  the weather wire fields in `messaging.c`'s field table, the rest beside
-  their definitions in `data.c`. Formatters render them as `--`.
+- "No data" sentinels for weather readings are the `WEATHER_TEMP_NONE` (-999,
+  temperatures) and `WEATHER_NONE` (-1, everything else) macros in `data.h`;
+  `messaging.c`'s field table uses them. Other sentinels sit beside their
+  definitions in `data.c`. Formatters render them as `--`.
 - Never hardcode colors in drawing code; read them from `s_active_theme`.
 - State changes call `request_ui_redraw()`; the canvas redraws only when
   displayed state actually changed.

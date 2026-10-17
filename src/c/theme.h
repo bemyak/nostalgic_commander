@@ -38,8 +38,14 @@ extern const WatchTheme s_theme_shadow;     // the same panel, in shadow
 extern const WatchTheme s_theme_dialog;     // the Turbo Vision dialog box
 extern const WatchTheme s_theme_navigator;  // DOS Navigator's default screen
 
-// Settings 1-4 pin one theme; 0 (retired Auto) and anything unrecognized
-// fall back to Norton.
+// The theme setting's values, equal to the option values of the theme select in
+// src/pkjs/config.js. Anything else falls back to Norton.
+enum {
+  THEME_SETTING_DIALOG = 1,
+  THEME_SETTING_PANEL = 2,
+  THEME_SETTING_SHADOW = 3,
+  THEME_SETTING_NAVIGATOR = 4,
+};
 const WatchTheme* determine_theme(int theme_setting);
 void apply_theme(void);
 

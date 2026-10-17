@@ -42,13 +42,17 @@ uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND = 136;
 uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME = 137;
 uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME = 138;
 uint32_t MESSAGE_KEY_CHIME_TEST = 139;
+uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT = 140;
 
 // Implementations
 void app_event_loop(void) {}
+AppMessageResult mock_app_message_open_result = APP_MSG_OK;
+uint32_t mock_app_message_open_inbound = 0;
+uint32_t mock_app_message_open_outbound = 0;
 AppMessageResult app_message_open(const uint32_t size_inbound, const uint32_t size_outbound) {
-  (void)size_inbound;
-  (void)size_outbound;
-  return APP_MSG_OK;
+  mock_app_message_open_inbound = size_inbound;
+  mock_app_message_open_outbound = size_outbound;
+  return mock_app_message_open_result;
 }
 
 bool mock_outbox_begin_ok = true;
@@ -105,11 +109,6 @@ AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, voi
   mock_timer_callback = callback;
   return &s_mock_timer_token;
 }
-bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms) {
-  (void)timer;
-  (void)new_timeout_ms;
-  return false;
-}
 void app_timer_cancel(AppTimer* timer) {
   (void)timer;
   mock_timer_cancel_count++;
@@ -129,6 +128,11 @@ void backlight_service_unsubscribe(void) {
 AppFocusHandlers mock_app_focus_handlers = {NULL, NULL};
 void app_focus_service_subscribe_handlers(AppFocusHandlers handlers) {
   mock_app_focus_handlers = handlers;
+}
+int mock_app_focus_unsubscribe_count = 0;
+void app_focus_service_unsubscribe(void) {
+  mock_app_focus_unsubscribe_count++;
+  mock_app_focus_handlers = (AppFocusHandlers){NULL, NULL};
 }
 
 uint8_t mock_framebuffer[200 * 228];
@@ -152,8 +156,13 @@ GRect gbitmap_get_bounds(const GBitmap* bitmap) {
   return bitmap->bounds;
 }
 GBitmapDataRowInfo gbitmap_get_data_row_info(const GBitmap* bitmap, uint16_t y) {
-  GBitmapDataRowInfo info = {.data = bitmap->data + y * 200, .min_x = 0, .max_x = 199};
+  GBitmapDataRowInfo info = {
+      .data = bitmap->data + y * PBL_DISPLAY_WIDTH, .min_x = 0, .max_x = PBL_DISPLAY_WIDTH - 1};
   return info;
+}
+uint16_t gbitmap_get_bytes_per_row(const GBitmap* bitmap) {
+  (void)bitmap;
+  return PBL_DISPLAY_WIDTH;
 }
 
 bool mock_speaker_muted = false;
@@ -167,7 +176,9 @@ bool speaker_play_tracks(const SpeakerTrack* tracks, uint32_t num_tracks, uint8_
   mock_speaker_last_volume = volume;
   return true;
 }
+int mock_speaker_muted_query_count = 0;
 bool speaker_is_muted(void) {
+  mock_speaker_muted_query_count++;
   return mock_speaker_muted;
 }
 
@@ -183,6 +194,10 @@ int mock_battery_subscribe_count = 0;
 void battery_state_service_subscribe(BatteryStateHandler handler) {
   (void)handler;
   mock_battery_subscribe_count++;
+}
+int mock_battery_unsubscribe_count = 0;
+void battery_state_service_unsubscribe(void) {
+  mock_battery_unsubscribe_count++;
 }
 bool mock_clock_24h = false;
 bool clock_is_24h_style(void) {
@@ -200,6 +215,10 @@ int mock_connection_subscribe_count = 0;
 void connection_service_subscribe(ConnectionHandlers handlers) {
   (void)handlers;
   mock_connection_subscribe_count++;
+}
+int mock_connection_unsubscribe_count = 0;
+void connection_service_unsubscribe(void) {
+  mock_connection_unsubscribe_count++;
 }
 
 // Scriptable inbound dictionary: tests stage tuples with mock_dict_add_*()
@@ -304,10 +323,6 @@ DictionaryResult dict_write_uint8(DictionaryIterator* iter, const uint32_t key,
   return DICT_OK;
 }
 
-GFont fonts_get_system_font(const char* font_key) {
-  return (GFont)font_key;  // pointer identity is the distinct sentinel
-}
-
 ResHandle resource_get_handle(uint32_t resource_id) {
   return (ResHandle)(uintptr_t)resource_id;
 }
@@ -332,14 +347,6 @@ static GColor s_mock_fill_color = GColorClear;
 void graphics_context_set_fill_color(GContext* ctx, GColor color) {
   (void)ctx;
   s_mock_fill_color = color;
-}
-void graphics_context_set_stroke_color(GContext* ctx, GColor color) {
-  (void)ctx;
-  (void)color;
-}
-void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width) {
-  (void)ctx;
-  (void)stroke_width;
 }
 static GColor s_mock_text_color = GColorClear;
 void graphics_context_set_text_color(GContext* ctx, GColor color) {
@@ -400,7 +407,9 @@ bool health_service_events_subscribe(HealthEventHandler handler, void* context) 
   mock_health_subscribe_count++;
   return true;
 }
+int mock_health_unsubscribe_count = 0;
 bool health_service_events_unsubscribe(void) {
+  mock_health_unsubscribe_count++;
   return true;
 }
 int32_t mock_heart_rate = 0;
@@ -425,14 +434,6 @@ HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric met
   }
   return HealthServiceAccessibilityMaskAvailable;
 }
-HealthServiceAccessibilityMask health_service_metric_averaged_accessible(
-    HealthMetric metric, time_t time_start, time_t time_end, HealthServiceTimeScope scope) {
-  (void)metric;
-  (void)time_start;
-  (void)time_end;
-  (void)scope;
-  return HealthServiceAccessibilityMaskAvailable;
-}
 HealthValue health_service_peek_current_value(HealthMetric metric) {
   mock_health_peek_count++;
   if (metric == HealthMetricHeartRateBPM) return mock_heart_rate;
@@ -440,10 +441,8 @@ HealthValue health_service_peek_current_value(HealthMetric metric) {
 }
 // Per-metric sum values, indexed by HealthMetric — distinct defaults, so a
 // formatter wired to the wrong metric shows a tell-tale number instead of a
-// plausible one. Never staged per-test today (nothing consumes averages), but
-// knobbed for parity with sum_today.
+// plausible one.
 int32_t mock_health_sum_today_value[MOCK_HEALTH_METRIC_COUNT];
-int32_t mock_health_sum_averaged_value[MOCK_HEALTH_METRIC_COUNT];
 
 // Power-on defaults; mock_reset restores these. HR rows are 0: HR is an
 // instant read (mock_heart_rate), never summed.
@@ -459,19 +458,9 @@ static void mock_health_values_reset(void) {
   };
   for (int i = 0; i < MOCK_HEALTH_METRIC_COUNT; i++) {
     mock_health_sum_today_value[i] = defaults[i];
-    // Distinct from the today-sums on purpose: cross-wiring sum_today
-    // against sum_averaged must not accidentally read plausible.
-    mock_health_sum_averaged_value[i] = defaults[i] * 2;
   }
 }
 
-HealthValue health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
-                                        HealthServiceTimeScope scope) {
-  (void)time_start;
-  (void)time_end;
-  (void)scope;
-  return mock_health_sum_averaged_value[metric];
-}
 HealthValue health_service_sum_today(HealthMetric metric) {
   mock_health_sum_today_count++;
   return mock_health_sum_today_value[metric];
@@ -488,8 +477,12 @@ Layer* layer_create(GRect frame) {
   (void)frame;
   return (Layer*)&mock_layer_storage[mock_layers_given++ % 8];
 }
+int mock_layer_destroy_count = 0;
+Layer* mock_layer_destroyed[8];
 void layer_destroy(Layer* layer) {
-  (void)layer;
+  if (!layer) return;
+  if (mock_layer_destroy_count < 8) mock_layer_destroyed[mock_layer_destroy_count] = layer;
+  mock_layer_destroy_count++;
 }
 GRect layer_get_bounds(const Layer* layer) {
   (void)layer;
@@ -503,15 +496,9 @@ GRect layer_get_unobstructed_bounds(const Layer* layer) {
   return mock_unobstructed_bounds;
 }
 int mock_mark_dirty_count = 0;
-int mock_set_hidden_count = 0;
 void layer_mark_dirty(Layer* layer) {
   (void)layer;
   mock_mark_dirty_count++;
-}
-void layer_set_hidden(Layer* layer, bool hidden) {
-  (void)layer;
-  (void)hidden;
-  mock_set_hidden_count++;
 }
 void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc) {
   (void)layer;
@@ -608,11 +595,19 @@ void tick_timer_service_subscribe(TimeUnits tick_units, TickHandler handler) {
   mock_tick_subscribe_count++;
   mock_tick_units = tick_units;
 }
+int mock_tick_unsubscribe_count = 0;
+void tick_timer_service_unsubscribe(void) {
+  mock_tick_unsubscribe_count++;
+}
 int mock_unobstructed_subscribe_count = 0;
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context) {
   (void)handlers;
   (void)context;
   mock_unobstructed_subscribe_count++;
+}
+int mock_unobstructed_unsubscribe_count = 0;
+void unobstructed_area_service_unsubscribe(void) {
+  mock_unobstructed_unsubscribe_count++;
 }
 // Mock wall clock: the health-event throttle is timestamp-based, so tests jump
 // seconds through this offset instead of sleeping.
@@ -672,13 +667,16 @@ void window_stack_push(Window* window, bool animated) {
   (void)animated;
 }
 
+int mock_log_count = 0;
+char mock_last_log[128] = "";
 void APP_LOG(uint8_t level, const char* fmt, ...) {
   (void)level;
   va_list args;
   va_start(args, fmt);
-  vprintf(fmt, args);
-  printf("\n");
+  vsnprintf(mock_last_log, sizeof(mock_last_log), fmt, args);
   va_end(args);
+  mock_log_count++;
+  printf("%s\n", mock_last_log);
 }
 
 // All knobs and counters back to their power-on values. setUp calls this via
@@ -691,6 +689,18 @@ void mock_reset(void) {
   mock_bt_connected = true;
   mock_clock_24h = false;
   mock_outbox_begin_ok = true;
+  mock_app_message_open_result = APP_MSG_OK;
+  mock_app_message_open_inbound = 0;
+  mock_app_message_open_outbound = 0;
+  mock_log_count = 0;
+  mock_last_log[0] = '\0';
+  mock_speaker_muted_query_count = 0;
+  mock_tick_unsubscribe_count = 0;
+  mock_battery_unsubscribe_count = 0;
+  mock_connection_unsubscribe_count = 0;
+  mock_health_unsubscribe_count = 0;
+  mock_unobstructed_unsubscribe_count = 0;
+  mock_app_focus_unsubscribe_count = 0;
   mock_outbox_sends = 0;
   s_mock_outbox_write_count = 0;
   mock_health_accessible_count = 0;
@@ -708,7 +718,6 @@ void mock_reset(void) {
   mock_speaker_tone_volume = 0;
   mock_speaker_tone_waveform = SpeakerWaveformSine;
   mock_mark_dirty_count = 0;
-  mock_set_hidden_count = 0;
   mock_set_text_count = 0;
   mock_set_text_color_count = 0;
   mock_last_text[0] = '\0';
@@ -742,6 +751,7 @@ void mock_reset(void) {
   mock_bar_glyph_calls = 0;
   mock_persist_write_count = 0;
   mock_layers_given = 0;
+  mock_layer_destroy_count = 0;
   mock_text_layers_given = 0;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
   s_mock_fill_color = GColorClear;

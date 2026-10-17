@@ -29,6 +29,7 @@ var WEATHER_FIELDS = [
   {key: 'WEATHER_LO_HOUR_TODAY', sentinel: -1},
   {key: 'WEATHER_HI_HOUR_TOMORROW', sentinel: -1},
   {key: 'WEATHER_LO_HOUR_TOMORROW', sentinel: -1},
+  {key: 'WEATHER_FETCHED_AT', sentinel: 0},  // UTC epoch seconds of the phone's fetch
 ];
 
 // Every row at its sentinel — what the watch reads when the value can't be
@@ -41,8 +42,7 @@ function sentinelPayload() {
   return out;
 }
 
-// The completeness check for a cached payload: a cache written by an older
-// build lacks the newer keys and fails this, triggering one completing fetch.
+// A payload missing any field row is never replayed from the cache.
 function isCompleteWeatherPayload(payload) {
   return WEATHER_FIELDS.every(function(f) { return payload[f.key] !== undefined; });
 }
@@ -67,6 +67,19 @@ function isFreshWeatherCache(fetchedAtMs, nowMs) {
   }
   var age = nowMs - fetchedAtMs;
   return age >= 0 && age < WEATHER_CACHE_MAX_AGE_MS;
+}
+
+function makeWeatherCacheEntry(payload, nowMs, units, windowHours) {
+  return {payload: payload, fetchedAt: nowMs, units: units, windowHours: windowHours};
+}
+
+// A cached payload is replayed only when it is fresh, complete, and was
+// fetched with the units and window the settings select now.
+function shouldReplayWeatherCache(cache, nowMs, units, windowHours) {
+  return !!cache && !!cache.payload && !!cache.units &&
+      isFreshWeatherCache(cache.fetchedAt, nowMs) && isCompleteWeatherPayload(cache.payload) &&
+      cache.units.tempUnit === units.tempUnit &&
+      cache.units.windSpeedUnit === units.windSpeedUnit && cache.windowHours === windowHours;
 }
 
 // The settings select stores raw option values as strings ('1' = metric,
@@ -94,14 +107,52 @@ function windowHoursFromClaySettings(settings) {
   return isNaN(hours) ? DEFAULT_WINDOW_HOURS : hours;
 }
 
+var FORECAST_CURRENT_FIELDS = [
+  'temperature_2m', 'weather_code', 'relative_humidity_2m', 'precipitation', 'wind_direction_10m',
+  'wind_speed_10m'
+];
+var FORECAST_HOURLY_FIELDS = ['uv_index', 'precipitation_probability', 'temperature_2m'];
+var FORECAST_DAILY_FIELDS = ['temperature_2m_max', 'temperature_2m_min'];
+
+// Coordinates go out at ~1 km resolution; the weather doesn't need more.
+function coordinate(value) { return Number(value).toFixed(2); }
+
+function buildForecastUrl(lat, lon, units) {
+  return 'https://api.open-meteo.com/v1/forecast?latitude=' + coordinate(lat) +
+      '&longitude=' + coordinate(lon) + '&current=' + FORECAST_CURRENT_FIELDS.join(',') +
+      '&timezone=auto&temperature_unit=' + units.tempUnit +
+      '&wind_speed_unit=' + units.windSpeedUnit + '&hourly=' + FORECAST_HOURLY_FIELDS.join(',') +
+      '&forecast_days=2&daily=' + FORECAST_DAILY_FIELDS.join(',');
+}
+
+function buildAqiUrl(lat, lon) {
+  return 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + coordinate(lat) +
+      '&longitude=' + coordinate(lon) + '&current=us_aqi';
+}
+
+// "YYYY-MM-DDTHH:MM" location-local wall-clock stamp as minutes on a
+// timezone-free axis; NaN when it doesn't have that shape. Only differences
+// between stamps from the same response are meaningful.
+function localStampMinutes(stamp) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(stamp));
+  if (!m) return NaN;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) / 60000;
+}
+
 // Parse one Open-Meteo forecast response into a complete payload: every
-// WEATHER_FIELDS key present, unparsable values at their sentinel. `nowMs`
-// pins "now" for the UV/PCP window (tests pass a fixed instant);
-// `windowHours` sizes it — 0 reads the in-progress hour alone.
+// WEATHER_FIELDS key present, unparsable values at their sentinel. A response
+// with neither temperature nor weather code is rejected. `nowMs` is the fetch
+// instant reported as WEATHER_FETCHED_AT; the UV/PCP window is anchored on the
+// response's own `current.time`. `windowHours` sizes it, 0 reading the
+// in-progress hour alone.
 function parseForecast(json, nowMs, windowHours) {
   if (windowHours === undefined) windowHours = DEFAULT_WINDOW_HOURS;
   var out = sentinelPayload();
   var current = json.current || {};
+  if (num(current.temperature_2m) === undefined && num(current.weather_code) === undefined) {
+    throw new Error('no usable current conditions');
+  }
+  out.WEATHER_FETCHED_AT = Math.floor(nowMs / 1000);
 
   var v = num(current.temperature_2m);
   if (v !== undefined) out.WEATHER_TEMP = Math.round(v);
@@ -126,12 +177,13 @@ function parseForecast(json, nowMs, windowHours) {
     // UV and PCP share the coming-window max; the in-progress hour counts.
     // The API nulls probability where no precip is forecast at all, so a
     // window of nulls still reads "no data".
-    var windowStart = nowMs - 3600 * 1000;
-    var windowEnd = nowMs + windowHours * 3600 * 1000;
+    var nowMinutes = localStampMinutes(current.time);
+    var windowStart = Math.floor(nowMinutes / 60) * 60;
+    var windowEnd = nowMinutes + windowHours * 60;
     var uvArr = hourly.uv_index || [];
     var pcpArr = hourly.precipitation_probability || [];
     for (var i = 0; i < hourly.time.length; i++) {
-      var ts = new Date(hourly.time[i]).getTime();
+      var ts = localStampMinutes(hourly.time[i]);
       if (!(ts >= windowStart && ts <= windowEnd)) continue;  // NaN-safe
       v = num(uvArr[i]);
       if (v !== undefined && v > out.WEATHER_UV) out.WEATHER_UV = v;
@@ -142,9 +194,8 @@ function parseForecast(json, nowMs, windowHours) {
     if (out.WEATHER_PCP >= 0) out.WEATHER_PCP = Math.round(out.WEATHER_PCP);
 
     // Event hours of the four extremes: each day's argmin/argmax over the
-    // hourly curve, grouped by phone-local date (timezone=auto). Unknown —
-    // or absent — days stay at the sentinel and the watch falls back to a
-    // plain LO/HI order.
+    // hourly curve, grouped by location-local date. Days without data stay at
+    // the sentinel and the watch falls back to a plain LO/HI order.
     if (hourly.temperature_2m) {
       var dayOrder = [];
       var dayExtremes = {};
@@ -200,6 +251,53 @@ function parseForecast(json, nowMs, windowHours) {
   return out;
 }
 
+// The fetch chain's bookkeeping, as pure state: index.js keeps only the timer
+// and XHR wiring and asks this what to do. `inFlight` runs from a fetch's
+// start to its final send or failure, except while a retry delay is armed
+// (`retryScheduled`); `pending` is a trigger that arrived mid-flight, owed
+// exactly one fresh fetch.
+function createFetchGuard() {
+  var state = {inFlight: false, pending: false, retryScheduled: false};
+  return {
+    state: state,
+    // A trigger: true to start a fetch now (superseding any armed retry),
+    // false when one is in flight and the trigger is queued.
+    begin: function() {
+      if (state.inFlight) {
+        state.pending = true;
+        return false;
+      }
+      state.inFlight = true;
+      state.retryScheduled = false;
+      return true;
+    },
+    // The armed retry timer fired.
+    resume: function() {
+      state.inFlight = true;
+      state.retryScheduled = false;
+    },
+    // The chain is over; true when a queued trigger's fetch must start now
+    // (the guard stays held for it).
+    end: function() {
+      state.inFlight = false;
+      if (!state.pending) return false;
+      state.pending = false;
+      state.inFlight = true;
+      return true;
+    },
+    // A failed attempt with budget left: true when a retry delay should be
+    // armed, false when a queued trigger took over instead.
+    retry: function() {
+      if (this.end()) return false;
+      state.retryScheduled = true;
+      return true;
+    },
+    // A result fetched while a trigger is queued predates it (settings may
+    // have changed); it is neither sent nor cached.
+    shouldSendResult: function() { return !state.pending; },
+  };
+}
+
 // The air-quality response is a separate backend; a parse failure means "no
 // data", never "perfectly clean air".
 function parseAqi(json) {
@@ -213,10 +311,15 @@ module.exports = {
   windowHoursFromClaySettings : windowHoursFromClaySettings,
   sentinelPayload : sentinelPayload,
   isCompleteWeatherPayload : isCompleteWeatherPayload,
+  makeWeatherCacheEntry : makeWeatherCacheEntry,
+  shouldReplayWeatherCache : shouldReplayWeatherCache,
+  buildForecastUrl : buildForecastUrl,
+  buildAqiUrl : buildAqiUrl,
   WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,
   GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
   isFreshWeatherCache : isFreshWeatherCache,
   unitsFromClaySettings : unitsFromClaySettings,
   parseForecast : parseForecast,
   parseAqi : parseAqi,
+  createFetchGuard : createFetchGuard,
 };

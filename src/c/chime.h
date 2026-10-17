@@ -12,9 +12,9 @@
 #define CHIME_DEFAULT_VOLUME 5
 
 // The gate, kept pure so the host suite can assert every combination without
-// a speaker: full-hour minute, consent on, not muted (system mute and Quiet
-// Time, polled via speaker_is_muted() at the call site below).
-bool chime_should_play(int minute, int enabled, bool muted);
+// a speaker: full-hour minute and consent on. Mute (system mute and Quiet
+// Time) is asked of speaker_is_muted() only once this passes.
+bool chime_is_due(int minute, int enabled);
 
 // Settings arrive as arbitrary ints; clamp to [0, 100] so an off-wire value
 // never reaches the SDK out of range.
@@ -22,7 +22,7 @@ int chime_effective_volume(int requested);
 
 // One POST beep at the configured (clamped) volume, ungated — called by
 // chime_on_tick at the full hour and by messaging.c for the settings page's
-// test button.
+// test button. A volume of 0 plays nothing.
 void chime_play(void);
 
 // Tick hook; main.c's tick_handler calls this on every MINUTE_UNIT tick.

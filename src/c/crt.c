@@ -1,5 +1,6 @@
 #include <pebble.h>
 #include "crt.h"
+#include "layout.h"
 #include "main.h"
 #include "theme.h"
 
@@ -13,18 +14,21 @@
 static int s_flash_phase = CRT_FLASH_IDLE;
 static AppTimer* s_flash_timer = NULL;  // latest tick arm — cancelled on retrigger
 // Strike primed by the backlight handler, started by the overlay proc AFTER
-// the wake frame lands: measured on hardware, the wake burst (bg fill, canvas
-// glyphs, clock, pass) blocks long enough to drain the audio ring once — the
-// audible pop-gap-hum. Delaying sound+chain past that frame keeps the ring fed.
+// the wake frame lands: the wake burst (bg fill, canvas glyphs, clock, pass)
+// blocks long enough to drain the audio ring once — an audible pop-gap-hum.
+// Delaying sound+chain past that frame keeps the ring fed.
 static bool s_strike_pending = false;
 // Updated by the App Focus service (subscribed in main.c): a notification,
-// alarm, modal, quick view or a launched app covering the face drops it.
-// Gates the strike sound and the backlight handler's priming — a covered
-// tube starts nothing and stays silent.
-static bool s_app_in_focus = true;
+// alarm, modal, quick view or a launched app covering the face drops it. The
+// face counts as covered until the compositor's first did_focus(true) after
+// launch. Gates the strike sound and the backlight handler's priming — a
+// covered tube starts nothing and stays silent.
+static bool s_app_in_focus = false;
 // A cover's close pumps the backlight once, in no guaranteed order against
 // focus returning; that flash belongs to the cover. Armed when the cover
-// appears, eaten by the next in-focus backlight-on.
+// appears over an enabled effect, eaten by the next in-focus backlight-on.
+// The service reports edges only, so a backlight-off in view drops it: the
+// next backlight-on after that is a fresh wake.
 static bool s_cover_suppresses_strike = false;
 
 static void crt_flash_tick(void* data);
@@ -41,81 +45,59 @@ static int isqrt_floor(int v) {
 // the vignette falloff shows as dither pattern, not banded steps.
 static const uint8_t s_bayer4[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
 
-// Radial magnification of the curvature stage, Q16. Identity at the centre,
-// K per unit of the elliptical squared radius (same xq/yq formulation as the
-// CA zone map). K=12 gives ≈4.7px pull at a mid-edge, tuned on hardware
-// against the 16px vignette (K=13's 5px bent the rim darkening over the
-// bright side frames). Grows smoothly to 1.09x in the corners — a curved
-// surface bows its sides too, so mid-height now warps where the old y-only
-// gain was identity. Rank-1 quantized all outer columns on the same row
-// boundaries (visible seams); the per-column boundary curve does not.
-int crt_warp_q16(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  int dy = 2 * y - (h - 1);
-  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
-  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
-  return 65536 + CRT_WARP_R2_K * (xq + yq);
+// Radial magnification of the curvature stage, Q16, from the elliptical
+// squared radius xq + yq (Q8, the same formulation as the CA zone map).
+// Identity at the centre, growing smoothly to 1.06x in the corners. Both axes
+// feed it, so a curved surface bows its sides too, and the per-column boundary
+// curve it produces keeps the outer columns from quantizing onto shared row
+// boundaries (visible seams). CRT_WARP_R2_K sets its strength.
+static inline int warp_mul16(int xq_plus_yq) {
+  return 65536 + CRT_WARP_R2_K * xq_plus_yq;
 }
 
-// Source column for dest (x,y) under the warp, without strike jitter —
-// nearest-rounded. Pin target only: the pass works in floor+frac of the same
-// S (for the blend), a half-px phase offset from this form.
-int crt_warp_sx(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  return ((w - 1) * 65536 + dx * crt_warp_q16(x, y, w, h) + 65536) >> 17;
+// Edge distance per axis, on the LUTs' 0..CRT_VIGNETTE_PX domain: each axis is
+// scaled by its own band constant, so the curves stay fixed while the rims
+// resize. The two bands are not in the same units: the falloff sits in content
+// space, ahead of the warp, so the side band is measured before the warp's
+// ~1.09x rim compression while the top/bottom band — which the warp never
+// touches — is measured on the glass.
+static inline int edge_depth_x(int edge_px) {
+  return edge_px * CRT_VIGNETTE_PX / CRT_VIGNETTE_SIDE_PX;
 }
 
-// Horizontal CA from the squared Q8 radius (units: xq + yq from
-// crt_ca_shift3), returning per-channel displacement in THIRDS of a pixel:
-// 0 inside the dead zone, then ramping to 4 (1+1/3 px) over CRT_CA_RAMP_SHIFT
-// — see crt.h for why it ramps rather than steps. Thirds because the pass
-// samples channels fractionally (two weighted taps) instead of copying whole
-// neighbours — see stage 1 in crt_apply_framebuffer. Zone boundary squared
-// once: rq ≥ R ⇔ xq+yq ≥ ceil(R²/256) — so no per-pixel sqrt is needed.
-static int crt_ca_t3_h2(int xy_sum) {
+// CRT_VIGNETTE_EDGE_PX rows of depth 0 first, standing in for the warp's
+// clamped columns, then the falloff over what remains of the band.
+static inline int edge_depth_y(int edge_px) {
+  return edge_px < CRT_VIGNETTE_EDGE_PX ? 0
+                                        : (edge_px - CRT_VIGNETTE_EDGE_PX + 1) * CRT_VIGNETTE_PX /
+                                              (CRT_VIGNETTE_BAND_PX - CRT_VIGNETTE_EDGE_PX + 1);
+}
+
+// Inside the corner square the boundary is the arc, not the straight edge:
+// depth below the arc through (ex, ey), both < CRT_CORNER_RADIUS.
+static inline int corner_depth(int ex, int ey) {
+  int rx = CRT_CORNER_RADIUS - ex;
+  int ry = CRT_CORNER_RADIUS - ey;
+  int d = CRT_CORNER_RADIUS - isqrt_floor(rx * rx + ry * ry);
+  return d < 0 ? 0 : d;
+}
+
+// Horizontal CA from the squared Q8 radius (units: xq + yq), returning
+// per-channel displacement in THIRDS of a pixel: 0 inside the dead zone, then
+// ramping to 4 (1+1/3 px) over CRT_CA_RAMP_SHIFT — see crt.h for why it ramps
+// rather than steps. Thirds because the pass samples channels fractionally
+// (two weighted taps) instead of copying whole neighbours — see stage 1 in
+// crt_apply_framebuffer. Zone boundary squared once: rq ≥ R ⇔ xq+yq ≥
+// ceil(R²/256) — so no per-pixel sqrt is needed.
+static inline int crt_ca_t3_h2(int xy_sum) {
   if (xy_sum <= CRT_CA_R2_X2Q8) return 0;
   int t3 = CRT_CA_RAMP_FLOOR + ((xy_sum - CRT_CA_R2_X2Q8) >> CRT_CA_RAMP_SHIFT);
   return t3 > 4 ? 4 : t3;
 }
 // Vertical wider zones, 1px max, same formulation.
-static int crt_ca_shift_v2(int xy_sum) {
+static inline int crt_ca_shift_v2(int xy_sum) {
   return xy_sum < CRT_CA_R2V_X2Q8 ? 0 : 1;
 }
-
-int crt_ca_shift3(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  int dy = 2 * y - (h - 1);
-  // Elliptical radius from the centre, Q8: corner ≈ 362, mid-edge = 256.
-  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
-  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
-  return crt_ca_t3_h2(xq + yq);
-}
-
-// Distance toward the nearest frame edge, counting around the corner arcs:
-// inside the corner square the boundary is the arc, elsewhere the straight
-// edge. 0 = boundary itself, growing inward. Both axes are scaled onto the
-// LUTs' 0..VIGNETTE_PX domain by their own band constant, so the curves stay
-// fixed while the rims resize. The two bands are not in the same units: the
-// falloff sits in content space, ahead of the warp, so the side band is
-// measured before the warp's ~1.3x stretch while the top/bottom band — which
-// the warp never touches — is measured on the glass.
-static int crt_edge_distance(int x, int y, int w, int h) {
-  int ex = (x < w - 1 - x ? x : w - 1 - x) * CRT_VIGNETTE_PX / CRT_VIGNETTE_SIDE_PX;
-  int edge_px = y < h - 1 - y ? y : h - 1 - y;
-  // EDGE_PX rows of depth 0 first, standing in for the warp's clamped columns,
-  // then the falloff over what remains of the band.
-  int ey = edge_px < CRT_VIGNETTE_EDGE_PX ? 0
-                                          : (edge_px - CRT_VIGNETTE_EDGE_PX + 1) * CRT_VIGNETTE_PX /
-                                                (CRT_VIGNETTE_BAND_PX - CRT_VIGNETTE_EDGE_PX + 1);
-  if (ex < CRT_CORNER_RADIUS && ey < CRT_CORNER_RADIUS) {
-    int rx = CRT_CORNER_RADIUS - ex;
-    int ry = CRT_CORNER_RADIUS - ey;
-    int d = CRT_CORNER_RADIUS - isqrt_floor(rx * rx + ry * ry);
-    return d < 0 ? 0 : d;
-  }
-  return ex < ey ? ex : ey;
-}
-
 // The vignette falloff over edge-depth d, Q8; smoothstep gamma-lifted by 0.7 —
 // 4 levels quantize the raw smoothstep into a noticed black cliff near the rim
 // (hardware A/B: the fade 'started too sharp'). Lifting the low half softens
@@ -148,16 +130,57 @@ static const uint16_t s_vignette_q8[CRT_VIGNETTE_PX + 1] = {
 static const uint16_t s_vignette_q8_light[CRT_VIGNETTE_PX + 1] = {
     0, 20, 40, 64, 96, 132, 172, 205, 228, 241, 249, 256, 256, 256, 256, 256, 256};
 
-// Same falloff without per-pixel arithmetic (the LUTs above carry it); a
-// theme with a grey field (theme_ground_level, theme.h) takes the light curve.
+// The falloff curve a theme's field selects, chosen once per frame by the pass.
+static inline const uint16_t* vignette_lut(int ground_level) {
+  return ground_level > 0 ? s_vignette_q8_light : s_vignette_q8;
+}
+
+#ifdef TEST_ENV
+// Pin oracles: the same formulas the pass runs, in the (x, y, w, h) form the
+// tests and the ramp tool address pixels by.
+int crt_warp_q16(int x, int y, int w, int h) {
+  int dx = 2 * x - (w - 1);
+  int dy = 2 * y - (h - 1);
+  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
+  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
+  return warp_mul16(xq + yq);
+}
+
+// Source column for dest (x,y) under the warp, without strike jitter —
+// nearest-rounded. The pass works in floor+frac of the same S (for the blend),
+// a half-px phase offset from this form.
+int crt_warp_sx(int x, int y, int w, int h) {
+  int dx = 2 * x - (w - 1);
+  return ((w - 1) * 65536 + dx * crt_warp_q16(x, y, w, h) + 65536) >> 17;
+}
+
+int crt_ca_shift3(int x, int y, int w, int h) {
+  int dx = 2 * x - (w - 1);
+  int dy = 2 * y - (h - 1);
+  // Elliptical radius from the centre, Q8: corner ≈ 362, mid-edge = 256.
+  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
+  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
+  return crt_ca_t3_h2(xq + yq);
+}
+
+// Distance toward the nearest frame edge, counting around the corner arcs.
+// 0 = boundary itself, growing inward.
+static int crt_edge_distance(int x, int y, int w, int h) {
+  int ex = edge_depth_x(x < w - 1 - x ? x : w - 1 - x);
+  int ey = edge_depth_y(y < h - 1 - y ? y : h - 1 - y);
+  if (ex < CRT_CORNER_RADIUS && ey < CRT_CORNER_RADIUS) return corner_depth(ex, ey);
+  return ex < ey ? ex : ey;
+}
+
 static int crt_vignette_q8_from_depth(int d) {
   if (d >= CRT_VIGNETTE_PX) return 256;
-  return theme_ground_level(s_active_theme) > 0 ? s_vignette_q8_light[d] : s_vignette_q8[d];
+  return vignette_lut(theme_ground_level(s_active_theme))[d];
 }
 
 int crt_vignette_q8(int x, int y, int w, int h) {
   return crt_vignette_q8_from_depth(crt_edge_distance(x, y, w, h));
 }
+#endif
 
 // Strike amplitude per frame, px. Decays to zero; the strike reads as a
 // wobble that settles, never a sequence of bands.
@@ -186,15 +209,9 @@ static int gain_q4(int c, int f_q8) {
 }
 
 // One channel through the falloff: gain, then ordered-dither into the panel's
-// four steps.
-//
-// There used to be a per-theme "dot floor" here holding brighter-than-floor
-// sources off black, because a falloff that dithers straight to black scatters
-// pepper on a lit field. Dithering the channels out of phase (stage 2) solved
-// that better: the three rarely reach 0 on the same pixel, so pure black is
-// 0-3% of the band instead of a scatter. The floor's own cost was that it
-// clamped every channel to the same level and flattened the ramp into a step,
-// which is exactly what it was supposed to prevent.
+// four steps. The channels are dithered out of phase (stage 2), so on a lit
+// field the three rarely reach 0 on the same pixel and pure black stays a small
+// share of the band instead of a scatter.
 static int vignette_level(int c, int f_q8, int t) {
   return dither_q4(gain_q4(c, f_q8), t);
 }
@@ -250,22 +267,31 @@ static int clear_of_ground(int v, int src, int gnd_lo, int gnd_hi, int bg_level)
 // Vertical CA samples neighbour rows; the row the pass writes into must stay
 // raw for the reader. Ring of the last three raw rows, populated in the row's
 // own turn, read for ±s_v offsets below/above.
-static uint8_t s_vraw_ring[3][200];
+static uint8_t s_vraw_ring[3][SCREEN_W];
 
-void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
-  static uint8_t row_ca[200];
+void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
+  static uint8_t row_ca[SCREEN_W];
   // Per-column: was the pixel grey as DRAWN? Stage 2 decides it from the raw
   // row; stage 3 needs the same answer for the column its blend leans on.
-  static bool row_grey[200];
-  static uint16_t s_ca_xq[200];
-  static int s_ca_xq_w = 0;
-  if (w > (int)sizeof(row_ca) || w <= 1 || h <= 1) return;
-  if (s_ca_xq_w != w) {
+  static bool row_grey[SCREEN_W];
+  static uint16_t s_ca_xq[SCREEN_W];
+  // Per-column side-axis vignette depth, and the corner arcs' depth by (ey, ex).
+  static uint16_t s_col_depth[SCREEN_W];
+  static uint8_t s_corner_d[CRT_CORNER_RADIUS][CRT_CORNER_RADIUS];
+  static int s_tables_w = 0;
+  if (w > SCREEN_W || w <= 1 || h <= 1 || stride < w) return;
+  if (s_tables_w != w) {
     for (int x = 0; x < w; x++) {
       int dx = 2 * x - (w - 1);
       s_ca_xq[x] = (uint16_t)((dx * dx * 256) / ((w - 1) * (w - 1)));
+      s_col_depth[x] = (uint16_t)edge_depth_x(x < w - 1 - x ? x : w - 1 - x);
     }
-    s_ca_xq_w = w;
+    for (int ey = 0; ey < CRT_CORNER_RADIUS; ey++) {
+      for (int ex = 0; ex < CRT_CORNER_RADIUS; ex++) {
+        s_corner_d[ey][ex] = (uint8_t)corner_depth(ex, ey);
+      }
+    }
+    s_tables_w = w;
   }
   // CA boost during the strike: the separation balloons while the mask
   // degausses. Phase-indexed through the same decay table as the row jitter.
@@ -278,11 +304,9 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
   // there is a grey field to separate against, and it is the reference that
   // separation measures from.
   const int vig_ground = theme_ground_level(s_active_theme);
-  // ...and the falloff curve it selects, chosen once per frame. crt_vignette_q8()
-  // is the public form and re-picks it on every call — correct, and fine for
-  // the tests and the ramp tool, but it is a cross-TU call and this loop runs
-  // 45k times a frame. Stage 2 walks the LUT directly instead.
-  const uint16_t* vig_lut = vig_ground > 0 ? s_vignette_q8_light : s_vignette_q8;
+  // The falloff curve it selects, chosen once per frame: stage 2 runs 45k
+  // times a frame and walks the LUT directly.
+  const uint16_t* vig_lut = vignette_lut(vig_ground);
 
   // Per-row body, applied in two half-passes. Both passes read away from
   // the screen centreline: from captured (raw) ring rows only, which is the
@@ -292,7 +316,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
     for (int yi = (pass == 0 ? 0 : h - 1); pass == 0 ? yi <= (h - 1) / 2 : yi > (h - 1) / 2;
          yi += pass == 0 ? 1 : -1) {
       int y = yi;
-      uint8_t* row = fb + (size_t)y * w;
+      uint8_t* row = fb + (size_t)y * stride;
       int dy = 2 * y - (h - 1);
       int yterm = dy * dy * 256 / h1sq;
       int row_off = crt_strike_offset(y, flash_phase);
@@ -306,47 +330,54 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
       // already carry processed output by traversal time (ring reads raw).
       bool owns_next = pass == 0 ? y_next <= (h - 1) / 2 : y_next > (h - 1) / 2;
       if (owns_next && y_next >= 0 && y_next < h) {
-        memcpy(s_vraw_ring[y_next % 3], fb + (size_t)y_next * w, w);
+        memcpy(s_vraw_ring[y_next % 3], fb + (size_t)y_next * stride, w);
       }
 
       // 1) CA from raw sources: horizontal fringe takes a two-tap weighted
       //    sample per shifted channel (thirds-of-a-px pull); vertical
       //    fringe samples ring rows toward/away from the centreline.
+      const bool top = y * 2 < h - 1;
+      // Sampling signs: left half pulls R from the right; top half pulls R
+      // from below. Mirrors across both centrelines. Forward reads (below on
+      // the top half, above on the bottom half) rely on the ring capture
+      // being one row ahead in traversal direction.
+      int ry1 = top ? y + 1 : y - 1;
+      int by1 = top ? y - 1 : y + 1;
+      // The ring only holds rows this pass has captured; at the half
+      // boundary the forward tap's row belongs to the OTHER pass (its slot
+      // carries a 3-rows-stale capture — pass 0 at y=113 would read row
+      // 111). Fall back to the own row; only the forward read can cross.
+      if (pass == 0 && ry1 > (h - 1) / 2) ry1 = y;
+      if (pass == 1 && ry1 <= (h - 1) / 2) ry1 = y;
+      if (ry1 < 0) ry1 = 0;
+      if (ry1 >= h) ry1 = h - 1;
+      if (by1 < 0) by1 = 0;
+      if (by1 >= h) by1 = h - 1;
+      // Ring rows by vertical shift s_v (0 or 1): the own row, or the
+      // neighbour. Both halves only read rows already captured into the ring.
+      const uint8_t* const rrows[2] = {s_vraw_ring[y % 3], s_vraw_ring[ry1 % 3]};
+      const uint8_t* const brows[2] = {s_vraw_ring[y % 3], s_vraw_ring[by1 % 3]};
       for (int x = 0; x < w; x++) {
         bool left = x * 2 < w - 1;
+        int xy_sum = s_ca_xq[x] + yterm;
         // Horizontal pull in THIRDS: the rung (0/4), plus the element-offset
         // correction and the strike boost in whole pixels. The correction does
         // NOT mirror: the RGB stripe puts R 1/3px left (B 1/3px right) of its
         // pixel centre on BOTH halves, so the sign follows the half, not the
-        // pull direction — folding a flat -1 into q before the tap mirror
-        // (old form) carried a 2/3px residual splay through the right half,
-        // measured on hardware. The cancellation makes the dead zone actually
-        // converge: at the centre the rasters land on the content.
-        int q = crt_ca_t3_h2(s_ca_xq[x] + yterm) + (left ? -1 : 1) + 3 * ca_boost;
+        // pull direction. Folding a flat -1 into q before the tap mirror would
+        // carry a 2/3px residual splay through the right half. The
+        // cancellation makes the dead zone actually converge: at the centre
+        // the rasters land on the content.
+        int q = crt_ca_t3_h2(xy_sum) + (left ? -1 : 1) + 3 * ca_boost;
         int j = (q - (q < 0 ? 2 : 0)) / 3;  // floor(q/3); q >= -1 by construction
-        // 0..2, all three reachable. While crt_ca_t3_h2 returned only 0 or 4 the
-        // ±1 correction kept q off 1 (mod 3) and f was never 1; the ramped onset
-        // sweeps every rung, so it is now. The weighted tap handles all three.
+        // f in 0..2, all three reachable: the ramped onset sweeps every rung.
         int f = q - 3 * j;  // blend weight toward the farther tap
-        int s_v = crt_ca_shift_v2(s_ca_xq[x] + yterm);
+        int s_v = crt_ca_shift_v2(xy_sum);
 
-        bool top = y * 2 < h - 1;
-        // Sampling signs: left half pulls R from the right; top half pulls R
-        // from below. Mirrors across both centrelines. Forward reads (below on
-        // the top half, above on the bottom half) rely on the ring capture
-        // being one row ahead in traversal direction.
         int rt0 = left ? x + j : x - j;
         int rt1 = left ? x + j + 1 : x - j - 1;
         int bt0 = left ? x - j : x + j;
         int bt1 = left ? x - j - 1 : x + j + 1;
-        int ry = top ? y + s_v : y - s_v;
-        int by = top ? y - s_v : y + s_v;
-        // The ring only holds rows this pass has captured; at the half
-        // boundary the forward tap's row belongs to the OTHER pass (its slot
-        // carries a 3-rows-stale capture — pass 0 at y=113 would read row
-        // 111). Fall back to the own row; only the forward read can cross.
-        if (pass == 0 && ry > (h - 1) / 2) ry = y;
-        if (pass == 1 && ry <= (h - 1) / 2) ry = y;
         // Both taps of a channel come from the same (valid) ring ROW; clamp
         // the COLUMNS — at max strike the right half reaches q = 4+1+9 = 14
         // (rung + sign fix + 3·boost) → j = 4, and the taps land on the same
@@ -359,17 +390,11 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
         if (bt0 >= w) bt0 = w - 1;
         if (bt1 < 0) bt1 = 0;
         if (bt1 >= w) bt1 = w - 1;
-        // The ring holds rows y-2..y+2 at most; s_v stays within 1 today.
-        // Both halves only read rows already captured into the ring.
-        if (ry < 0) ry = 0;
-        if (ry >= h) ry = h - 1;
-        if (by < 0) by = 0;
-        if (by >= h) by = h - 1;
 
-        const uint8_t* rrow = s_vraw_ring[ry % 3];
-        const uint8_t* brow = s_vraw_ring[by % 3];
+        const uint8_t* rrow = rrows[s_v];
+        const uint8_t* brow = brows[s_v];
         // Fractional channel sample: sum of both taps weighted (3-f, f),
-        // rounded to nearest — plain truncation biased R/B down half a level
+        // rounded to nearest — plain truncation biases R/B down half a level
         // on average, a faint green cast on mid-tones (G is never blended).
         // A 0<->3 edge yields exactly 2 and 1; weights act on code values,
         // linear in light here (the panel makes levels by area fill) — no
@@ -385,8 +410,10 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
       //    CRT_VIGNETTE_SIDE_PX and _BAND_PX — because the warp resamples
       //    columns and leaves rows alone. Mirror-symmetric Bayer thresholds
       //    keep both rims identical.
-      int ey = y < h - 1 - y ? y : h - 1 - y;
-      int ty = ey & 3;
+      const int edge_px = y < h - 1 - y ? y : h - 1 - y;
+      const int ey_depth = edge_depth_y(edge_px);
+      const uint8_t* corner_row = ey_depth < CRT_CORNER_RADIUS ? s_corner_d[ey_depth] : NULL;
+      const uint8_t* bayer_row = &s_bayer4[(edge_px & 3) * 4];
       // The row as drawn, before stage 1 scattered R and B across columns.
       // Which light-field rule a pixel takes is a property of the CONTENT —
       // grey ink wants separating from its field, a colored fill wants its
@@ -395,10 +422,13 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
       const uint8_t* raw_row = s_vraw_ring[y % 3];
       for (int x = 0; x < w; x++) {
         int ex = x < w - 1 - x ? x : w - 1 - x;
-        int d = crt_edge_distance(x, y, w, h);
+        int ex_depth = s_col_depth[x];
+        int d = (corner_row && ex_depth < CRT_CORNER_RADIUS)
+                    ? corner_row[ex_depth]
+                    : (ex_depth < ey_depth ? ex_depth : ey_depth);
         int f = d >= CRT_VIGNETTE_PX ? 256 : vig_lut[d];
         uint8_t p = row_ca[x];
-        int t = s_bayer4[ty * 4 + (ex & 3)];
+        int t = bayer_row[ex & 3];
         int rs = (p >> 4) & 3, gs = (p >> 2) & 3, bs = p & 3;
         // Ordered dither, one third of a cycle apart per channel. A grey run
         // dithered in lockstep can only be black, DarkGray, LightGray or white
@@ -422,7 +452,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
         if (vig_ground > 0 && grey_src) {
           // Keep ink clear of the field's whole dither span — but only where
           // content is meant to be read. Below READ_Q8 the falloff IS the
-          // bezel ring (light LUT depths 0-3), and separating ink there would
+          // bezel ring (light LUT depths 0-4), and separating ink there would
           // hold frames off the black the rim exists to render.
           if (f >= CRT_VIGNETTE_READ_Q8) {
             int gnd_lo, gnd_hi;
@@ -449,31 +479,29 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
       }
 
       // 3) Curvature (+ strike jitter): dest (x,y) samples source column
-      //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of crt_warp_q16 —
+      //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of warp_mul16 —
       //    recomposed here from the CA stage's cached terms — then the strike
       //    slides the whole row sideways. M grows with x too, so integer
       //    quantization boundaries curve instead of aligning into seams.
-      //    sn's +half cancels exactly in S below: stage 3 no longer rounds —
-      //    floor(S) + fraction IS the warp position. Rim symmetry survives
-      //    without rounding: floor+frac is pointwise symmetric in dx (the
-      //    floor(−a) vs floor(a) ±1 phases sit under the vignette's black
-      //    rim). The fraction then blends the column pair instead of picking
-      //    one: magnification decimates source columns under nearest-
-      //    neighbour (every damaged 8px letter cell measured 7px wide), and
-      //    keeping their energy as fractional levels reads as tube edge
-      //    defocus while letters keep their rhythm. Rounding (+128) avoids a
-      //    truncation bias toward dark.
+      //    floor(S) + fraction IS the warp position, no rounding. Rim
+      //    symmetry survives without rounding:
+      //    floor+frac is pointwise symmetric in dx (the floor(−a) vs floor(a)
+      //    ±1 phases sit under the vignette's black rim). The fraction blends
+      //    the column pair instead of picking one: magnification decimates
+      //    source columns under nearest-neighbour (a damaged 8px letter cell
+      //    measures 7px wide), and keeping their energy as fractional levels
+      //    reads as tube edge defocus while letters keep their rhythm.
+      //    Rounding (+128) avoids a truncation bias toward dark.
       for (int x = 0; x < w; x++) {
         int dx = 2 * x - (w - 1);
-        int mul16 = 65536 + CRT_WARP_R2_K * (s_ca_xq[x] + yterm);
-        int sn = (w - 1) * 65536 + dx * mul16 + 65536;  // sx*131072 + half
-        int S = sn - 65536;                             // exact warp position, Q17
-        int sx = (S >> 17) + row_off;                   // strike stays whole-pixel
-        int fr = (S >> 9) & 0xFF;                       // 0..255, weight toward sx+1
+        int mul16 = warp_mul16(s_ca_xq[x] + yterm);
+        int S = (w - 1) * 65536 + dx * mul16;  // exact warp position, Q17
+        int sx = (S >> 17) + row_off;          // strike stays whole-pixel
+        int fr = (S >> 9) & 0xFF;              // 0..255, weight toward sx+1
         // Out-of-range replicates the nearest column WITHOUT the inward
-        // blend: clamping sx alone left fr live, so the left rim blended the
-        // edge column with the (still dithered) column 1 while the right rim
-        // self-replicated — an asymmetric grey bleed at the corners.
+        // blend: clamping sx alone would leave fr live, so the left rim would
+        // blend the edge column with the (still dithered) column 1 while the
+        // right rim self-replicates — an asymmetric grey bleed at the corners.
         if (sx < 0) {
           sx = 0;
           fr = 0;
@@ -489,12 +517,10 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase) {
         int g = ((256 - fr) * ((p0 >> 2) & 3) + fr * ((p1 >> 2) & 3) + 128) >> 8;
         int b = ((256 - fr) * (p0 & 3) + fr * (p1 & 3) + 128) >> 8;
         // The blend zeroes channels independently too: a black rim column
-        // against a colored fill lands on (1,0,0) at some fractions — the same
-        // alarm red stage 2's hold_hue exists to prevent, arrived at one stage
-        // later. Keyed on the LOWER tap's content — usually the dominant one,
-        // and not worth carrying fr in to settle the fringe case — so grey ink
-        // keeps the separation stage 2 gave it instead of having a channel
-        // lifted back.
+        // against a colored fill lands on (1,0,0) at some fractions — the
+        // alarm red stage 2's hold_hue exists to prevent. Keyed on the LOWER
+        // tap's content (usually the dominant one) so grey ink keeps the
+        // separation stage 2 gave it instead of having a channel lifted back.
         if (!row_grey[sx]) {
           int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
           int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
@@ -518,7 +544,8 @@ void crt_update_proc(Layer* layer, GContext* ctx) {
   GBitmap* fb = graphics_capture_frame_buffer(ctx);
   if (!fb) return;
   GRect bounds = gbitmap_get_bounds(fb);
-  crt_apply_framebuffer(gbitmap_get_data(fb), bounds.size.w, bounds.size.h, s_flash_phase);
+  crt_apply_framebuffer(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
+                        gbitmap_get_bytes_per_row(fb), s_flash_phase);
   graphics_release_frame_buffer(ctx, fb);
   // Strike trigger lives at the END of the wake frame (not the backlight
   // handler): the sound starts once the ring can survive what follows.
@@ -533,6 +560,9 @@ void crt_update_proc(Layer* layer, GContext* ctx) {
 
 static void crt_flash_tick(void* data) {
   (void)data;
+  // A killed chain (deinit, setting off) leaves IDLE behind; a straggling tick
+  // must not restart it.
+  if (s_flash_phase == CRT_FLASH_IDLE) return;
   s_flash_phase++;
   if (s_flash_phase >= CRT_FLASH_PHASES) {
     s_flash_phase = CRT_FLASH_IDLE;
@@ -549,7 +579,11 @@ void crt_backlight_handler(bool on) {
   // Gating: the flash is the strike of a tube warming up. Backlight-off
   // transitions, a disabled effect, and a covered face start nothing — a
   // cover pumps the backlight too, and its flashes belong to the cover.
-  if (!on || !s_settings_crt || !s_app_in_focus) return;
+  if (!on) {
+    if (s_app_in_focus) s_cover_suppresses_strike = false;
+    return;
+  }
+  if (!s_settings_crt || !s_app_in_focus) return;
   // The dismissal's backlight-on may land after focus returns — it belongs
   // to the cover too: eat the one-shot a cover armed, prime nothing.
   if (s_cover_suppresses_strike) {
@@ -567,22 +601,23 @@ void crt_backlight_handler(bool on) {
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
 }
 
-// The degauss woomp as synthesized PCM: note-table playback clicks at every
-// note boundary (pitch and velocity step), so the hum is generated instead —
-// a pitch-gliding sine (≈90 → 55 Hz) under a swell-and-decay amplitude
-// envelope. Continuous by construction. 320ms at 16 kHz 16-bit sits well
-// under SPEAKER_MAX_SAMPLE_BYTES_TOTAL. Synthesized once on first use.
+// The degauss thunk as synthesized PCM: note-table playback clicks at every
+// note boundary (pitch and velocity step), so the sound is generated instead.
+// Allocated and synthesized on first use, freed when the sound is turned off.
 #define CRT_STRIKE_PCM_MS \
   110  // <= stock FW's 128ms ring: the sound is a thunk, frames can't starve it
 #define CRT_STRIKE_PCM_RATE 16000
 #define CRT_STRIKE_PCM_SAMPLES (CRT_STRIKE_PCM_MS * CRT_STRIKE_PCM_RATE / 1000)
-static int16_t s_strike_pcm[CRT_STRIKE_PCM_SAMPLES];
-static bool s_strike_pcm_ready = false;
+// The envelope fades to zero over the last CRT_STRIKE_FADE_SAMPLES (17.5ms at
+// 16 kHz), ahead of CRT_STRIKE_TAIL_SAMPLES of exact silence, so the codec
+// never cuts a nonzero signal.
+#define CRT_STRIKE_FADE_SAMPLES 280
+#define CRT_STRIKE_TAIL_SAMPLES 16
+static int16_t* s_strike_pcm = NULL;
 
 // Q15 sine: |x| in [-1,1] shaped by the cubic smoothstep y = (3x − x³)/2 —
-// within 1.1% of sin(πx/2), no libm. (A hard fault inside newlib's
-// __ieee754_rem_pio2 took down the app on hardware — sin() has no business
-// in a watchface sound anyway.)
+// within 1.1% of sin(πx/2), no libm: newlib's __ieee754_rem_pio2 hard-faults
+// on the watch.
 static int16_t crt_wave_q15(uint32_t phase_q16) {
   // Triangle coordinate over each half-cycle: x sweeps -1..+1 per half.
   int32_t half = (int32_t)((phase_q16 >> 15) & 1);
@@ -596,15 +631,26 @@ static int16_t crt_wave_q15(uint32_t phase_q16) {
   return (int16_t)(half ? -y : y);
 }
 
+// Q8 gain of the closing fade for the sample `left` samples before the tail:
+// a smoothstep from 256 down to 0, exactly 0 once the tail starts.
+static int strike_fade_q8(int left) {
+  if (left >= CRT_STRIKE_FADE_SAMPLES) return 256;
+  if (left <= 0) return 0;
+  int u = left * 1024 / CRT_STRIKE_FADE_SAMPLES;  // Q10, 0..1024
+  int uu = u * u >> 10;
+  int s = 3 * uu - (2 * uu * u >> 10);  // Q10 smoothstep, 0..1024
+  return s >> 2;
+}
+
 void crt_strike_synth(int16_t* buf, size_t n) {
-  // Thunk, not hum. Stock firmware's audio ring holds 128ms and every render
-  // frame blocks the loop ~60ms (measured 2026-08-23; the refill callback is
-  // droppable under KernelMain load), so the strike sound must fit inside one
-  // ring: 110ms. It also wants the band the speaker reproduces — the old
-  // 90→55Hz hum put 100% of its energy under 300Hz, mostly inaudible. The
+  // Thunk, not a hum. Stock firmware's audio ring holds 128ms and every render
+  // frame blocks the loop ~60ms (the refill callback is droppable under
+  // KernelMain load), so the sound must fit inside one ring: 110ms. It also
+  // wants the band the speaker reproduces, which a sub-300Hz hum is not. The
   // coil's energisation IS the perceptible event: constant 190 Hz + partials
   // 380/570/760 at 4:3:2:1, ~5.5ms attack, exponential decay (thermistor
-  // shape), last 64 samples silent so the codec never cuts mid-cycle.
+  // shape), then a smoothstep fade to zero over the last
+  // CRT_STRIKE_FADE_SAMPLES and CRT_STRIKE_TAIL_SAMPLES of silence.
   const size_t attack = n / 20;
   uint32_t phase = 0;
   int env = 32767;  // Q15, thermistor decay: env -= env>>10 per sample
@@ -614,13 +660,18 @@ void crt_strike_synth(int16_t* buf, size_t n) {
              crt_wave_q15(phase * 4)) /
             10;
     int gain = i < attack ? (int)(i * 256 / attack) : 256;
-    if (i + 64 >= n) gain = 0;
+    gain = gain * strike_fade_q8((int)n - CRT_STRIKE_TAIL_SAMPLES - (int)i) >> 8;
     buf[i] = (int16_t)(((int64_t)y * gain * env * 30000) >> 38);
-    if (env && gain && i >= attack) env -= env >> 10;
+    if (env && i >= attack) env -= env >> 10;
   }
 }
 
 #define CRT_STRIKE_VOLUME 90
+
+static void crt_free_strike_pcm(void) {
+  free(s_strike_pcm);
+  s_strike_pcm = NULL;
+}
 
 void crt_play_strike_sound(void) {
   // speaker_is_muted covers the system mute preference (including Quiet
@@ -628,36 +679,40 @@ void crt_play_strike_sound(void) {
   // Focus service state — the strike sound belongs to a tube the user is
   // looking at. Honor those, and our own toggle.
   if (!s_settings_crt_sound || !s_app_in_focus || speaker_is_muted()) return;
-  if (!s_strike_pcm_ready) {
+  if (!s_strike_pcm) {
+    s_strike_pcm = malloc(CRT_STRIKE_PCM_SAMPLES * sizeof(int16_t));
+    if (!s_strike_pcm) return;
     crt_strike_synth(s_strike_pcm, CRT_STRIKE_PCM_SAMPLES);
-    s_strike_pcm_ready = true;
   }
-  // Audio underrun notes (hardware-measured 2026-08-23): the driver ring is
-  // 128ms and each strike frame blocks the main loop ~95ms, so refill
-  // callbacks lose the race and the woomp gaps. The stream API that would
-  // let the app top the ring itself only exists from FW 4.33.2 — older stock
+  // The driver ring is 128ms and each strike frame blocks the main loop
+  // ~60ms of its ~95ms tick, so a streamed refill loses the race and the
+  // sound gaps; the whole
+  // sample goes in as one track instead. The stream API that would let the
+  // app top the ring itself only exists from FW 4.33.2 — older stock
   // firmware HARD-FAULTS on the missing syscall (fallback-by-return-false is
-  // impossible), so the old track path stays until those builds die out.
+  // impossible), so the track path stays until those builds die out.
   // One unshifted note over the whole sample plays it raw: the PCM IS the
   // sound.
   static const SpeakerNote through[1] = {
       {60, SpeakerWaveformSine, CRT_STRIKE_PCM_MS + 30, 127, 0},
   };
-  static const SpeakerSample sample = {.data = s_strike_pcm,
-                                       .num_bytes = CRT_STRIKE_PCM_SAMPLES * 2,
-                                       .format = SpeakerPcmFormat_16kHz_16bit,
-                                       .base_midi_note = 60,
-                                       .loop = false};
+  const SpeakerSample sample = {.data = s_strike_pcm,
+                                .num_bytes = CRT_STRIKE_PCM_SAMPLES * 2,
+                                .format = SpeakerPcmFormat_16kHz_16bit,
+                                .base_midi_note = 60,
+                                .loop = false};
   const SpeakerTrack track = {.notes = through, .num_notes = 1, .sample = &sample};
   speaker_play_tracks(&track, 1, CRT_STRIKE_VOLUME);
 }
 
 void crt_app_focus_will_handler(bool in_focus) {
-  // A cover is ABOUT to appear: silence immediately, not after the animation,
-  // and arm the one-shot that eats the dismissal's backlight-on.
+  // A cover is ABOUT to appear: silence immediately, not after the animation.
+  // With the effect on, arm the one-shot that eats the dismissal's
+  // backlight-on; with it off nothing eats it, or the next real wake would
+  // lose its strike.
   if (!in_focus) {
     s_app_in_focus = false;
-    s_cover_suppresses_strike = true;
+    s_cover_suppresses_strike = s_settings_crt;
   }
 }
 
@@ -668,10 +723,12 @@ void crt_app_focus_did_handler(bool in_focus) {
 }
 
 void crt_apply_setting_change(void) {
+  if (!s_settings_crt_sound) crt_free_strike_pcm();
   if (s_settings_crt) {
     if (s_crt_layer) layer_mark_dirty(s_crt_layer);
     return;
   }
+  s_cover_suppresses_strike = false;
   s_flash_phase = CRT_FLASH_IDLE;
   s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
   // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
@@ -686,4 +743,17 @@ void crt_apply_setting_change(void) {
   // tree now — canvas and clock repaint, the overlay (disabled) adds nothing.
   if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
+}
+
+void crt_deinit(void) {
+  if (s_flash_timer) {
+    app_timer_cancel(s_flash_timer);
+    s_flash_timer = NULL;
+  }
+  s_flash_phase = CRT_FLASH_IDLE;
+  s_strike_pending = false;
+  s_cover_suppresses_strike = false;
+  s_app_in_focus = false;
+  s_crt_layer = NULL;
+  crt_free_strike_pcm();
 }

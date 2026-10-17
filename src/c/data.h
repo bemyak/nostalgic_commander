@@ -59,8 +59,13 @@ extern int s_heart_rate;
 extern int s_active_minutes;
 
 // --- Weather readings; the wire contract is messaging.c's field table ---
+// No-data sentinels: temperatures read WEATHER_TEMP_NONE, every other weather
+// reading (including the extreme hours) WEATHER_NONE. Formatters render both
+// as "--".
+#define WEATHER_TEMP_NONE (-999)
+#define WEATHER_NONE (-1)
 extern int s_weather_temp;
-extern int s_weather_cond_code;  // WMO weather code; -1 indicates no data
+extern int s_weather_cond_code;  // WMO weather code; WEATHER_NONE indicates no data
 extern int s_weather_aqi;
 extern int s_weather_uv;
 extern int s_weather_humidity;
@@ -68,6 +73,9 @@ extern int s_weather_wind_direction;
 extern int s_weather_wind_speed;
 extern int s_weather_pcp;
 extern int s_precip_now;
+// UTC epoch seconds (int32, as on the wire) the weather above was fetched at;
+// 0 when there is none.
+extern int s_weather_stamp;
 
 // While precipitating and metric, the PCP readout shows the observed rate
 // instead of the forecast probability — the guess is settled.
@@ -78,9 +86,9 @@ const char* weather_cond_word(int code);
 bool weather_cond_precipitating(int code);
 extern int s_temp_high;
 extern int s_temp_low;
-extern int s_temp_high_tmrw;  // tomorrow's daily max; -999 indicates no data
-extern int s_temp_low_tmrw;   // tomorrow's daily min; -999 indicates no data
-// Watch-local hours of each day's extremes, 0-23; -1 unknown.
+extern int s_temp_high_tmrw;  // tomorrow's daily max; WEATHER_TEMP_NONE indicates no data
+extern int s_temp_low_tmrw;   // tomorrow's daily min; WEATHER_TEMP_NONE indicates no data
+// Watch-local hours of each day's extremes, 0-23; WEATHER_NONE unknown.
 extern int s_hi_hour_today;
 extern int s_lo_hour_today;
 extern int s_hi_hour_tmrw;

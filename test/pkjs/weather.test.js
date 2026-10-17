@@ -13,11 +13,11 @@ const NOW = Date.UTC(2026, 7, 8, 12, 30);
 // tests here pass it explicitly wherever the width itself is the point, and
 // otherwise rely on the 12h default.
 
-// Consecutive API-style hour stamps; ISO strings positionally match the
-// "YYYY-MM-DDTHH:MM" shape the parser slices.
+// Consecutive API-style hour stamps: location-local "YYYY-MM-DDTHH:MM".
 function isoHours(startMs, count) {
   const out = [];
-  for (let i = 0; i < count; i++) out.push(new Date(startMs + i * 3600000).toISOString());
+  for (let i = 0; i < count; i++)
+    out.push(new Date(startMs + i * 3600000).toISOString().slice(0, 16));
   return out;
 }
 
@@ -36,6 +36,7 @@ function fullResponse() {
   pcp[13] = 42.4;                     // in window
   return {
     current: {
+      time: '2026-08-08T12:30',
       temperature_2m: 22.6,
       weather_code: 61,
       relative_humidity_2m: 54.4,
@@ -55,8 +56,8 @@ function fullResponse() {
 
 test('field table declares every key once, with the contract sentinel', () => {
   const fields = weather.WEATHER_FIELDS;
-  assert.equal(fields.length, 17);
-  assert.equal(new Set(fields.map(f => f.key)).size, 17);
+  assert.equal(fields.length, 18);
+  assert.equal(new Set(fields.map(f => f.key)).size, 18);
   const sentinel = Object.fromEntries(fields.map(f => [f.key, f.sentinel]));
   for (const k
            of ['WEATHER_TEMP', 'WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_LOW_TOMORROW',
@@ -68,6 +69,7 @@ test('field table declares every key once, with the contract sentinel', () => {
                'WEATHER_HI_HOUR_TODAY', 'WEATHER_LO_HOUR_TODAY', 'WEATHER_HI_HOUR_TOMORROW',
                'WEATHER_LO_HOUR_TOMORROW'])
     assert.equal(sentinel[k], -1, k);
+  assert.equal(sentinel['WEATHER_FETCHED_AT'], 0);
   // The sentinel payload is complete by construction.
   assert.ok(weather.isCompleteWeatherPayload(weather.sentinelPayload()));
 });
@@ -84,15 +86,60 @@ test('parseForecast maps and rounds the current block', () => {
 });
 
 test('parseForecast falls back to sentinels per field', () => {
-  const out = weather.parseForecast({}, NOW);
-  assert.equal(out.WEATHER_TEMP, -999);
-  // A missing weather code is the sentinel now — the face reads '--'.
+  const out = weather.parseForecast({current: {temperature_2m: 20}}, NOW);
+  assert.equal(out.WEATHER_TEMP, 20);
   assert.equal(out.WEATHER_COND, -1);
   assert.equal(out.WEATHER_HUMIDITY, -1);
   assert.equal(out.WEATHER_UV, -1);
   assert.equal(out.WEATHER_HIGH, -999);
   assert.equal(out.WEATHER_HI_HOUR_TODAY, -1);
   assert.ok(weather.isCompleteWeatherPayload(out));
+});
+
+test('a response with neither temperature nor weather code is a failure', () => {
+  assert.throws(() => weather.parseForecast({}, NOW));
+  assert.throws(() => weather.parseForecast({current: {}}, NOW));
+  assert.throws(
+      () => weather.parseForecast({current: {temperature_2m: null, weather_code: 'x'}}, NOW));
+  assert.throws(() => weather.parseForecast({current: {relative_humidity_2m: 50}}, NOW));
+  assert.doesNotThrow(() => weather.parseForecast({current: {weather_code: 3}}, NOW));
+  assert.doesNotThrow(() => weather.parseForecast({current: {temperature_2m: 0}}, NOW));
+});
+
+test('WEATHER_FETCHED_AT is the fetch instant in UTC epoch seconds', () => {
+  assert.equal(weather.parseForecast(fullResponse(), NOW + 999).WEATHER_FETCHED_AT, NOW / 1000);
+});
+
+test('the UV/PCP window follows the location clock whatever the process timezone', () => {
+  // Location-local stamps; the same wall-clock hours must select the same
+  // window under any TZ the test process (or the phone) runs in.
+  const json = fullResponse();
+  json.hourly.uv_index[12] = 8;
+  const unrelatedNow = Date.UTC(2030, 0, 1);  // the fetch instant must not move the window
+  const expected = weather.parseForecast(json, unrelatedNow, 12);
+  assert.equal(expected.WEATHER_UV, 8);
+  assert.equal(expected.WEATHER_PCP, 42);
+
+  const saved = process.env.TZ;
+  try {
+    for (const tz of ['UTC', 'Pacific/Kiritimati', 'America/Los_Angeles', 'Asia/Kolkata']) {
+      process.env.TZ = tz;
+      assert.deepEqual(weather.parseForecast(json, unrelatedNow, 12), expected, tz);
+    }
+  } finally {
+    if (saved === undefined)
+      delete process.env.TZ;
+    else
+      process.env.TZ = saved;
+  }
+});
+
+test('a response without current.time reads no UV/PCP window', () => {
+  const json = fullResponse();
+  delete json.current.time;
+  const out = weather.parseForecast(json, NOW);
+  assert.equal(out.WEATHER_UV, -1);
+  assert.equal(out.WEATHER_PCP, -1);
 });
 
 test('UV and PCP are maxima over the coming window, including the in-progress hour', () => {
@@ -116,6 +163,17 @@ test('a "Now" window reads the in-progress hour only', () => {
   const out = weather.parseForecast(json, NOW, 0);
   assert.equal(out.WEATHER_UV, 3);    // the 12:00 bucket alone; 15:00's 6.3 excluded
   assert.equal(out.WEATHER_PCP, -1);  // the 42.4 sits at 13:00 — just out of reach
+});
+
+test('a "Now" window at exactly HH:00 reads that hour alone, not the one before', () => {
+  const json = fullResponse();
+  json.current.time = '2026-08-08T12:00';
+  json.hourly.uv_index[11] = 9;  // the previous hour
+  json.hourly.uv_index[12] = 3;
+  json.hourly.uv_index[13] = 7;  // the next hour
+  const out = weather.parseForecast(json, NOW, 0);
+  assert.equal(out.WEATHER_UV, 3);
+  assert.equal(out.WEATHER_PCP, -1);
 });
 
 test('short windows bound the maxima tightly', () => {
@@ -220,4 +278,127 @@ test('cache freshness: garbage and future timestamps are never fresh', () => {
   assert.equal(weather.isFreshWeatherCache(undefined, NOW), false);
   assert.equal(weather.isFreshWeatherCache(NOW + 1000, NOW), false);
   assert.equal(weather.isFreshWeatherCache(NOW - 1000, NaN), false);
+});
+
+const METRIC = {
+  tempUnit: 'celsius',
+  windSpeedUnit: 'ms'
+};
+const IMPERIAL = {
+  tempUnit: 'fahrenheit',
+  windSpeedUnit: 'mph'
+};
+
+test('forecast URL rounds coordinates and carries units', () => {
+  const url = new URL(weather.buildForecastUrl(48.858844, -2.294351, METRIC));
+  assert.equal(url.searchParams.get('latitude'), '48.86');
+  assert.equal(url.searchParams.get('longitude'), '-2.29');
+  assert.equal(url.searchParams.get('temperature_unit'), 'celsius');
+  assert.equal(url.searchParams.get('wind_speed_unit'), 'ms');
+  assert.equal(url.searchParams.get('timezone'), 'auto');
+  const aqi = new URL(weather.buildAqiUrl(48.858844, -2.294351));
+  assert.equal(aqi.searchParams.get('latitude'), '48.86');
+  assert.equal(aqi.searchParams.get('longitude'), '-2.29');
+  assert.equal(aqi.searchParams.get('current'), 'us_aqi');
+});
+
+test('every field parseForecast reads is requested from the API', () => {
+  const read = {current: new Set(), hourly: new Set(), daily: new Set()};
+  const json = fullResponse();
+  for (const block of Object.keys(read)) {
+    json[block] = new Proxy(json[block], {
+      get(target, prop) {
+        if (typeof prop === 'string') read[block].add(prop);
+        return target[prop];
+      },
+    });
+  }
+  weather.parseForecast(json, NOW);
+  const url = new URL(weather.buildForecastUrl(1, 2, IMPERIAL));
+  for (const block of Object.keys(read)) {
+    const requested = url.searchParams.get(block).split(',');
+    read[block].delete('time');  // always returned, never requested
+    assert.ok(read[block].size > 0, block);
+    for (const field of read[block]) assert.ok(requested.includes(field), `${block}.${field}`);
+  }
+});
+
+test('cache replay needs fresh, complete and matching units and window', () => {
+  const payload = weather.parseForecast(fullResponse(), NOW);
+  const entry = weather.makeWeatherCacheEntry(payload, NOW, METRIC, 12);
+  const replay = (cache, units, hours, now) =>
+      weather.shouldReplayWeatherCache(cache, now === undefined ? NOW + 1000 : now, units, hours);
+
+  assert.equal(replay(entry, METRIC, 12), true);
+  assert.equal(replay(JSON.parse(JSON.stringify(entry)), METRIC, 12), true);  // survives storage
+  assert.equal(replay(entry, IMPERIAL, 12), false);
+  assert.equal(replay(entry, METRIC, 2), false);
+  const windOnly = {tempUnit: METRIC.tempUnit, windSpeedUnit: 'mph'};
+  assert.equal(replay(entry, windOnly, 12), false);
+  assert.equal(replay(entry, METRIC, 12, NOW + weather.WEATHER_CACHE_MAX_AGE_MS), false);
+
+  const incomplete = weather.makeWeatherCacheEntry({WEATHER_TEMP: 1}, NOW, METRIC, 12);
+  assert.equal(replay(incomplete, METRIC, 12), false);
+
+  for (const junk of [null, undefined, {}, {payload}, {payload, fetchedAt: NOW}]) {
+    assert.equal(replay(junk, METRIC, 12), false);
+  }
+});
+
+test('a trigger mid-flight queues exactly one rerun however many arrive', () => {
+  const guard = weather.createFetchGuard();
+  assert.equal(guard.begin(), true);
+  assert.equal(guard.begin(), false);
+  assert.equal(guard.begin(), false);
+  assert.equal(guard.end(), true);   // the single rerun, guard held for it
+  assert.equal(guard.end(), false);  // and the rerun's own end owes nothing
+  assert.equal(guard.begin(), true);
+});
+
+test('end without a queued trigger releases the guard and owes no rerun', () => {
+  const guard = weather.createFetchGuard();
+  guard.begin();
+  assert.equal(guard.end(), false);
+  assert.equal(guard.state.inFlight, false);
+  assert.equal(guard.begin(), true);
+});
+
+test('a result is not sent while a rerun is pending', () => {
+  const guard = weather.createFetchGuard();
+  guard.begin();
+  assert.equal(guard.shouldSendResult(), true);
+  guard.begin();
+  assert.equal(guard.shouldSendResult(), false);
+  assert.equal(guard.end(), true);
+  assert.equal(guard.shouldSendResult(), true);  // the rerun's result is current
+});
+
+test('a failure with budget left arms a retry, and a fresh trigger supersedes it', () => {
+  const guard = weather.createFetchGuard();
+  guard.begin();
+  assert.equal(guard.retry(), true);
+  assert.equal(guard.state.retryScheduled, true);
+  assert.equal(guard.state.inFlight, false);
+  assert.equal(guard.begin(), true);  // not queued: the armed retry is replaced
+  assert.equal(guard.state.retryScheduled, false);
+  assert.equal(guard.state.pending, false);
+});
+
+test('a retry timer firing holds the guard again', () => {
+  const guard = weather.createFetchGuard();
+  guard.begin();
+  guard.retry();
+  guard.resume();
+  assert.equal(guard.state.retryScheduled, false);
+  assert.equal(guard.begin(), false);
+});
+
+test('a failure with a trigger queued hands over to the rerun instead of a retry', () => {
+  const guard = weather.createFetchGuard();
+  guard.begin();
+  guard.begin();
+  assert.equal(guard.retry(), false);
+  assert.equal(guard.state.retryScheduled, false);
+  assert.equal(guard.state.inFlight, true);
+  assert.equal(guard.state.pending, false);
 });

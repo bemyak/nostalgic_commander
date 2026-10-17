@@ -56,7 +56,7 @@ static void report(const char* name, const WatchTheme* theme, uint8_t fill) {
   s_flash_phase = CRT_FLASH_IDLE;
   s_active_theme = theme;
   memset(mock_framebuffer, fill, sizeof(mock_framebuffer));
-  crt_apply_framebuffer(mock_framebuffer, 200, 228, CRT_FLASH_IDLE);
+  crt_apply_framebuffer(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE);
 
   int ground = theme_ground_level(theme);
   printf("%-10s ground=%d curve=%-5s ", name, ground, ground > 0 ? "light" : "dark");

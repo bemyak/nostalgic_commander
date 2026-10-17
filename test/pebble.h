@@ -9,6 +9,8 @@
 
 #define PBL_COLOR 1
 #define PBL_HEALTH 1
+#define PBL_DISPLAY_WIDTH 200
+#define PBL_DISPLAY_HEIGHT 228
 
 // --- Types ---
 typedef struct Window Window;
@@ -259,6 +261,7 @@ extern uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND;
 extern uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME;
 extern uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME;
 extern uint32_t MESSAGE_KEY_CHIME_TEST;
+extern uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT;
 
 // Handler typedefs and result types, spelled as the SDK umbrella header has
 // them so prototypes below can match the SDK verbatim.
@@ -276,8 +279,8 @@ typedef struct {
   AppFocusHandler will_focus;
   AppFocusHandler did_focus;
 } AppFocusHandlers;
-// Speaker API surface used by the CRT strike sound. LCD-types stay
-// child-sized: a note row and the waveforms the face picks among.
+// Speaker API surface used by the CRT strike sound and the hourly chime.
+// Types stay child-sized: a note row and the waveforms the face picks among.
 #define PACKED
 
 typedef enum {
@@ -341,33 +344,33 @@ AppMessageInboxReceived app_message_register_inbox_received(
 AppMessageOutboxSent app_message_register_outbox_sent(AppMessageOutboxSent sent_callback);
 AppMessageOutboxFailed app_message_register_outbox_failed(AppMessageOutboxFailed failed_callback);
 AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void* callback_data);
-bool app_timer_reschedule(AppTimer* timer, uint32_t new_timeout_ms);
 void app_timer_cancel(AppTimer* timer);
 void backlight_service_subscribe(BacklightHandler handler);
 void backlight_service_unsubscribe(void);
 void app_focus_service_subscribe_handlers(AppFocusHandlers handlers);
+void app_focus_service_unsubscribe(void);
 GBitmap* graphics_capture_frame_buffer(GContext* ctx);
 bool graphics_release_frame_buffer(GContext* ctx, GBitmap* buffer);
 uint8_t* gbitmap_get_data(const GBitmap* bitmap);
 GRect gbitmap_get_bounds(const GBitmap* bitmap);
 GBitmapDataRowInfo gbitmap_get_data_row_info(const GBitmap* bitmap, uint16_t y);
+uint16_t gbitmap_get_bytes_per_row(const GBitmap* bitmap);
 BatteryChargeState battery_state_service_peek(void);
 void battery_state_service_subscribe(BatteryStateHandler handler);
+void battery_state_service_unsubscribe(void);
 bool clock_is_24h_style(void);
 bool connection_service_peek_pebble_app_connection(void);
 void connection_service_subscribe(ConnectionHandlers handlers);
+void connection_service_unsubscribe(void);
 bool quiet_time_is_active(void);
 Tuple* dict_find(const DictionaryIterator* iter, const uint32_t key);
 DictionaryResult dict_write_uint8(DictionaryIterator* iter, const uint32_t key,
                                   const uint8_t value);
-GFont fonts_get_system_font(const char* font_key);
 ResHandle resource_get_handle(uint32_t resource_id);
 GFont fonts_load_custom_font(ResHandle handle);
 void fonts_unload_custom_font(GFont font);
 bool grect_equal(const GRect* const rect_a, const GRect* const rect_b);
 void graphics_context_set_fill_color(GContext* ctx, GColor color);
-void graphics_context_set_stroke_color(GContext* ctx, GColor color);
-void graphics_context_set_stroke_width(GContext* ctx, uint8_t stroke_width);
 void graphics_context_set_text_color(GContext* ctx, GColor color);
 void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1);
 void graphics_draw_text(GContext* ctx, const char* text, GFont const font, const GRect box,
@@ -378,11 +381,7 @@ bool health_service_events_subscribe(HealthEventHandler handler, void* context);
 bool health_service_events_unsubscribe(void);
 HealthServiceAccessibilityMask health_service_metric_accessible(HealthMetric metric,
                                                                 time_t time_start, time_t time_end);
-HealthServiceAccessibilityMask health_service_metric_averaged_accessible(
-    HealthMetric metric, time_t time_start, time_t time_end, HealthServiceTimeScope scope);
 HealthValue health_service_peek_current_value(HealthMetric metric);
-HealthValue health_service_sum_averaged(HealthMetric metric, time_t time_start, time_t time_end,
-                                        HealthServiceTimeScope scope);
 HealthValue health_service_sum_today(HealthMetric metric);
 void layer_add_child(Layer* parent, Layer* child);
 Layer* layer_create(GRect frame);
@@ -390,7 +389,6 @@ void layer_destroy(Layer* layer);
 GRect layer_get_bounds(const Layer* layer);
 GRect layer_get_unobstructed_bounds(const Layer* layer);
 void layer_mark_dirty(Layer* layer);
-void layer_set_hidden(Layer* layer, bool hidden);
 void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc);
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
@@ -411,7 +409,6 @@ extern HealthServiceAccessibilityMask mock_health_accessible[MOCK_HEALTH_METRIC_
 // (pebble_mock.c) so wrong-metric wiring shows a tell-tale, not a plausible
 // reading. mock_heart_rate plays the same role for instant reads.
 extern int32_t mock_health_sum_today_value[MOCK_HEALTH_METRIC_COUNT];
-extern int32_t mock_health_sum_averaged_value[MOCK_HEALTH_METRIC_COUNT];
 extern time_t mock_time_offset;
 extern bool mock_quiet_time_active;
 extern uint8_t mock_battery_percent;
@@ -419,6 +416,15 @@ extern bool mock_battery_charging;
 extern bool mock_bt_connected;
 extern bool mock_clock_24h;
 extern bool mock_outbox_begin_ok;
+// app_message_open: the result it returns, and the sizes it was last given.
+extern AppMessageResult mock_app_message_open_result;
+extern uint32_t mock_app_message_open_inbound;
+extern uint32_t mock_app_message_open_outbound;
+// APP_LOG capture: the last formatted line and how many were logged.
+extern int mock_log_count;
+extern char mock_last_log[128];
+// How many times speaker_is_muted() was asked.
+extern int mock_speaker_muted_query_count;
 extern int mock_speaker_tone_count;
 extern uint16_t mock_speaker_tone_freq_hz;
 extern uint32_t mock_speaker_tone_duration_ms;
@@ -426,7 +432,6 @@ extern uint8_t mock_speaker_tone_volume;
 extern SpeakerWaveform mock_speaker_tone_waveform;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;
-extern int mock_set_hidden_count;
 extern int mock_set_text_count;
 extern int mock_set_text_color_count;
 extern char mock_last_text[32];  // most recent text_layer_set_text payload
@@ -437,6 +442,13 @@ extern int mock_battery_subscribe_count;
 extern int mock_connection_subscribe_count;
 extern int mock_health_subscribe_count;
 extern int mock_unobstructed_subscribe_count;
+// Unsubscribe recording: deinit() must release everything init() took.
+extern int mock_tick_unsubscribe_count;
+extern int mock_battery_unsubscribe_count;
+extern int mock_connection_unsubscribe_count;
+extern int mock_health_unsubscribe_count;
+extern int mock_unobstructed_unsubscribe_count;
+extern int mock_app_focus_unsubscribe_count;
 extern int mock_backlight_subscribe_count;
 extern int mock_backlight_unsubscribe_count;
 // The last handler registered; tests drive backlight transitions through it.
@@ -446,6 +458,10 @@ extern BacklightHandler mock_backlight_handler;
 extern AppFocusHandlers mock_app_focus_handlers;
 // app_timer_register records its last call so tests can fire a delayed
 // callback manually: invoke mock_timer_callback(NULL) and assert the timeout.
+// layer_destroy records each non-NULL destroy, in order, so unload tests can
+// tell a real destroy from layer_destroy(NULL).
+extern int mock_layer_destroy_count;
+extern Layer* mock_layer_destroyed[8];
 extern int mock_timer_register_count;
 extern int mock_timer_cancel_count;
 extern uint32_t mock_timer_last_ms;
@@ -503,7 +519,9 @@ bool speaker_play_tone(uint16_t frequency_hz, uint32_t duration_ms, uint8_t volu
                        SpeakerWaveform waveform);
 void text_layer_set_text_color(TextLayer* text_layer, GColor color);
 void tick_timer_service_subscribe(TimeUnits tick_units, TickHandler handler);
+void tick_timer_service_unsubscribe(void);
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context);
+void unobstructed_area_service_unsubscribe(void);
 time_t time_start_of_today(void);
 Window* window_create(void);
 void window_destroy(Window* window);

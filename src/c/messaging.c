@@ -66,27 +66,34 @@ typedef struct {
 // inbox parse, cache save, cache load — which keeps those halves from
 // drifting apart.
 static const MessageField s_weather_fields[] = {
-    {&MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, -999},
-    {&MESSAGE_KEY_WEATHER_COND, PERSIST_KEY_WEATHER_COND_CODE, &s_weather_cond_code, -1},
-    {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, -1},
-    {&MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, -1},
-    {&MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY, &s_weather_humidity, -1},
+    {&MESSAGE_KEY_WEATHER_TEMP, PERSIST_KEY_WEATHER_TEMP, &s_weather_temp, WEATHER_TEMP_NONE},
+    {&MESSAGE_KEY_WEATHER_COND, PERSIST_KEY_WEATHER_COND_CODE, &s_weather_cond_code, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_AQI, PERSIST_KEY_WEATHER_AQI, &s_weather_aqi, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_UV, PERSIST_KEY_WEATHER_UV, &s_weather_uv, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_HUMIDITY, PERSIST_KEY_WEATHER_HUMIDITY, &s_weather_humidity,
+     WEATHER_NONE},
     {&MESSAGE_KEY_WEATHER_WIND_DIRECTION, PERSIST_KEY_WEATHER_WIND_DIRECTION,
-     &s_weather_wind_direction, -1},
-    {&MESSAGE_KEY_WEATHER_WIND_SPEED, PERSIST_KEY_WEATHER_WIND_SPEED, &s_weather_wind_speed, -1},
-    {&MESSAGE_KEY_WEATHER_PCP, PERSIST_KEY_WEATHER_PCP, &s_weather_pcp, -1},
-    {&MESSAGE_KEY_WEATHER_PRECIP_NOW, PERSIST_KEY_WEATHER_PRECIP_NOW, &s_precip_now, -1},
-    {&MESSAGE_KEY_WEATHER_HIGH, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, -999},
-    {&MESSAGE_KEY_WEATHER_LOW, PERSIST_KEY_WEATHER_LOW, &s_temp_low, -999},
-    {&MESSAGE_KEY_WEATHER_LOW_TOMORROW, PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw, -999},
+     &s_weather_wind_direction, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_WIND_SPEED, PERSIST_KEY_WEATHER_WIND_SPEED, &s_weather_wind_speed,
+     WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_PCP, PERSIST_KEY_WEATHER_PCP, &s_weather_pcp, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_PRECIP_NOW, PERSIST_KEY_WEATHER_PRECIP_NOW, &s_precip_now, WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_HIGH, PERSIST_KEY_WEATHER_HIGH, &s_temp_high, WEATHER_TEMP_NONE},
+    {&MESSAGE_KEY_WEATHER_LOW, PERSIST_KEY_WEATHER_LOW, &s_temp_low, WEATHER_TEMP_NONE},
+    {&MESSAGE_KEY_WEATHER_LOW_TOMORROW, PERSIST_KEY_WEATHER_LOW_TOMORROW, &s_temp_low_tmrw,
+     WEATHER_TEMP_NONE},
     {&MESSAGE_KEY_WEATHER_TEMP_HIGH_TOMORROW, PERSIST_KEY_WEATHER_HIGH_TOMORROW, &s_temp_high_tmrw,
-     -999},
-    {&MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today, -1},
-    {&MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today, -1},
+     WEATHER_TEMP_NONE},
+    {&MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, PERSIST_KEY_WEATHER_HI_HOUR_TODAY, &s_hi_hour_today,
+     WEATHER_NONE},
+    {&MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, PERSIST_KEY_WEATHER_LO_HOUR_TODAY, &s_lo_hour_today,
+     WEATHER_NONE},
     {&MESSAGE_KEY_WEATHER_HI_HOUR_TOMORROW, PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW, &s_hi_hour_tmrw,
-     -1},
+     WEATHER_NONE},
     {&MESSAGE_KEY_WEATHER_LO_HOUR_TOMORROW, PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW, &s_lo_hour_tmrw,
-     -1},
+     WEATHER_NONE},
+    // The phone's fetch time doubles as the cache's freshness marker.
+    {&MESSAGE_KEY_WEATHER_FETCHED_AT, PERSIST_KEY_WEATHER_TIMESTAMP, &s_weather_stamp, 0},
 };
 
 // The settings Clay pushes. load_settings() restores from the same rows'
@@ -125,46 +132,103 @@ void save_weather_cache(void) {
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     persist_write_int_if_changed(s_weather_fields[i].persist_key, *s_weather_fields[i].target);
   }
-  // Always: the timestamp is the freshness marker; skipping it would age the
-  // cache and cost a network fetch on next launch.
-  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL));
 }
 
-// A torn or garbage wire int must never paint past its slot: 2000000000 off
-// the wire formats to ten digits and spills out of a 93px window into the
-// TIME region. Clamp each reading to the band the layout budgets for; the
-// wind cap's 999 matches the formatter's existing clamp (data.c).
-static void clamp_int_bounded(int* v, int sentinel, int lo, int hi) {
-  if (*v == sentinel) return;  // sentinel = "no reading"; never clamp it away
-  if (*v < lo) *v = lo;
+// A torn or garbage wire int must neither pass for data nor paint past its
+// slot: 2000000000 off the wire formats to ten digits and spills out of a
+// 93px window into the TIME region. A reading outside its field's range is
+// "no reading"; only the layout's display-width caps (UV, wind speed) clamp.
+static void sanitize_int(int* v, int sentinel, int lo, int hi) {
+  if (*v < lo || *v > hi) *v = sentinel;
+}
+
+static void cap_int(int* v, int hi) {
   if (*v > hi) *v = hi;
 }
 
-static void clamp_weather_values(void) {
-  clamp_int_bounded(&s_weather_temp, -999, -99, 999);
-  clamp_int_bounded(&s_temp_high, -999, -99, 999);
-  clamp_int_bounded(&s_temp_low, -999, -99, 999);
-  clamp_int_bounded(&s_temp_low_tmrw, -999, -99, 999);
-  clamp_int_bounded(&s_temp_high_tmrw, -999, -99, 999);
-  clamp_int_bounded(&s_weather_cond_code, -1, 0, 99);  // WMO table is < 100
-  clamp_int_bounded(&s_weather_aqi, -1, 0, 500);
-  clamp_int_bounded(&s_weather_uv, -1, 0, 99);  // UV is open-ended (WHO top band is "11+")
-  clamp_int_bounded(&s_weather_humidity, -1, 0, 100);
-  clamp_int_bounded(&s_weather_pcp, -1, 0, 100);
-  clamp_int_bounded(&s_precip_now, -1, 0, 999);
-  clamp_int_bounded(&s_weather_wind_direction, -1, 0, 360);
-  clamp_int_bounded(&s_weather_wind_speed, -1, 0, 999);
-  clamp_int_bounded(&s_hi_hour_today, -1, 0, 23);
-  clamp_int_bounded(&s_lo_hour_today, -1, 0, 23);
-  clamp_int_bounded(&s_hi_hour_tmrw, -1, 0, 23);
-  clamp_int_bounded(&s_lo_hour_tmrw, -1, 0, 23);
+static void sanitize_weather_values(void) {
+  sanitize_int(&s_weather_temp, WEATHER_TEMP_NONE, -99, 999);
+  sanitize_int(&s_temp_high, WEATHER_TEMP_NONE, -99, 999);
+  sanitize_int(&s_temp_low, WEATHER_TEMP_NONE, -99, 999);
+  sanitize_int(&s_temp_low_tmrw, WEATHER_TEMP_NONE, -99, 999);
+  sanitize_int(&s_temp_high_tmrw, WEATHER_TEMP_NONE, -99, 999);
+  sanitize_int(&s_weather_cond_code, WEATHER_NONE, 0, 99);  // WMO table is < 100
+  sanitize_int(&s_weather_aqi, WEATHER_NONE, 0, 500);
+  cap_int(&s_weather_uv, 99);  // UV is open-ended (WHO top band is "11+")
+  sanitize_int(&s_weather_uv, WEATHER_NONE, 0, 99);
+  sanitize_int(&s_weather_humidity, WEATHER_NONE, 0, 100);
+  sanitize_int(&s_weather_pcp, WEATHER_NONE, 0, 100);
+  sanitize_int(&s_precip_now, WEATHER_NONE, 0, 999);
+  sanitize_int(&s_weather_wind_direction, WEATHER_NONE, 0, 360);
+  cap_int(&s_weather_wind_speed, 999);
+  sanitize_int(&s_weather_wind_speed, WEATHER_NONE, 0, 999);
+  sanitize_int(&s_hi_hour_today, WEATHER_NONE, 0, 23);
+  sanitize_int(&s_lo_hour_today, WEATHER_NONE, 0, 23);
+  sanitize_int(&s_hi_hour_tmrw, WEATHER_NONE, 0, 23);
+  sanitize_int(&s_lo_hour_tmrw, WEATHER_NONE, 0, 23);
+}
+
+static int local_day_key(time_t t) {
+  struct tm* local = localtime(&t);
+  return local->tm_year * 366 + local->tm_yday;
+}
+
+WeatherAge weather_age(time_t stamp, time_t now) {
+  if (stamp <= 0 || stamp > now + WEATHER_STAMP_FUTURE_SLACK_S) return WEATHER_AGE_STALE;
+  if (now - stamp > WEATHER_STALE_AGE_S) return WEATHER_AGE_STALE;
+  return local_day_key(stamp) != local_day_key(now) ? WEATHER_AGE_PREVIOUS_DAY : WEATHER_AGE_FRESH;
+}
+
+time_t weather_stamp_for(int32_t fetched_at, time_t now) {
+  bool sane = fetched_at > 0 && fetched_at <= now + WEATHER_STAMP_FUTURE_SLACK_S;
+  return sane ? fetched_at : now;
+}
+
+bool weather_fetch_due(int minute, bool needs_weather) {
+  return needs_weather && minute % WEATHER_FETCH_PERIOD_MIN == 0;
+}
+
+bool weather_fetch_after_settings(bool needs_weather, bool units_changed, bool window_changed,
+                                  bool needed_weather, bool slots_changed) {
+  return needs_weather && (units_changed || window_changed || !needed_weather || slots_changed);
+}
+
+static void weather_clear(void) {
+  for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
+    *s_weather_fields[i].target = s_weather_fields[i].sentinel;
+  }
+}
+
+// The day-bound readings: today's and tomorrow's extremes and their hours.
+static void weather_clear_extremes(void) {
+  s_temp_high = s_temp_low = s_temp_high_tmrw = s_temp_low_tmrw = WEATHER_TEMP_NONE;
+  s_hi_hour_today = s_lo_hour_today = s_hi_hour_tmrw = s_lo_hour_tmrw = WEATHER_NONE;
+}
+
+void weather_expire(time_t now) {
+  switch (weather_age(s_weather_stamp, now)) {
+    case WEATHER_AGE_FRESH:
+      break;
+    case WEATHER_AGE_PREVIOUS_DAY:
+      weather_clear_extremes();
+      break;
+    case WEATHER_AGE_STALE:
+      weather_clear();
+      break;
+  }
+}
+
+void weather_discard(void) {
+  weather_clear();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, 0);
 }
 
 bool load_weather_cache(void) {
   if (!persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP)) return false;
 
+  time_t now = time(NULL);
   int32_t saved_at = persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP);
-  int32_t age = (int32_t)time(NULL) - saved_at;
+  int32_t age = (int32_t)now - saved_at;
   if (age < 0 || age > WEATHER_CACHE_MAX_AGE_S) return false;
 
   // Each field is individually optional: a cache written by an older build
@@ -174,7 +238,15 @@ bool load_weather_cache(void) {
       *s_weather_fields[i].target = persist_read_int(s_weather_fields[i].persist_key);
     }
   }
+  weather_expire(now);
   return true;
+}
+
+// An id with no registry row — from a newer build's settings or a torn wire
+// int — is an empty window, not an unnameable one.
+static ComplicationDataSource known_source(int id) {
+  return complication_spec((ComplicationDataSource)id) ? (ComplicationDataSource)id
+                                                       : DATA_SOURCE_EMPTY;
 }
 
 void load_settings(void) {
@@ -185,12 +257,12 @@ void load_settings(void) {
   }
   for (unsigned i = 0; i < sizeof(s_slot_keys) / sizeof(s_slot_keys[0]); i++) {
     if (persist_exists(s_slot_keys[i].persist_key)) {
-      s_complication_slots[i].source = persist_read_int(s_slot_keys[i].persist_key);
+      s_complication_slots[i].source = known_source(persist_read_int(s_slot_keys[i].persist_key));
     }
   }
 }
 
-void request_weather(void) {
+static void send_weather_request(void) {
   DictionaryIterator* iter;
   app_message_outbox_begin(&iter);
   // No retry on begin failure (outbox_failed never fires when nothing was
@@ -200,6 +272,15 @@ void request_weather(void) {
 
   dict_write_uint8(iter, MESSAGE_KEY_WEATHER_REQUEST, 0);
   app_message_outbox_send();
+}
+
+void request_weather(void) {
+  weather_retries_reset();
+  send_weather_request();
+}
+
+void request_weather_retry(void) {
+  send_weather_request();
 }
 
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
@@ -223,11 +304,16 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   }
 
   // Persist the weather cache only for a real weather payload, so a
-  // settings-only message can't refresh the timestamp.
+  // settings-only message can't refresh the timestamp. The payload's fetch
+  // time stamps it, or the arrival time when that is missing or impossible.
   if (temp_tuple && cond_tuple) {
-    clamp_weather_values();
+    sanitize_weather_values();
+    time_t now = time(NULL);
+    s_weather_stamp = (int)weather_stamp_for(
+        tuple_get_int(dict_find(iterator, MESSAGE_KEY_WEATHER_FETCHED_AT)), now);
+    weather_expire(now);
     save_weather_cache();
-    weather_request_answered();
+    weather_retries_reset();
   }
 
   // Settings: Clay sends strings; tuple_get_int() accepts those and ints.
@@ -249,8 +335,11 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
       window_changed = true;
     }
     // The CRT overlay repaints outside the canvas's snapshot gate, so a toggle
-    // needs its own dirty-mark (units/window only schedule fetches).
-    if (s_settings_fields[i].target == &s_settings_crt && *s_settings_fields[i].target != old) {
+    // needs its own dirty-mark (units/window only schedule fetches). The sound
+    // toggle goes through the same hook to release its PCM.
+    if ((s_settings_fields[i].target == &s_settings_crt ||
+         s_settings_fields[i].target == &s_settings_crt_sound) &&
+        *s_settings_fields[i].target != old) {
       crt_apply_setting_change();
     }
     persist_write_int_if_changed(s_settings_fields[i].persist_key, *s_settings_fields[i].target);
@@ -266,6 +355,10 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     chime_play();
   }
 
+  // New units or a new window leave the held readings in the old terms; none
+  // may sit beside the new unit letter while the refetch is in flight.
+  if (units_changed || window_changed) weather_discard();
+
   // Assigning or rearranging slots has to fetch now, or a newly shown weather
   // reading sits at "--" until the next :00/:30 edge. Rearranging non-weather
   // slots also pays one fetch — a rare settings edit, not worth gating finer.
@@ -275,7 +368,7 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   for (unsigned i = 0; i < sizeof(s_slot_keys) / sizeof(s_slot_keys[0]); i++) {
     Tuple* tuple = dict_find(iterator, *s_slot_keys[i].message_key);
     if (!tuple) continue;
-    ComplicationDataSource source = tuple_get_int(tuple);
+    ComplicationDataSource source = known_source(tuple_get_int(tuple));
     if (s_complication_slots[i].source != source) slots_changed = true;
     s_complication_slots[i].source = source;
     persist_write_int_if_changed(s_slot_keys[i].persist_key, s_complication_slots[i].source);
@@ -284,7 +377,8 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   // A weather reply carries no SLOT_*/SETTINGS_* keys and changes no
   // assignments, so it never re-arms a request.
   bool needs_weather = any_slot_needs_weather();
-  if (needs_weather && (units_changed || window_changed || !needed_weather || slots_changed)) {
+  if (weather_fetch_after_settings(needs_weather, units_changed, window_changed, needed_weather,
+                                   slots_changed)) {
     request_weather();
   }
 
@@ -292,7 +386,6 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
 }
 
 void inbox_dropped_callback(AppMessageResult reason, void* context) {
-  (void)reason;
   (void)context;
-  APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped!");
+  APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped (%d)", (int)reason);
 }

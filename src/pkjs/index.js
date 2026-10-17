@@ -1,5 +1,6 @@
 var Clay = require('@rebble/clay');
 var clayConfig = require('./config.js');
+var weather = require('./weather.js');
 
 // Injected into the config page via toString (self-contained bodies only;
 // `this` is the in-page ClayConfig): hide the CHIME_TEST flag input, and wire
@@ -27,12 +28,25 @@ Pebble.addEventListener('webviewclosed', function(e) {
   clay.setSettings('CHIME_TEST', 0);
 });
 
-var weather = require('./weather.js');
-
 // A failed fetch is otherwise not retried until the next :00/:30 tick, which
 // leaves the watch blank for up to 30 minutes after a launch-time blip.
 var WEATHER_MAX_RETRIES = 2;
 var WEATHER_RETRY_DELAY_MS = 15 * 1000;
+
+// A reply lost to a momentary BT drop would otherwise keep the watch stale
+// until its next :00/:30 tick; retry the send a couple of times.
+var WEATHER_SEND_MAX_RETRIES = 2;
+var WEATHER_SEND_RETRY_DELAY_MS = 5 * 1000;
+
+var fetchGuard = weather.createFetchGuard();
+var weatherRetryTimer = null;
+
+// Starts the rerun a queued trigger is owed, if any.
+function endWeatherFetch() {
+  if (!fetchGuard.end()) return false;
+  getWeather(0);
+  return true;
+}
 
 function retryWeather(attempt, reason) {
   if (attempt >= WEATHER_MAX_RETRIES) {
@@ -40,29 +54,23 @@ function retryWeather(attempt, reason) {
     endWeatherFetch();
     return;
   }
-  // The chain is BETWEEN fetches during the wait — release the guard so an
-  // incoming request gives up nothing (the later scheduled getWeather()
-  // re-acquires cleanly if no other chain took it).
-  endWeatherFetch();
+  if (!fetchGuard.retry()) {
+    getWeather(0);
+    return;
+  }
   console.log(
       'Weather fetch failed (' + reason + '); retrying in ' + (WEATHER_RETRY_DELAY_MS / 1000) +
       's');
-  setTimeout(function() { getWeather(attempt + 1); }, WEATHER_RETRY_DELAY_MS);
+  weatherRetryTimer = setTimeout(function() {
+    fetchGuard.resume();
+    getWeather(attempt + 1);
+  }, WEATHER_RETRY_DELAY_MS);
 }
-
-// A reply lost to a momentary BT drop would otherwise keep the watch stale
-// until its next :00/:30 tick; retry the send a couple of times.
-var WEATHER_SEND_MAX_RETRIES = 2;
-var WEATHER_SEND_RETRY_DELAY_MS = 5 * 1000;
-
-var weatherFetchInFlight = false;
-
-function endWeatherFetch() { weatherFetchInFlight = false; }
 
 function doSendWeatherDict(dict, logLabel, attempt) {
   Pebble.sendAppMessage(
       dict,
-      function(e) {
+      function() {
         console.log(logLabel + ' sent successfully!');
         endWeatherFetch();
       },
@@ -78,19 +86,33 @@ function doSendWeatherDict(dict, logLabel, attempt) {
       });
 }
 
-function sendWeatherDict(dict, logLabel) {
+function sendWeatherDict(dict, logLabel, units, windowHours) {
   try {
-    localStorage.setItem('weather-cache', JSON.stringify({payload: dict, fetchedAt: Date.now()}));
+    localStorage.setItem(
+        'weather-cache',
+        JSON.stringify(weather.makeWeatherCacheEntry(dict, Date.now(), units, windowHours)));
   } catch (e) {
     console.log('Error writing weather cache: ' + e);
   }
   doSendWeatherDict(dict, logLabel, 0);
 }
 
-function readFreshWeatherCache() {
+function readClaySettings() {
+  try {
+    return JSON.parse(localStorage.getItem('clay-settings')) || {};
+  } catch (e) {
+    console.log('Error reading clay settings: ' + e);
+    return {};
+  }
+}
+
+function readReplayableWeatherCache() {
   try {
     var cache = JSON.parse(localStorage.getItem('weather-cache'));
-    if (cache && cache.payload && weather.isFreshWeatherCache(cache.fetchedAt, Date.now())) {
+    var settings = readClaySettings();
+    if (weather.shouldReplayWeatherCache(
+            cache, Date.now(), weather.unitsFromClaySettings(settings),
+            weather.windowHoursFromClaySettings(settings))) {
       return cache.payload;
     }
   } catch (e) {
@@ -99,74 +121,80 @@ function readFreshWeatherCache() {
   return null;
 }
 
-Pebble.addEventListener('ready', function(e) {
+Pebble.addEventListener('ready', function() {
   console.log('PebbleKit JS ready!');
-  // Resend a fresh cached payload so a watch with cleared storage still gets
-  // data — localStorage plus an AppMessage, no radio.
-  var cached = readFreshWeatherCache();
+  // Resend a replayable cached payload so a watch with cleared storage still
+  // gets data — localStorage plus an AppMessage, no radio.
+  var cached = readReplayableWeatherCache();
   if (cached) {
     console.log('Weather cache fresh, resending cached payload');
     Pebble.sendAppMessage(
-        cached, function(e) { console.log('Cached weather sent successfully!'); },
+        cached, function() { console.log('Cached weather sent successfully!'); },
         function(e) { console.log('Error sending: ' + JSON.stringify(e)); });
-    // Cached by an older build: the resend is fine, but fill the missing
-    // fields now instead of leaving new slots at "--" until the next edge.
-    if (!weather.isCompleteWeatherPayload(cached)) {
-      console.log('Cached payload predates current keys; fetching to complete');
-      getWeather();
-    }
   }
-  // Nothing fresh cached: don't fetch proactively. The watch requests on
+  // Nothing replayable: don't fetch proactively. The watch requests on
   // launch when its own cache is stale and a weather slot exists, retries a
   // dropped request on its side, and the appmessage listener always answers —
   // the watch holds the authoritative slot state, so mirroring it here would
   // only duplicate the request.
 });
 
-Pebble.addEventListener('appmessage', function(e) {
+Pebble.addEventListener('appmessage', function() {
   // The watch asks on launch when its persisted cache is stale, and on a
   // fixed :00/:30 cadence regardless of cache age — always fetch.
   console.log('AppMessage received!');
-  getWeather();
-});
-
-function getWeather(attempt) {
-  if (weatherFetchInFlight) {
-    console.log('Weather fetch already in flight; dropping trigger');
+  clearTimeout(weatherRetryTimer);
+  if (!fetchGuard.begin()) {
+    console.log('Weather fetch already in flight; queueing one more');
     return;
   }
-  weatherFetchInFlight = true;
-  attempt = attempt || 0;
+  getWeather(0);
+});
+
+// `callback(error, json)` runs exactly once per request, whichever of
+// load/error/timeout fires first.
+function fetchJson(url, callback) {
+  var settled = false;
+  function settle(error, json) {
+    if (settled) return;
+    settled = true;
+    callback(error, json);
+  }
+  var xhr = new XMLHttpRequest();
+  xhr.onload = function() {
+    if (xhr.status !== 200) {
+      settle('HTTP status ' + xhr.status);
+      return;
+    }
+    var json;
+    try {
+      json = JSON.parse(xhr.responseText);
+    } catch (e) {
+      settle('parse error: ' + e);
+      return;
+    }
+    settle(null, json);
+  };
+  xhr.onerror = function() { settle('network error'); };
+  xhr.ontimeout = function() { settle('timeout'); };
+  xhr.open('GET', url);
+  xhr.timeout = 10000;
+  xhr.send();
+}
+
+function getWeather(attempt) {
   navigator.geolocation.getCurrentPosition(
       function(position) {
+        var settings = readClaySettings();
+        var units = weather.unitsFromClaySettings(settings);
+        var windowHours = weather.windowHoursFromClaySettings(settings);
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
 
-        var settings = {};
-        try {
-          settings = JSON.parse(localStorage.getItem('clay-settings')) || {};
-        } catch (e) {
-          console.log('Error reading clay settings: ' + e);
-        }
-        // Units policy (default, string/int tolerance) lives in weather.js.
-        var units = weather.unitsFromClaySettings(settings);
-
-        // The modern `current` block carries temp/code/humidity in one shot;
-        // `current_weather=true` is legacy and silently suppresses `current=`.
-        var forecastUrl = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
-            '&longitude=' + lon +
-            '&current=temperature_2m,weather_code,relative_humidity_2m,precipitation,wind_direction_10m,wind_speed_10m' +
-            '&timezone=auto' +
-            '&temperature_unit=' + units.tempUnit + '&wind_speed_unit=' + units.windSpeedUnit +
-            '&hourly=uv_index,precipitation_probability,temperature_2m&forecast_days=2' +
-            '&daily=temperature_2m_max,temperature_2m_min';
-        var aqiUrl = 'https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + lat +
-            '&longitude=' + lon + '&current=us_aqi';
-
         // The forecast and AQI backends are independent; fan out and join so
-        // the phone radio is up once instead of twice. The join preserves the
-        // old serial semantics: a failed forecast retries the whole fetch
-        // (an in-flight AQI result is discarded); a failed AQI sends with -1.
+        // the phone radio is up once instead of twice. A failed forecast
+        // retries the whole fetch (an in-flight AQI result is discarded); a
+        // failed AQI sends with -1.
         var forecast = null;
         var aqi = -1;
         var settled = 0;
@@ -179,60 +207,43 @@ function getWeather(attempt) {
             retryWeather(attempt, failedReason);
             return;
           }
-          // AQI rides in the forecast payload's dict; parse of the forecast
-          // produced every other key.
+          if (!fetchGuard.shouldSendResult()) {
+            console.log('Weather result predates a queued trigger; discarding');
+            endWeatherFetch();
+            return;
+          }
           forecast.WEATHER_AQI = aqi;
-          sendWeatherDict(forecast, 'Weather bundle');
+          sendWeatherDict(forecast, 'Weather bundle', units, windowHours);
         }
 
-        var xhr = new XMLHttpRequest();
-        xhr.onload = function() {
-          if (xhr.status === 200) {
+        fetchJson(weather.buildForecastUrl(lat, lon, units), function(error, json) {
+          if (error) {
+            failedReason = error;
+          } else {
             try {
-              forecast = weather.parseForecast(
-                  JSON.parse(this.responseText), Date.now(),
-                  weather.windowHoursFromClaySettings(settings));
+              forecast = weather.parseForecast(json, Date.now(), windowHours);
             } catch (e) {
               failedReason = 'parse error: ' + e;
             }
-          } else {
-            failedReason = 'HTTP status ' + xhr.status;
           }
           join();
-        };
-        xhr.onerror = function() {
-          failedReason = 'network error';
-          join();
-        };
-        xhr.ontimeout = function() {
-          failedReason = 'timeout';
-          join();
-        };
-        xhr.open('GET', forecastUrl);
-        xhr.timeout = 10000;
-        xhr.send();
+        });
 
-        var aqiXhr = new XMLHttpRequest();
-        aqiXhr.onload = function() {
-          if (aqiXhr.status === 200) {
+        fetchJson(weather.buildAqiUrl(lat, lon), function(error, json) {
+          if (!error) {
             try {
-              aqi = weather.parseAqi(JSON.parse(this.responseText));
+              aqi = weather.parseAqi(json);
             } catch (e) {
               console.log('Error parsing AQI: ' + e);
             }
           }
           join();
-        };
-        aqiXhr.onerror = join;
-        aqiXhr.ontimeout = join;
-        aqiXhr.open('GET', aqiUrl);
-        aqiXhr.timeout = 10000;
-        aqiXhr.send();
+        });
       },
       function(err) {
-        // PERMISSION_DENIED won't change under retrying (it would only
-        // re-prompt); leave "--" on the watch.
-        if (err.code === err.PERMISSION_DENIED) {
+        // PERMISSION_DENIED (code 1) won't change under retrying (it would
+        // only re-prompt); leave "--" on the watch.
+        if (err.code === 1) {
           console.log('Geolocation permission denied; no retry');
           endWeatherFetch();
           return;

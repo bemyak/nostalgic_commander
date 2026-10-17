@@ -20,18 +20,19 @@
 // the handle is mirrored here the way drawing.h mirrors s_canvas_layer.
 extern Layer* s_crt_layer;
 
-// Curvature geometry. The warp magnifies radially — dest (x,y) samples
-// source at cx + (x-cx)·M/65536 with M = 65536 + CRT_WARP_R2_K·r² (r² = the
+// Curvature geometry. The warp's strength grows with the radius but it moves
+// pixels horizontally only — dest (x,y) samples source column
+// cx + (x-cx)·M/65536 with M = 65536 + CRT_WARP_R2_K·r² (r² = the
 // elliptical Q8 xq+yq the CA zones also use). K=8 ≈ 3.1px of pull at a
 // mid-edge (r²=256), smoothly more toward the corners. The vignette darkens
 // within a band of the nearest edge, counted around the corner arcs.
 //
 // K also sets how much solid black the sides carry, which is not obvious: the
 // outermost dest columns' sources run off the frame and clamp to column 0,
-// which the vignette has already taken to depth 0. K=12 clamped four of them,
-// and with the depth-0 and depth-1 columns behind it that was 6px of black
-// before the falloff got a single pixel — no vignette constant could touch it.
-// K=8 clamps three. Lower K is a flatter tube, so this trades bow for rim.
+// which the vignette has already taken to depth 0. At K=8 three columns clamp,
+// and with the depth-0 and depth-1 columns behind them that is the black no
+// vignette constant can touch. Lower K is a flatter tube, so this trades bow
+// for rim; higher K clamps more columns.
 //
 // VIGNETTE_PX is the falloff LUTs' domain — 17 sample points, depth 0..16 —
 // not a size. Both axes map their edge distance onto that domain, so the two
@@ -43,32 +44,27 @@ extern Layer* s_crt_layer;
 // its own width on the glass, sitting behind the clamp below.
 //
 // It sets the width of the RAMP, not of the black: the clamp's columns do not
-// move with it at all. Judge it with the per-pixel view, never by mean level —
-// a mean saturates once a column reaches the field, so it cannot show the ramp
-// lengthening at all, and reading one produced a wrong "this constant is
-// inert" conclusion that stood here for a while.
+// move with it at all. Judge it with the per-pixel view (test/vignette_ramp.c),
+// never by mean level — a mean saturates once a column reaches the field, so
+// it cannot show the ramp lengthening.
 //
 // On a level-2 field, 12 renders the ladder 1,3,4,5,6 — that jump from 1 to 3
 // is the sharp edge coming out of black. 16 renders 1,2,3,4,5,6, every step
-// present. Wider still works now that the channels dither out of phase; before
-// that, quantization dips punched black columns back through the middle of the
-// ramp and made anything past 12 look worse.
+// present. The channels dither out of phase, so wider bands keep working
+// instead of punching black columns back through the middle of the ramp.
 #define CRT_VIGNETTE_SIDE_PX 16
 // Top/bottom band, in DISPLAY px — the warp is horizontal-only, so nothing
 // resamples this axis and it is the figure you see.
 //
 // Keep (BAND_PX - EDGE_PX + 1) equal to VIGNETTE_PX. The row-to-depth map is
 // an integer divide, so any other ratio makes some rows advance two LUT
-// depths while their neighbours advance one. At 16 with EDGE_PX 3 that
-// divided 16 depths over 14 rows: rows 8 and 9 — the two rows of the top
-// slot's border — landed on gains 114 and 158, 44 apart where every other
-// step was ~20, so one border row read dimmer than the other and glyphs
-// crossing the seam looked like they wobbled. 18 makes it exactly one depth
-// per row again.
+// depths while their neighbours advance one: one border row reads dimmer than
+// its neighbour and glyphs crossing the seam look like they wobble. Equal
+// gives exactly one depth per row.
 #define CRT_VIGNETTE_BAND_PX 18
 // Rows held at depth 0 before the falloff starts, standing in for the columns
 // the warp's clamp renders solid on the sides. Nothing clamps vertically, so
-// without it the top carried 2px of black against the sides' 6 and read as
+// without it the top would carry less black than the sides and read as
 // missing. Track it to the clamp: at K=8 that is three each way.
 #define CRT_VIGNETTE_EDGE_PX 3
 // Gain below which the falloff is bezel, not content — the light LUT's depths
@@ -77,6 +73,8 @@ extern Layer* s_crt_layer;
 // Compare it against the curve when either changes: depth 4 is 96, which is
 // under this, so the boundary sits between depths 4 and 5.
 #define CRT_VIGNETTE_READ_Q8 128
+// Corner arc radius, in LUT depth units (the 0..CRT_VIGNETTE_PX domain both
+// axes map onto), not pixels.
 #define CRT_CORNER_RADIUS 14
 #define CRT_WARP_R2_K 8
 // CA zones by elliptical radius, in the xq+yq units stage 1 already computes:
@@ -87,14 +85,12 @@ extern Layer* s_crt_layer;
 // mirror: −1 left, +1 right) so the centre converges instead of carrying a
 // 2/3px floor.
 //
-// Horizontal RAMPS from 0 to 4 thirds rather than stepping. A step put a hard
+// Horizontal RAMPS from 0 to 4 thirds rather than stepping: a step puts a hard
 // oval on the glass — a 1+1/3px shift appearing between one pixel and the
-// next — and where that oval crossed a complication's text it cut the word in
-// half. The fractional sampler could already render thirds; only this zone
-// function was quantized. RAMP_SHIFT sets the width: 4 thirds over (4 <<
-// SHIFT) units of r², so 5 spans 128 and saturates just inside a mid-edge,
-// keeping full strength everywhere it used to be and softening only the onset.
-// A shift, not a divide — stage 1 runs this per pixel.
+// next — and where that oval crosses a complication's text it cuts the word in
+// half. RAMP_SHIFT sets the width: 4 thirds over (4 << SHIFT) units of r², so
+// 5 spans 128 and saturates just inside a mid-edge. A shift, not a divide —
+// stage 1 runs this per pixel.
 //
 // Vertical still steps: its shift is whole rows (the ring samples y±1, there
 // is no fractional row), so there is nothing between 0 and 1 to ramp through.
@@ -105,11 +101,10 @@ extern Layer* s_crt_layer;
 #define CRT_CA_RAMP_SHIFT 5
 // Lowest rung the ramp starts on, in thirds. It cannot start at 0: the pass
 // adds a per-half ±1 third to cancel the panel's element offset, so a rung of
-// 1 makes q exactly 0 on the left half — no displacement at all. With a hard
-// rung of 4 that was unreachable; ramping made it reachable, and it landed
-// 40% of the way down the 64px clock digits, where the red fringe simply
-// stopped mid-character. Starting at 2 keeps q off zero everywhere past the
-// dead zone, at the cost of a 0->2 step at the boundary instead of 0->4.
+// 1 makes q exactly 0 on the left half — no displacement at all, which would
+// stop the red fringe mid-character on the 64px clock digits. Starting at 2
+// keeps q off zero everywhere past the dead zone, at the cost of a 0->2 step
+// at the boundary.
 #define CRT_CA_RAMP_FLOOR 2
 
 // Squared thresholds for the zone compare — no per-pixel sqrt needed.
@@ -125,12 +120,17 @@ extern Layer* s_crt_layer;
 
 // Pure pieces, unit-tested (all integer, fixed point):
 
-// Q8 brightness factor at (x,y): 256 = untouched, 0 = black. Vignette
-// falloff, smoothstepped, idle-only — the strike shakes geometry, not gain.
-int crt_vignette_q8(int x, int y, int w, int h);
 // Row x-offset during strike frame `flash_phase`: 0 when idle. Amplitude
 // decays to 0 across phases; deterministic per (y, phase).
 int crt_strike_offset(int y, int flash_phase);
+
+#ifdef TEST_ENV
+// Pin oracles, built only for the host tests and the ramp tool: they address
+// a pixel by (x,y,w,h) and share their formulas with the pass.
+//
+// Q8 brightness factor at (x,y): 256 = untouched, 0 = black. Vignette
+// falloff, idle-only — the strike shakes geometry, not gain.
+int crt_vignette_q8(int x, int y, int w, int h);
 // Radial warp magnification in Q16 at (x,y): 65536 = identity, growing with
 // the elliptical squared radius. Side content warps too (deliberate — a
 // curved tube bows on all edges); the outermost ~4 columns' sources run off
@@ -142,10 +142,12 @@ int crt_warp_sx(int x, int y, int w, int h);
 // CA per-channel displacement in THIRDS of a px at (x,y): 0 inside the dead
 // zone, ramping to 4 past it — see the CRT_CA_* zone map above.
 int crt_ca_shift3(int x, int y, int w, int h);
+#endif
 
 // The whole pass over an 8-bit GColor8 framebuffer (0xAARRGGBB packed bytes,
-// row-major, w*h). Touch only via these: tests drive it with a mock buffer.
-void crt_apply_framebuffer(uint8_t* fb, int w, int h, int flash_phase);
+// row-major, `stride` bytes per row, w*h visible). Touch only via these:
+// tests drive it with a mock buffer.
+void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase);
 
 void crt_update_proc(Layer* layer, GContext* ctx);
 void crt_backlight_handler(bool on);
@@ -161,7 +163,14 @@ void crt_play_strike_sound(void);
 // the next in-focus backlight-on, so the dismissal's flash cannot strike.
 void crt_app_focus_will_handler(bool in_focus);
 void crt_app_focus_did_handler(bool in_focus);
-// the overlay dirty; turning off repaints — the OFF frame is painted by the
+// Re-applies the CRT and CRT-sound settings: with the effect on it only marks
+// the overlay dirty; turning it off repaints — the OFF frame is painted by the
 // canvas/clock underneath once the background re-dirties, the overlay then
-// paints nothing over it.
+// paints nothing over it. Turning the sound off frees the synthesized strike.
 void crt_apply_setting_change(void);
+
+// Window-unload teardown, called before main.c destroys the overlay layer:
+// cancels the strike timer, resets the strike state, frees the strike PCM and
+// clears s_crt_layer, so a late tick or backlight event cannot touch a freed
+// layer. Idempotent.
+void crt_deinit(void);

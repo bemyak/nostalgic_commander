@@ -51,8 +51,8 @@ static void reset_all_state(void) {
   s_settings_hourly_chime = 0;
   s_settings_chime_volume = CHIME_DEFAULT_VOLUME;
   // Regenerable content cache: reset so a first-use test doesn't inherit one.
-  s_strike_pcm_ready = false;
-  memset(s_strike_pcm, 0, sizeof(s_strike_pcm));
+  free(s_strike_pcm);
+  s_strike_pcm = NULL;
 
   s_battery_level = 100;
   s_battery_charging = false;
@@ -68,7 +68,7 @@ static void reset_all_state(void) {
   }
 
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
-  s_date_day = 10;
+  s_date_day = 1;
   s_beats = 0;
   s_week_number = 1;
   s_date_display[0] = '\0';
@@ -78,6 +78,8 @@ static void reset_all_state(void) {
 
   // File-scope caches and counters (main.c / drawing.c).
   s_weather_request_retries = 0;
+  s_weather_retry_timer = NULL;
+  s_last_chimed_hour = -1;
   s_last_throttled_health_refresh = 0;
   s_fmt_yday = -1;
   s_fmt_format = -1;
@@ -92,7 +94,7 @@ static void reset_all_state(void) {
   s_flash_timer = NULL;
   s_cover_suppresses_strike = false;
   s_strike_pending = false;
-  s_app_in_focus = true;
+  s_app_in_focus = false;
   s_crt_layer = NULL;
   s_canvas_layer = NULL;
   s_main_window = NULL;
@@ -102,6 +104,14 @@ static void reset_all_state(void) {
   reset_ui_snapshot();
 
   s_active_theme = &s_theme_panel;
+}
+
+// The globals' compiled-in boot values, captured before any test resets them.
+static int s_boot_weather[sizeof(s_weather_fields) / sizeof(s_weather_fields[0])];
+__attribute__((constructor)) static void snapshot_boot_weather(void) {
+  for (unsigned i = 0; i < sizeof(s_boot_weather) / sizeof(s_boot_weather[0]); i++) {
+    s_boot_weather[i] = *s_weather_fields[i].target;
+  }
 }
 
 void setUp(void) {
@@ -392,6 +402,225 @@ void test_hum_pcp_captions_should_centre_over_the_fields(void) {
 
   TEST_ASSERT_TRUE(text_run_at("HUM", GRect(22, 0, 24, 16), s_active_theme->text_secondary));
   TEST_ASSERT_TRUE(text_run_at("PCP", GRect(62, 0, 24, 16), s_active_theme->text_secondary));
+}
+
+// One recorded fill pinned to its exact canvas pixels.
+static bool fill_rect_at(GRect rect, GColor color) {
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    if (mock_fill_rects[i].origin.x == rect.origin.x &&
+        mock_fill_rects[i].origin.y == rect.origin.y && mock_fill_rects[i].size.w == rect.size.w &&
+        mock_fill_rects[i].size.h == rect.size.h && gcolor_equal(mock_fill_rect_colors[i], color)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void test_ascii_window_title_gap_should_match_the_title_cell(void) {
+  // "TMP" in an 80px window at x=10: the gap is [33, 67), so both stubs are
+  // 23px and the title cell spans exactly the gap.
+  mock_text_runs_reset();
+  mock_fill_rect_reset();
+  draw_ascii_window(NULL, GRect(10, 10, 80, 40), "TMP");
+
+  int top = 10 + TITLE_BORDER_DROP;
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(10, top, 23, WINDOW_BORDER_PX), s_active_theme->frame));
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(67, top, 23, WINDOW_BORDER_PX), s_active_theme->frame));
+  TEST_ASSERT_EQUAL_INT(1, mock_text_run_count);
+  TEST_ASSERT_EQUAL_INT(33, mock_text_run_boxes[0].origin.x);
+  TEST_ASSERT_EQUAL_INT(34, mock_text_run_boxes[0].size.w);
+}
+
+static void render_canvas(void) {
+  mock_text_runs_reset();
+  mock_fill_rect_reset();
+  s_scene_cache_valid = false;
+  canvas_update_proc(NULL, NULL);
+}
+
+void test_aqi_uv_window_should_centre_each_reading_in_its_own_field(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_AQI_UV;
+  GRect box = s_complication_slots[SLOT_IDX_TOP_LEFT].box_rect;
+  GRect band = status_band_rect(box);
+  int half = (band.size.w - VGA16_CHAR_W) / 2;
+  int right_x = band.origin.x + band.size.w - half;
+  int value_y = box.origin.y + VALUE_ROW_DY;
+
+  // AQI 60 is moderate (banded yellow); UV 1 is quiet and draws plain.
+  s_weather_aqi = 60;
+  s_weather_uv = 1;
+  render_canvas();
+
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(band.origin.x, band.origin.y, half, band.size.h),
+                                s_active_theme->status_yellow));
+  TEST_ASSERT_TRUE(text_run_at("60", GRect(band.origin.x + (half - 16) / 2, value_y, 16, 24),
+                               s_active_theme->status_ink));
+  TEST_ASSERT_FALSE(fill_rect_at(GRect(right_x, band.origin.y, half, band.size.h),
+                                 s_active_theme->status_yellow));
+  TEST_ASSERT_TRUE(text_run_at("1", GRect(right_x + (half - 8) / 2, value_y, 8, 24),
+                               s_active_theme->text_primary));
+}
+
+void test_beats_should_accent_the_at_sign(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_BOTTOM_CENTER].source = DATA_SOURCE_BEATS;
+  s_beats = 123;
+  GRect box = s_complication_slots[SLOT_IDX_BOTTOM_CENTER].box_rect;
+  int x = box.origin.x + (box.size.w - 4 * VGA16_CHAR_W) / 2;
+  int y = box.origin.y + VALUE_ROW_DY;
+  render_canvas();
+
+  TEST_ASSERT_TRUE(text_run_at("@", GRect(x, y, 8, 24), s_active_theme->mark));
+  TEST_ASSERT_TRUE(text_run_at("123", GRect(x + 8, y, 24, 24), s_active_theme->text_primary));
+}
+
+void test_short_date_should_accent_the_weekday_where_it_sits(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_SHORT_DATE;
+  GRect box = s_complication_slots[SLOT_IDX_TOP_LEFT].box_rect;
+  int y = box.origin.y + VALUE_ROW_DY;
+
+  s_settings_dow_position = DOW_BEFORE;
+  strcpy(s_short_date_display, "THU 12-31");
+  int x = box.origin.x + (box.size.w - 9 * VGA16_CHAR_W) / 2;
+  render_canvas();
+  TEST_ASSERT_TRUE(text_run_at("THU", GRect(x, y, 24, 24), s_active_theme->mark));
+  TEST_ASSERT_TRUE(text_run_at(" 12-31", GRect(x + 24, y, 48, 24), s_active_theme->text_primary));
+
+  s_settings_dow_position = DOW_AFTER;
+  strcpy(s_short_date_display, "12-31 THU");
+  render_canvas();
+  TEST_ASSERT_TRUE(text_run_at("12-31 ", GRect(x, y, 48, 24), s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(text_run_at("THU", GRect(x + 48, y, 24, 24), s_active_theme->mark));
+}
+
+void test_full_date_should_accent_the_weekday_unless_hidden(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_CENTER].source = DATA_SOURCE_FULL_DATE;
+  GRect box = s_complication_slots[SLOT_IDX_CENTER].box_rect;
+  int y = box.origin.y + VALUE_ROW_DY;
+  int x = box.origin.x + (box.size.w - 14 * VGA16_CHAR_W) / 2;
+
+  s_settings_dow_position = DOW_BEFORE;
+  strcpy(s_date_display, "THU 1970-12-31");
+  render_canvas();
+  TEST_ASSERT_TRUE(text_run_at("THU", GRect(x, y, 24, 24), s_active_theme->mark));
+  TEST_ASSERT_TRUE(
+      text_run_at(" 1970-12-31", GRect(x + 24, y, 88, 24), s_active_theme->text_primary));
+
+  s_settings_dow_position = DOW_HIDDEN;
+  strcpy(s_date_display, "1970-12-31");
+  x = box.origin.x + (box.size.w - 10 * VGA16_CHAR_W) / 2;
+  render_canvas();
+  TEST_ASSERT_TRUE(text_run_at("1970-12-31", GRect(x, y, 80, 24), s_active_theme->text_primary));
+}
+
+void test_hum_pcp_should_hint_a_quiet_precip_amount_and_band_a_heavy_one(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_HUM_PCP;
+  GRect box = s_complication_slots[SLOT_IDX_TOP_LEFT].box_rect;
+  int value_y = box.origin.y + VALUE_ROW_DY;
+  s_settings_units = UNITS_METRIC;
+  s_weather_cond_code = 61;  // rain: PCP reads the observed amount
+  s_weather_humidity = 61;
+
+  // 2mm is calm: no band, and the unit letters wear the shortkey mark.
+  s_precip_now = 25;
+  render_canvas();
+  TEST_ASSERT_TRUE(text_run_at("2", GRect(62, value_y, 8, 24), s_active_theme->text_primary));
+  TEST_ASSERT_TRUE(text_run_at("mm", GRect(70, value_y, 16, 24), s_active_theme->mark));
+
+  // 9mm is violent: the half fills red and everything inks.
+  s_precip_now = 90;
+  render_canvas();
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(62, status_band_rect(box).origin.y, 24, VGA16_CELL_H),
+                                s_active_theme->status_red));
+  TEST_ASSERT_TRUE(text_run_at("9mm", GRect(62, value_y, 24, 24), s_active_theme->status_ink));
+}
+
+void test_weather_strip_should_fill_only_the_chip_that_earns_a_band(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_CENTER].source = DATA_SOURCE_WEATHER_FULL;
+  GRect box = s_complication_slots[SLOT_IDX_CENTER].box_rect;
+  s_weather_temp = 72;
+  s_weather_cond_code = 0;
+  s_weather_humidity = 55;
+  s_weather_pcp = 80;  // past 70: plan around it
+  render_canvas();
+
+  // The strip is 19 cells centred in the row; PCP is its last 4-cell chip.
+  int strip_x = box.origin.x + (box.size.w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2;
+  int pcp_x = strip_x + 15 * VGA16_CHAR_W;
+  int hum_x = strip_x + 10 * VGA16_CHAR_W;
+  GRect band = status_band_rect(box);
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(pcp_x, band.origin.y, 4 * VGA16_CHAR_W, band.size.h),
+                                s_active_theme->status_red));
+  TEST_ASSERT_TRUE(text_run_at("80%", GRect(pcp_x + 4, box.origin.y + VALUE_ROW_DY, 24, 24),
+                               s_active_theme->status_ink));
+  TEST_ASSERT_FALSE(fill_rect_at(GRect(hum_x, band.origin.y, 4 * VGA16_CHAR_W, band.size.h),
+                                 s_active_theme->status_red));
+}
+
+void test_wind_without_a_bearing_should_draw_the_speed_alone(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_WIND;
+  GRect box = s_complication_slots[SLOT_IDX_TOP_LEFT].box_rect;
+  int y = box.origin.y + VALUE_ROW_DY;
+
+  s_weather_wind_direction = -1;
+  s_weather_wind_speed = 12;
+  render_canvas();
+  GRect row = GRect(box.origin.x + (box.size.w - 6 * VGA16_CHAR_W) / 2, y, 6 * VGA16_CHAR_W, 24);
+  TEST_ASSERT_TRUE(text_run_at("12 mph", row, s_active_theme->text_primary));
+  for (int i = 0; i < mock_text_run_count; i++) {
+    TEST_ASSERT_NULL(strstr(mock_text_runs[i], "\xE2\x86"));  // no arrow glyph anywhere
+  }
+
+  s_weather_wind_speed = -1;  // nothing at all: the sentinel dash
+  render_canvas();
+  row = GRect(box.origin.x + (box.size.w - 2 * VGA16_CHAR_W) / 2, y, 2 * VGA16_CHAR_W, 24);
+  TEST_ASSERT_TRUE(text_run_at("--", row, s_active_theme->text_primary));
+}
+
+void test_bt_qt_narrow_should_draw_one_run_not_two_boxes(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_BOTTOM_CENTER].source = DATA_SOURCE_BT_QT;
+  s_connected = true;
+  s_quiet_time_active = true;
+  GRect box = s_complication_slots[SLOT_IDX_BOTTOM_CENTER].box_rect;
+  render_canvas();
+
+  GRect row = GRect(box.origin.x + (box.size.w - 6 * VGA16_CHAR_W) / 2, box.origin.y + VALUE_ROW_DY,
+                    6 * VGA16_CHAR_W, 24);
+  TEST_ASSERT_TRUE(text_run_at("[x][z]", row, get_source_color(DATA_SOURCE_BLUETOOTH)));
+  for (int i = 0; i < mock_text_run_count; i++) {
+    bool in_slot = mock_text_run_boxes[i].origin.x >= box.origin.x &&
+                   mock_text_run_boxes[i].origin.x < box.origin.x + box.size.w &&
+                   mock_text_run_boxes[i].origin.y == row.origin.y;
+    if (in_slot) TEST_ASSERT_EQUAL_STRING("[x][z]", mock_text_runs[i]);
+  }
+}
+
+void test_progress_bar_should_show_dashes_without_a_reading(void) {
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_BOTTOM_LEFT].source = DATA_SOURCE_STEPS_BAR;
+  s_step_count = -1;
+  GRect box = s_complication_slots[SLOT_IDX_BOTTOM_LEFT].box_rect;
+  GRect band = status_band_rect(box);
+  int cells = band.size.w / VGA16_CHAR_W;
+  int bar_cells = cells - BAR_VALUE_CELLS - 1;
+  int row_x = band.origin.x + (band.size.w - cells * VGA16_CHAR_W) / 2;
+  render_canvas();
+
+  TEST_ASSERT_TRUE(
+      text_run_at("  --",
+                  GRect(row_x + (bar_cells + 1) * VGA16_CHAR_W, box.origin.y + VALUE_ROW_DY,
+                        BAR_VALUE_CELLS * VGA16_CHAR_W, 24),
+                  s_active_theme->text_primary));
+  // Nothing is filled: the whole bar is track.
+  TEST_ASSERT_FALSE(fill_rect_at(GRect(row_x, band.origin.y, VGA16_CHAR_W, VGA16_CELL_H),
+                                 s_active_theme->text_primary));
 }
 
 void test_battery_bar_should_paint_its_fill_as_one_rect(void) {
@@ -1957,9 +2186,11 @@ void test_wmo_cond_should_map_words_and_the_precipitation_facet(void) {
     const char* word;
     bool precipitating;
   } cases[] = {{0, "SUN", false},  {1, "CLDY", false}, {3, "CLDY", false}, {45, "FOG", false},
-               {55, "RAIN", true}, {56, "--", false},  {61, "RAIN", true}, {71, "SNOW", true},
-               {80, "RAIN", true}, {82, "RAIN", true}, {85, "SNOW", true}, {95, "TSTM", true},
-               {99, "TSTM", true}, {100, "--", false}, {-1, "--", false}};
+               {51, "RAIN", true}, {55, "RAIN", true}, {56, "RAIN", true}, {57, "RAIN", true},
+               {58, "--", false},  {61, "RAIN", true}, {65, "RAIN", true}, {66, "RAIN", true},
+               {67, "RAIN", true}, {68, "--", false},  {71, "SNOW", true}, {80, "RAIN", true},
+               {82, "RAIN", true}, {85, "SNOW", true}, {95, "TSTM", true}, {99, "TSTM", true},
+               {100, "--", false}, {-1, "--", false}};
   for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     TEST_ASSERT_EQUAL_STRING(cases[i].word, weather_cond_word(cases[i].code));
     TEST_ASSERT_EQUAL(cases[i].precipitating, weather_cond_precipitating(cases[i].code));
@@ -2616,7 +2847,7 @@ void test_short_date_should_stay_short_whatever_the_date_format(void) {
 }
 
 void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
-  // The watch side of the contract: 17 int fields, each pointing at its
+  // The watch side of the contract: 18 int fields, each pointing at its
   // data.c global with the sentinel the JS field table and the formatters'
   // "--" fallbacks agree on. A row pointing at the wrong global or drifting
   // sentinel fails here.
@@ -2629,7 +2860,7 @@ void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
       {&s_weather_wind_speed, -1}, {&s_weather_pcp, -1},       {&s_precip_now, -1},
       {&s_temp_high, -999},        {&s_temp_low, -999},        {&s_temp_low_tmrw, -999},
       {&s_temp_high_tmrw, -999},   {&s_hi_hour_today, -1},     {&s_lo_hour_today, -1},
-      {&s_hi_hour_tmrw, -1},       {&s_lo_hour_tmrw, -1}};
+      {&s_hi_hour_tmrw, -1},       {&s_lo_hour_tmrw, -1},      {&s_weather_stamp, 0}};
   const unsigned rows = sizeof(s_weather_fields) / sizeof(s_weather_fields[0]);
   TEST_ASSERT_EQUAL_UINT(sizeof(want) / sizeof(want[0]), rows);
   for (unsigned w = 0; w < sizeof(want) / sizeof(want[0]); w++) {
@@ -2664,6 +2895,7 @@ void test_weather_cache_should_round_trip_when_fresh(void) {
   s_lo_hour_tmrw = 4;
   s_hi_hour_tmrw = 14;
   s_weather_wind_direction = 270;
+  s_weather_stamp = (int)time(NULL);
   save_weather_cache();
 
   // Simulate a relaunch: globals reset to sentinels
@@ -3001,29 +3233,62 @@ void test_inbox_should_parse_weather_payload_and_persist(void) {
   TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
 }
 
-void test_inbox_should_clamp_garbage_weather_ints(void) {
-  // A torn/garbage wire int must never paint past the slot — the negative
-  // case of the payload guards. Sentinels (−999/−1) are exempt by design.
+void test_inbox_should_sentinel_out_of_range_semantic_ints_and_cap_display_widths(void) {
+  // A torn/garbage wire int must never read as data or paint past the slot.
+  // A semantic field out of range is "no reading"; only the layout's width
+  // caps (UV, wind speed) clamp.
   mock_persist_reset();
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 2000000000);
-  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, -5);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, -5);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 999);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 150);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 101);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 720);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_SPEED, 28123);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HIGH, -500);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 25);
 
   inbox_received_callback(NULL, NULL);
 
-  TEST_ASSERT_EQUAL_INT(999, s_weather_temp);
-  TEST_ASSERT_EQUAL_INT(0, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_cond_code);
+  TEST_ASSERT_EQUAL_STRING("--", weather_cond_word(s_weather_cond_code));
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_aqi);
   TEST_ASSERT_EQUAL_INT(99, s_weather_uv);
-  TEST_ASSERT_EQUAL_INT(360, s_weather_wind_direction);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_wind_direction);
   TEST_ASSERT_EQUAL_INT(999, s_weather_wind_speed);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_hi_hour_today);
+  // An absent field keeps its sentinel.
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_precip_now);
+}
+
+void test_inbox_should_keep_weather_ints_at_the_edges_of_their_ranges(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, -99);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 99);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 500);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HUMIDITY, 100);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_PCP, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_WIND_DIRECTION, 360);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_HI_HOUR_TODAY, 23);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_LO_HOUR_TODAY, 0);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(-99, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(99, s_weather_cond_code);
+  TEST_ASSERT_EQUAL_INT(500, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(100, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(360, s_weather_wind_direction);
   TEST_ASSERT_EQUAL_INT(23, s_hi_hour_today);
-  // The untouched-sentinel rule: an absent field must keep its sentinel.
-  TEST_ASSERT_EQUAL_INT(-1, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(0, s_lo_hour_today);
 }
 
 void test_inbox_should_not_clamp_uv_above_11(void) {
@@ -3443,11 +3708,10 @@ void test_refresh_state_should_keep_date_output_when_nothing_changes(void) {
   TEST_ASSERT_EQUAL_STRING(once_short, s_short_date_display);
 }
 
-void test_chime_gate_should_fire_only_on_the_hour_when_enabled_and_unmuted(void) {
-  TEST_ASSERT_TRUE(chime_should_play(0, 1, false));
-  TEST_ASSERT_FALSE(chime_should_play(0, 1, true));
-  TEST_ASSERT_FALSE(chime_should_play(0, 0, false));
-  TEST_ASSERT_FALSE(chime_should_play(29, 1, false));
+void test_chime_gate_should_be_due_only_on_the_hour_when_enabled(void) {
+  TEST_ASSERT_TRUE(chime_is_due(0, 1));
+  TEST_ASSERT_FALSE(chime_is_due(0, 0));
+  TEST_ASSERT_FALSE(chime_is_due(29, 1));
 }
 
 void test_chime_should_beep_the_post_tone_once_at_the_full_hour(void) {
@@ -3505,9 +3769,11 @@ void test_chime_should_clamp_the_configured_volume_to_the_sdk_range(void) {
   tick_handler(&t, MINUTE_UNIT);
   TEST_ASSERT_EQUAL_UINT8(100, mock_speaker_tone_volume);
 
-  s_settings_chime_volume = -10;
+  s_settings_chime_volume = 150;
+  t.tm_hour = 1;
   tick_handler(&t, MINUTE_UNIT);
-  TEST_ASSERT_EQUAL_UINT8(0, mock_speaker_tone_volume);
+  TEST_ASSERT_EQUAL_INT(2, mock_speaker_tone_count);
+  TEST_ASSERT_EQUAL_UINT8(100, mock_speaker_tone_volume);
 }
 
 void test_chime_effective_volume_matrix(void) {
@@ -3689,11 +3955,13 @@ void test_dropped_weather_request_should_retry_a_bounded_number_of_times(void) {
 }
 
 void test_answered_weather_request_should_rearm_the_retry_budget(void) {
-  // Burn the budget: two failures cap the counter, the third doesn't even
-  // arm. Without the reset in weather_request_answered() the 5s retry then
-  // stayed dead for the rest of the app's life.
+  // Burn the budget: two retries fire, the next failure doesn't even arm.
+  // Without the reset on a landed payload the 5s retry then stayed dead for
+  // the rest of the app's life.
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  mock_timer_callback(NULL);
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  mock_timer_callback(NULL);
   int arms = mock_timer_register_count;
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
   TEST_ASSERT_EQUAL_INT(WEATHER_REQUEST_MAX_RETRIES, s_weather_request_retries);
@@ -3710,12 +3978,51 @@ void test_answered_weather_request_should_rearm_the_retry_budget(void) {
   // A fresh failure arms the 5s retry again, and firing it re-sends.
   int sends = mock_outbox_sends;
   outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
-  TEST_ASSERT_EQUAL_INT(1, s_weather_request_retries);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
   TEST_ASSERT_EQUAL_INT(arms + 1, mock_timer_register_count);
   TEST_ASSERT_EQUAL_UINT32(WEATHER_REQUEST_RETRY_MS, mock_timer_last_ms);
   TEST_ASSERT_EQUAL_PTR(weather_retry_callback, mock_timer_callback);
   mock_timer_callback(NULL);
   TEST_ASSERT_EQUAL_INT(sends + 1, mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(1, s_weather_request_retries);
+}
+
+void test_fresh_request_should_cancel_an_armed_retry_timer(void) {
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_NOT_NULL(s_weather_retry_timer);
+  int cancels = mock_timer_cancel_count;
+  request_weather();
+  TEST_ASSERT_EQUAL_INT(cancels + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_weather_retry_timer);
+}
+
+void test_landed_payload_should_cancel_an_armed_retry_timer(void) {
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  int cancels = mock_timer_cancel_count;
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(cancels + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_weather_retry_timer);
+}
+
+void test_retry_reset_should_not_cancel_when_no_timer_is_armed(void) {
+  weather_retries_reset();
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_cancel_count);
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  mock_timer_callback(NULL);
+  TEST_ASSERT_NULL(s_weather_retry_timer);
+  weather_retries_reset();
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_cancel_count);
+}
+
+void test_second_failure_should_supersede_the_armed_retry(void) {
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  int cancels = mock_timer_cancel_count;
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_EQUAL_INT(cancels + 1, mock_timer_cancel_count);
 }
 
 void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
@@ -3723,11 +4030,18 @@ void test_weather_cache_should_skip_rewrite_when_payload_is_unchanged(void) {
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
   mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(time(NULL) - 60));
   inbox_received_callback(NULL, NULL);
 
   int writes = mock_persist_write_count;
-  inbox_received_callback(NULL, NULL);  // identical payload
-  // Only the timestamp is rewritten.
+  inbox_received_callback(NULL, NULL);  // identical payload, same fetch time
+  TEST_ASSERT_EQUAL_INT(writes, mock_persist_write_count);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(time(NULL) - 30));
+  inbox_received_callback(NULL, NULL);  // a newer fetch rewrites the stamp alone
   TEST_ASSERT_EQUAL_INT(writes + 1, mock_persist_write_count);
 }
 
@@ -3859,6 +4173,7 @@ void test_update_health_info_should_fall_back_to_sentinels_without_permission(vo
 }
 
 void test_clock_should_follow_the_12h_24h_settings(void) {
+  main_window_load(NULL);
   mock_clock_24h = true;
   refresh_state();
   TEST_ASSERT_EQUAL_INT(5, (int)strlen(mock_last_text));
@@ -4439,6 +4754,7 @@ void test_crt_strike_should_jitter_rows_and_decay(void) {
 
 void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   s_settings_crt = 1;
+  crt_app_focus_did_handler(true);
 
   crt_backlight_handler(true);  // sound toggle off: nothing
   crt_update_proc(NULL, s_fake_ctx);
@@ -4456,6 +4772,32 @@ void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
   TEST_ASSERT_EQUAL_UINT32(1, mock_speaker_last_num_tracks);
   TEST_ASSERT_EQUAL_UINT8(CRT_STRIKE_VOLUME, mock_speaker_last_volume);
+}
+
+void test_crt_strike_should_not_prime_before_the_first_did_focus(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_strike_pending);
+
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_prime_after_the_first_did_focus(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  crt_app_focus_did_handler(true);
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
 }
 
 void test_crt_strike_should_ignore_backlight_while_the_face_is_covered(void) {
@@ -4511,6 +4853,7 @@ void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
   crt_backlight_handler(true);  // the dismissal's: eaten
   TEST_ASSERT_FALSE(s_strike_pending);
 
+  crt_backlight_handler(false);
   crt_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
@@ -4523,11 +4866,12 @@ void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) 
   s_settings_crt = 1;
   s_settings_crt_sound = 1;
 
-  // Backlight-first dismissal order: the cover's flash lands while the face
-  // is still covered — gated, and it must NOT consume the one-shot. The
-  // first in-focus backlight-on is still eaten; the one after it strikes.
+  // The cover's own edges land while the face is still covered — gated, and
+  // they must NOT consume the one-shot: the dismissal's backlight-on can still
+  // follow focus returning. It is eaten; the wake after it strikes.
   crt_app_focus_will_handler(false);
   crt_backlight_handler(true);
+  crt_backlight_handler(false);
   TEST_ASSERT_TRUE(s_cover_suppresses_strike);
   TEST_ASSERT_FALSE(s_strike_pending);
 
@@ -4535,6 +4879,29 @@ void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) 
   crt_backlight_handler(true);
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
   TEST_ASSERT_FALSE(s_strike_pending);
+
+  crt_backlight_handler(false);
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_view(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+
+  // Dismissed while the cover's light is still on: no on-edge follows, so
+  // nothing would consume the one-shot. Going off in view drops it, and the
+  // next wake strikes.
+  crt_app_focus_will_handler(false);
+  crt_backlight_handler(true);
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+
+  crt_backlight_handler(false);
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
 
   crt_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
@@ -4552,8 +4919,8 @@ void test_crt_strike_pcm_should_thunk_fall_and_never_click(void) {
 
   // Silent start.
   TEST_ASSERT_INT_WITHIN(3000, 0, buf[0]);
-  // Trailing 64 samples zero — the codec must never cut mid-cycle.
-  for (int i = CRT_STRIKE_PCM_SAMPLES - 64; i < CRT_STRIKE_PCM_SAMPLES; i++) {
+  // Trailing silence — the codec must never cut a nonzero signal.
+  for (int i = CRT_STRIKE_PCM_SAMPLES - CRT_STRIKE_TAIL_SAMPLES; i < CRT_STRIKE_PCM_SAMPLES; i++) {
     TEST_ASSERT_EQUAL_INT16(0, buf[i]);
   }
 
@@ -4583,6 +4950,173 @@ void test_crt_strike_pcm_should_fit_the_speaker_budget(void) {
   TEST_ASSERT_TRUE(CRT_STRIKE_PCM_SAMPLES * 2 <= 16 * 1024);
 }
 
+void test_crt_strike_pcm_should_fade_to_zero_instead_of_cutting(void) {
+  static int16_t buf[CRT_STRIKE_PCM_SAMPLES];
+  crt_strike_synth(buf, CRT_STRIKE_PCM_SAMPLES);
+
+  const int tail_at = CRT_STRIKE_PCM_SAMPLES - CRT_STRIKE_TAIL_SAMPLES;
+  const int fade_at = tail_at - CRT_STRIKE_FADE_SAMPLES;
+  TEST_ASSERT_EQUAL_INT16(0, buf[CRT_STRIKE_PCM_SAMPLES - 1]);
+  for (int i = tail_at; i < CRT_STRIKE_PCM_SAMPLES; i++) TEST_ASSERT_EQUAL_INT16(0, buf[i]);
+
+  // The signal arrives at the tail already inaudible: no step into silence.
+  int pre_tail = 0;
+  for (int i = tail_at - 16; i < tail_at; i++) {
+    if (abs(buf[i]) > pre_tail) pre_tail = abs(buf[i]);
+  }
+  TEST_ASSERT_TRUE(pre_tail < 16);
+
+  // One-cycle peaks (190 Hz at 16 kHz is ~84 samples) fall monotonically
+  // through the fade, from a body that is clearly audible going in.
+  const int win = 85;
+  int prev = 0;
+  for (int i = fade_at - win; i < fade_at; i++) {
+    if (abs(buf[i]) > prev) prev = abs(buf[i]);
+  }
+  TEST_ASSERT_TRUE(prev > 1000);
+  for (int start = fade_at; start + win <= CRT_STRIKE_PCM_SAMPLES; start += win) {
+    int peak = 0;
+    for (int i = start; i < start + win; i++) {
+      if (abs(buf[i]) > peak) peak = abs(buf[i]);
+    }
+    TEST_ASSERT_TRUE(peak <= prev);
+    prev = peak;
+  }
+  TEST_ASSERT_TRUE(prev < 1000);
+}
+
+void test_crt_strike_pcm_should_exist_only_while_the_sound_is_on(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_NULL(s_strike_pcm);
+
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_NULL(s_strike_pcm);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+
+  s_settings_crt_sound = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_NULL(s_strike_pcm);
+
+  s_settings_crt_sound = 1;  // synthesized afresh on the next strike
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_NULL(s_strike_pcm);
+  TEST_ASSERT_EQUAL_INT(2, mock_speaker_play_tracks_count);
+
+  crt_deinit();
+  TEST_ASSERT_NULL(s_strike_pcm);
+}
+
+void test_crt_deinit_should_cancel_the_strike_and_drop_the_layer(void) {
+  main_window_load(NULL);
+  s_settings_crt = 1;
+  crt_app_focus_did_handler(true);
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);  // strike running: chain armed
+  int registered = mock_timer_register_count;
+  int cancelled = mock_timer_cancel_count;
+  TEST_ASSERT_NOT_NULL(s_flash_timer);
+
+  crt_deinit();
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_flash_timer);
+  TEST_ASSERT_NULL(s_crt_layer);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_FALSE(s_strike_pending);
+
+  // A tick or backlight event arriving after unload touches no layer and
+  // re-arms nothing.
+  mock_mark_dirty_count = 0;
+  crt_flash_tick(NULL);
+  crt_backlight_handler(true);
+  TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
+  TEST_ASSERT_EQUAL_INT(registered, mock_timer_register_count);
+}
+
+void test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off(void) {
+  s_settings_crt = 0;
+  s_settings_crt_sound = 1;
+
+  crt_app_focus_will_handler(false);
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  crt_app_focus_did_handler(true);
+
+  // The effect comes on later; the first real wake strikes.
+  s_settings_crt = 1;
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_setting_change_should_disarm_a_pending_cover_suppression(void) {
+  s_settings_crt = 1;
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+
+  s_settings_crt = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+}
+
+void test_crt_pass_should_follow_the_row_stride(void) {
+  enum { PAD = 8 };
+  static uint8_t packed[SCREEN_W * SCREEN_H];
+  static uint8_t padded[(SCREEN_W + PAD) * SCREEN_H];
+  uint32_t seed = 7;
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      seed = seed * 1664525u + 1013904223u;
+      packed[y * SCREEN_W + x] = padded[y * (SCREEN_W + PAD) + x] = 0xC0 | ((seed >> 16) & 0x3F);
+    }
+    memset(&padded[y * (SCREEN_W + PAD) + SCREEN_W], 0x5A, PAD);
+  }
+
+  crt_apply_framebuffer(packed, SCREEN_W, SCREEN_H, SCREEN_W, 3);
+  crt_apply_framebuffer(padded, SCREEN_W, SCREEN_H, SCREEN_W + PAD, 3);
+  for (int y = 0; y < SCREEN_H; y++) {
+    TEST_ASSERT_EQUAL_MEMORY(&packed[y * SCREEN_W], &padded[y * (SCREEN_W + PAD)], SCREEN_W);
+    for (int x = SCREEN_W; x < SCREEN_W + PAD; x++) {
+      TEST_ASSERT_EQUAL_HEX8(0x5A, padded[y * (SCREEN_W + PAD) + x]);
+    }
+  }
+}
+
+// R-minus-B centroid of a one-pixel white column on black, along one row: the
+// channels' separation, which row jitter moves identically and so cancels.
+static int ca_channel_separation(void) {
+  s_active_theme = &s_theme_shadow;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 100; y < 126; y++) mock_framebuffer[y * 200 + 50] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+
+  const uint8_t* row = &mock_framebuffer[113 * 200];
+  int r_sum = 0, b_sum = 0, r_mass = 0, b_mass = 0;
+  for (int x = 20; x < 90; x++) {
+    int r = (row[x] >> 4) & 3, b = row[x] & 3;
+    r_sum += r * x;
+    b_sum += b * x;
+    r_mass += r;
+    b_mass += b;
+  }
+  TEST_ASSERT_TRUE(r_mass > 0 && b_mass > 0);
+  // Q8 centroid difference.
+  return (r_sum * 256) / r_mass - (b_sum * 256) / b_mass;
+}
+
+void test_crt_strike_should_widen_the_channel_separation(void) {
+  s_settings_crt = 1;
+  s_flash_phase = CRT_FLASH_IDLE;
+  int idle = ca_channel_separation();
+  s_flash_phase = 0;  // strongest boost
+  int strike = ca_channel_separation();
+  TEST_ASSERT_TRUE(abs(strike) >= abs(idle) + 256);
+}
+
 void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
   mock_mark_dirty_count = 0;
 
@@ -4594,6 +5128,7 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
 
   s_settings_crt = 1;
+  crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   crt_backlight_handler(true);
   // Deferred strike: the handler primes only; the wake frame's proc starts it.
@@ -4635,6 +5170,20 @@ void test_crt_setting_push_should_redraw_the_overlay(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
 }
 
+void test_crt_sound_off_push_should_free_the_strike_pcm(void) {
+  s_settings_crt = 1;
+  s_settings_crt_sound = 1;
+  s_strike_pcm = malloc(16);
+  TEST_ASSERT_NOT_NULL(s_strike_pcm);
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT_SOUND, 0);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_sound);
+  TEST_ASSERT_NULL(s_strike_pcm);
+}
+
 void test_crt_toggle_off_should_force_a_full_repaint(void) {
   // The shader's pixels live in the shared framebuffer; marking only the
   // overlay dirty would leave them standing until the next minute render.
@@ -4661,6 +5210,7 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   // chain re-arms from IDLE (phase −1 → 0) and runs a full 8-tick strike
   // nobody triggered, dirtying the layer each frame.
   s_settings_crt = 1;
+  crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   crt_backlight_handler(true);        // primes the strike
   crt_update_proc(NULL, s_fake_ctx);  // wake frame lands → chain armed
@@ -4673,6 +5223,564 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
   TEST_ASSERT_EQUAL_INT(cancel_before + 1, mock_timer_cancel_count);
   TEST_ASSERT_NULL(s_flash_timer);
+}
+
+// -----------------------------------------------------------------------------
+// Weather age, stamping, and settings-change discards
+// -----------------------------------------------------------------------------
+
+static time_t local_time_at(int month, int day, int hour, int min) {
+  struct tm tm = {.tm_year = 126,
+                  .tm_mon = month - 1,
+                  .tm_mday = day,
+                  .tm_hour = hour,
+                  .tm_min = min,
+                  .tm_isdst = -1};
+  return mktime(&tm);
+}
+
+// Moves the mock clock to `target`.
+static void mock_clock_to(time_t target) {
+  mock_time_offset = target - (time(NULL) - mock_time_offset);
+}
+
+static void set_held_weather(void) {
+  s_weather_temp = 72;
+  s_weather_cond_code = 0;
+  s_weather_humidity = 40;
+  s_temp_high = 80;
+  s_temp_low = 60;
+  s_temp_high_tmrw = 82;
+  s_temp_low_tmrw = 62;
+  s_hi_hour_today = 15;
+  s_lo_hour_today = 5;
+  s_hi_hour_tmrw = 14;
+  s_lo_hour_tmrw = 6;
+}
+
+void test_weather_age_should_judge_by_age_and_local_day(void) {
+  time_t now = local_time_at(7, 1, 15, 0);
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_FRESH, weather_age(now - 600, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_FRESH, weather_age(now, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_FRESH, weather_age(now - WEATHER_STALE_AGE_S, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_STALE, weather_age(now - WEATHER_STALE_AGE_S - 1, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_STALE, weather_age(0, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_FRESH, weather_age(now + WEATHER_STAMP_FUTURE_SLACK_S, now));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_STALE,
+                        weather_age(now + WEATHER_STAMP_FUTURE_SLACK_S + 1, now));
+
+  time_t after_midnight = local_time_at(7, 2, 0, 30);
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_PREVIOUS_DAY,
+                        weather_age(after_midnight - 3600, after_midnight));
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_FRESH, weather_age(after_midnight - 600, after_midnight));
+  // The two-hour cut outranks the day rollover.
+  TEST_ASSERT_EQUAL_INT(WEATHER_AGE_STALE,
+                        weather_age(after_midnight - WEATHER_STALE_AGE_S - 1, after_midnight));
+}
+
+void test_weather_stamp_for_should_trust_only_sane_fetch_times(void) {
+  time_t now = local_time_at(7, 1, 15, 0);
+  TEST_ASSERT_EQUAL_INT(now - 900, weather_stamp_for((int32_t)(now - 900), now));
+  TEST_ASSERT_EQUAL_INT(now + 60, weather_stamp_for((int32_t)(now + 60), now));
+  TEST_ASSERT_EQUAL_INT(now, weather_stamp_for((int32_t)(now + 61), now));
+  TEST_ASSERT_EQUAL_INT(now, weather_stamp_for(0, now));
+  TEST_ASSERT_EQUAL_INT(now, weather_stamp_for(-5, now));
+}
+
+void test_weather_expire_should_keep_everything_while_fresh(void) {
+  set_held_weather();
+  time_t now = local_time_at(7, 1, 15, 0);
+  s_weather_stamp = (int)(now - 600);
+  weather_expire(now);
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(80, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(14, s_hi_hour_tmrw);
+}
+
+void test_weather_expire_should_blank_every_reading_when_stale(void) {
+  set_held_weather();
+  time_t now = local_time_at(7, 1, 15, 0);
+  s_weather_stamp = (int)(now - WEATHER_STALE_AGE_S - 1);
+  weather_expire(now);
+  for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
+    TEST_ASSERT_EQUAL_INT(s_weather_fields[i].sentinel, *s_weather_fields[i].target);
+  }
+  char buf[16];
+  format_temp(buf, sizeof(buf), s_weather_temp, true);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  TEST_ASSERT_EQUAL_STRING("--", weather_cond_word(s_weather_cond_code));
+}
+
+void test_weather_expire_should_drop_only_the_day_bound_readings_after_midnight(void) {
+  set_held_weather();
+  time_t now = local_time_at(7, 2, 0, 30);
+  s_weather_stamp = (int)(now - 3600);
+  weather_expire(now);
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(40, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_low);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_high_tmrw);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_low_tmrw);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_hi_hour_today);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_lo_hour_tmrw);
+  char buf[16];
+  format_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
+}
+
+void test_tick_handler_should_show_dashes_for_weather_older_than_two_hours(void) {
+  set_held_weather();
+  s_weather_stamp = (int)(time(NULL) - WEATHER_STALE_AGE_S - 1);
+  struct tm t = {0};
+  t.tm_min = 14;
+  tick_handler(&t, MINUTE_UNIT);
+  char buf[40];
+  get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_humidity);
+}
+
+void test_tick_handler_should_not_present_yesterdays_hi_lo_as_todays(void) {
+  struct tm tomorrow = *localtime(&(time_t){time(NULL)});
+  tomorrow.tm_mday += 1;
+  tomorrow.tm_hour = 0;
+  tomorrow.tm_min = 5;
+  tomorrow.tm_sec = 0;
+  tomorrow.tm_isdst = -1;
+  time_t just_after_midnight = mktime(&tomorrow);
+  mock_clock_to(just_after_midnight);
+
+  set_held_weather();
+  s_weather_stamp = (int)(just_after_midnight - 1800);
+  struct tm t = {0};
+  t.tm_min = 5;
+  tick_handler(&t, MINUTE_UNIT);
+
+  char buf[24];
+  format_high_low(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("-- --", buf);
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+}
+
+void test_weather_cache_should_drop_extremes_cached_on_an_earlier_day(void) {
+  mock_persist_reset();
+  struct tm tomorrow = *localtime(&(time_t){time(NULL)});
+  tomorrow.tm_mday += 1;
+  tomorrow.tm_hour = 0;
+  tomorrow.tm_min = 10;
+  tomorrow.tm_sec = 0;
+  tomorrow.tm_isdst = -1;
+  time_t just_after_midnight = mktime(&tomorrow);
+  mock_clock_to(just_after_midnight);
+
+  set_held_weather();
+  s_weather_stamp = (int)(just_after_midnight - 900);
+  save_weather_cache();
+  weather_clear();
+
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_low_tmrw);
+}
+
+void test_weather_cache_should_restore_the_stamp_and_reject_old_data_by_it(void) {
+  mock_persist_reset();
+  set_held_weather();
+  time_t now = time(NULL);
+  s_weather_stamp = (int)(now - 120);
+  save_weather_cache();
+  weather_clear();
+  TEST_ASSERT_TRUE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT((int)(now - 120), s_weather_stamp);
+}
+
+void test_inbox_should_stamp_the_cache_with_the_phones_fetch_time(void) {
+  mock_persist_reset();
+  time_t now = time(NULL);
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(now - 900));
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT((int)(now - 900), s_weather_stamp);
+  TEST_ASSERT_EQUAL_INT((int)(now - 900), persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP));
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+}
+
+void test_inbox_should_stamp_with_arrival_time_when_the_fetch_time_is_missing_or_impossible(void) {
+  time_t now = time(NULL);
+  for (int pass = 0; pass < 3; pass++) {
+    mock_persist_reset();
+    s_weather_stamp = 0;
+    mock_dict_reset();
+    mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+    mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+    if (pass == 1) mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, 0);
+    if (pass == 2) mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(now + 3600));
+    inbox_received_callback(NULL, NULL);
+    TEST_ASSERT_TRUE(s_weather_stamp >= (int)now && s_weather_stamp <= (int)now + 5);
+    TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  }
+}
+
+void test_inbox_should_treat_a_replayed_payload_older_than_two_hours_as_no_data(void) {
+  mock_persist_reset();
+  time_t now = time(NULL);
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(now - WEATHER_STALE_AGE_S - 60));
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_cond_code);
+}
+
+void test_inbox_settings_only_message_should_not_stamp_weather(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_THEME, "2");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_stamp);
+}
+
+void test_inbox_units_change_should_discard_held_weather_and_the_cache_stamp(void) {
+  mock_persist_reset();
+  set_held_weather();
+  s_weather_stamp = (int)(time(NULL) - 60);
+  save_weather_cache();
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_UNITS, "1");
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_cond_code);
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_temp_high);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_stamp);
+  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP));
+  TEST_ASSERT_FALSE(load_weather_cache());
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
+}
+
+void test_inbox_window_change_should_discard_held_weather(void) {
+  mock_persist_reset();
+  set_held_weather();
+  s_weather_stamp = (int)(time(NULL) - 60);
+  save_weather_cache();
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, "24");
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP));
+}
+
+void test_inbox_unchanged_units_should_keep_held_weather(void) {
+  mock_persist_reset();
+  set_held_weather();
+  s_weather_stamp = (int)(time(NULL) - 60);
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_UNITS, "0");
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_TRUE(s_weather_stamp != 0);
+}
+
+void test_weather_table_sentinels_should_equal_the_globals_boot_values(void) {
+  for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
+    TEST_ASSERT_EQUAL_INT_MESSAGE(s_boot_weather[i], s_weather_fields[i].sentinel,
+                                  "wire-table sentinel differs from the global's boot value");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Fetch decisions
+// -----------------------------------------------------------------------------
+
+void test_weather_fetch_due_should_need_the_half_hour_edge_and_a_weather_slot(void) {
+  TEST_ASSERT_TRUE(weather_fetch_due(0, true));
+  TEST_ASSERT_TRUE(weather_fetch_due(30, true));
+  TEST_ASSERT_FALSE(weather_fetch_due(15, true));
+  TEST_ASSERT_FALSE(weather_fetch_due(59, true));
+  TEST_ASSERT_FALSE(weather_fetch_due(0, false));
+  TEST_ASSERT_FALSE(weather_fetch_due(30, false));
+}
+
+void test_weather_fetch_after_settings_should_follow_what_changed_and_what_is_shown(void) {
+  //                                       needs units  window needed slots
+  TEST_ASSERT_FALSE(weather_fetch_after_settings(false, true, true, false, true));
+  TEST_ASSERT_FALSE(weather_fetch_after_settings(true, false, false, true, false));
+  TEST_ASSERT_TRUE(weather_fetch_after_settings(true, true, false, true, false));
+  TEST_ASSERT_TRUE(weather_fetch_after_settings(true, false, true, true, false));
+  TEST_ASSERT_TRUE(weather_fetch_after_settings(true, false, false, false, false));
+  TEST_ASSERT_TRUE(weather_fetch_after_settings(true, false, false, true, true));
+}
+
+// -----------------------------------------------------------------------------
+// Retry budget
+// -----------------------------------------------------------------------------
+
+static void exhaust_retry_budget(void) {
+  for (int i = 0; i < WEATHER_REQUEST_MAX_RETRIES; i++) {
+    outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+    mock_timer_callback(NULL);
+  }
+  TEST_ASSERT_EQUAL_INT(WEATHER_REQUEST_MAX_RETRIES, s_weather_request_retries);
+}
+
+void test_a_failed_send_should_not_spend_the_budget_until_its_retry_fires(void) {
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+  mock_timer_callback(NULL);
+  TEST_ASSERT_EQUAL_INT(1, s_weather_request_retries);
+}
+
+void test_a_tick_request_should_start_the_retry_budget_over(void) {
+  exhaust_retry_budget();
+  struct tm t = {0};
+  t.tm_min = 30;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+
+  int arms = mock_timer_register_count;
+  outbox_failed_callback(NULL, APP_MSG_SEND_TIMEOUT, NULL);
+  TEST_ASSERT_EQUAL_INT(arms + 1, mock_timer_register_count);
+}
+
+void test_a_settings_request_should_start_the_retry_budget_over(void) {
+  mock_persist_reset();
+  exhaust_retry_budget();
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_UNITS, "1");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+}
+
+void test_a_launch_request_should_start_the_retry_budget_over(void) {
+  mock_persist_reset();
+  exhaust_retry_budget();
+  init();
+  TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
+}
+
+// -----------------------------------------------------------------------------
+// Slots, health events, app message, wire widths, bluetooth
+// -----------------------------------------------------------------------------
+
+void test_inbox_should_empty_a_slot_assigned_a_source_without_a_spec(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_1, 99);
+  mock_dict_add_int(MESSAGE_KEY_SLOT_2, 19);  // retired id
+  mock_dict_add_int(MESSAGE_KEY_SLOT_3, -4);
+  mock_dict_add_int(MESSAGE_KEY_SLOT_4, DATA_SOURCE_BATTERY);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, s_complication_slots[0].source);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, s_complication_slots[1].source);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, s_complication_slots[2].source);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_BATTERY, s_complication_slots[3].source);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, persist_read_int(PERSIST_KEY_SLOT_1));
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, persist_read_int(PERSIST_KEY_SLOT_2));
+}
+
+void test_load_settings_should_empty_a_persisted_source_without_a_spec(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_SLOT_1, 77);
+  persist_write_int(PERSIST_KEY_SLOT_2, DATA_SOURCE_STEPS);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_EMPTY, s_complication_slots[0].source);
+  TEST_ASSERT_EQUAL_INT(DATA_SOURCE_STEPS, s_complication_slots[1].source);
+}
+
+void test_health_handler_should_do_nothing_when_no_visible_slot_shows_health(void) {
+  main_window_load(NULL);
+  set_slots(kSlotsNoHealth);
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+
+  health_handler(HealthEventSignificantUpdate, NULL);
+  health_handler(HealthEventHeartRateUpdate, NULL);
+  health_handler(HealthEventMovementUpdate, NULL);
+  health_handler(HealthEventSleepUpdate, NULL);
+
+  TEST_ASSERT_EQUAL_INT(0, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(marks, mock_mark_dirty_count);
+}
+
+void test_health_handler_should_still_work_when_a_health_slot_is_visible(void) {
+  set_slots(kSlotsOnlySteps);
+  health_handler(HealthEventSignificantUpdate, NULL);
+  TEST_ASSERT_TRUE(mock_health_accessible_count > 0);
+}
+
+void test_full_weather_and_settings_dicts_should_fit_the_inbox(void) {
+  // Dictionary header 1 byte; every tuple a 7-byte header plus its value. The
+  // weather table (stamp row included) is all 4-byte ints; Clay's settings and
+  // slots arrive as short strings, bounded by the same 4 bytes.
+  size_t tuple = 7 + 4;
+  size_t weather = 1 + (sizeof(s_weather_fields) / sizeof(s_weather_fields[0])) * tuple;
+  size_t settings = 1 + (sizeof(s_settings_fields) / sizeof(s_settings_fields[0]) +
+                         sizeof(s_slot_keys) / sizeof(s_slot_keys[0]) + 1) *
+                            tuple;
+  TEST_ASSERT_TRUE(weather <= APP_MESSAGE_INBOX_SIZE);
+  TEST_ASSERT_TRUE(settings <= APP_MESSAGE_INBOX_SIZE);
+  TEST_ASSERT_TRUE(1 + 7 + 1 <= APP_MESSAGE_OUTBOX_SIZE);
+}
+
+void test_init_should_open_app_message_with_the_named_sizes(void) {
+  init();
+  TEST_ASSERT_EQUAL_UINT32(APP_MESSAGE_INBOX_SIZE, mock_app_message_open_inbound);
+  TEST_ASSERT_EQUAL_UINT32(APP_MESSAGE_OUTBOX_SIZE, mock_app_message_open_outbound);
+  TEST_ASSERT_EQUAL_INT(0, mock_log_count);
+}
+
+void test_init_should_log_when_app_message_open_fails(void) {
+  mock_app_message_open_result = APP_MSG_OUT_OF_MEMORY;
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_log_count);
+  char want[16];
+  snprintf(want, sizeof(want), "(%d)", (int)APP_MSG_OUT_OF_MEMORY);
+  TEST_ASSERT_NOT_NULL(strstr(mock_last_log, want));
+}
+
+void test_inbox_dropped_should_log_the_reason(void) {
+  inbox_dropped_callback(APP_MSG_BUFFER_OVERFLOW, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_log_count);
+  char want[16];
+  snprintf(want, sizeof(want), "(%d)", (int)APP_MSG_BUFFER_OVERFLOW);
+  TEST_ASSERT_NOT_NULL(strstr(mock_last_log, want));
+}
+
+void test_tuple_get_int_should_read_a_four_byte_unsigned(void) {
+  mock_dict_reset();
+  mock_dict_add_uint_width(MESSAGE_KEY_SLOT_1, 70000, 4);
+  TEST_ASSERT_EQUAL_INT(70000, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+  mock_dict_reset();
+  mock_dict_add_int_width(MESSAGE_KEY_SLOT_1, -70000, 4);
+  TEST_ASSERT_EQUAL_INT(-70000, tuple_get_int(dict_find(NULL, MESSAGE_KEY_SLOT_1)));
+}
+
+void test_handle_bluetooth_should_record_the_link_and_redraw(void) {
+  main_window_load(NULL);
+  request_ui_redraw();
+  int marks = mock_mark_dirty_count;
+
+  handle_bluetooth(false);
+  TEST_ASSERT_FALSE(s_connected);
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+
+  marks = mock_mark_dirty_count;
+  handle_bluetooth(true);
+  TEST_ASSERT_TRUE(s_connected);
+  TEST_ASSERT_TRUE(mock_mark_dirty_count > marks);
+}
+
+// -----------------------------------------------------------------------------
+// Chime
+// -----------------------------------------------------------------------------
+
+void test_chime_should_not_ask_the_speaker_off_the_full_hour_or_when_disabled(void) {
+  struct tm t = {0};
+  t.tm_min = 13;
+  s_settings_hourly_chime = 1;
+  chime_on_tick(&t);
+  t.tm_min = 0;
+  s_settings_hourly_chime = 0;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_muted_query_count);
+
+  s_settings_hourly_chime = 1;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_muted_query_count);
+}
+
+void test_chime_should_stay_silent_at_volume_zero(void) {
+  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 0;
+  struct tm t = {0};
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
+
+  s_settings_chime_volume = -10;
+  chime_play();
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
+}
+
+void test_chime_should_not_repeat_in_a_replayed_wall_hour(void) {
+  s_settings_hourly_chime = 1;
+  struct tm t = {0};
+  t.tm_hour = 1;
+  chime_on_tick(&t);
+  chime_on_tick(&t);  // DST fall-back: 01:00 happens twice
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_tone_count);
+
+  t.tm_hour = 2;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(2, mock_speaker_tone_count);
+
+  t.tm_hour = 2;
+  t.tm_yday = 1;  // the same hour the next day is a new chime
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(3, mock_speaker_tone_count);
+}
+
+void test_chime_muted_hour_should_still_chime_if_unmuted_within_the_hour(void) {
+  s_settings_hourly_chime = 1;
+  struct tm t = {0};
+  mock_speaker_muted = true;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
+  mock_speaker_muted = false;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_tone_count);
+}
+
+// -----------------------------------------------------------------------------
+// Lifecycle
+// -----------------------------------------------------------------------------
+
+void test_refresh_state_should_tolerate_a_missing_time_layer(void) {
+  main_window_load(NULL);
+  main_window_unload(NULL);
+  int texts = mock_set_text_count;
+  int colors = mock_set_text_color_count;
+  refresh_state();
+  TEST_ASSERT_EQUAL_INT(texts, mock_set_text_count);
+  TEST_ASSERT_EQUAL_INT(colors, mock_set_text_color_count);
+}
+
+void test_window_unload_should_drop_the_layer_handles_and_the_unobstructed_subscription(void) {
+  main_window_load(NULL);
+  TEST_ASSERT_NOT_NULL(s_canvas_layer);
+  TEST_ASSERT_NOT_NULL(s_time_layer);
+  TEST_ASSERT_NOT_NULL(s_crt_layer);
+  Layer* canvas_layer = s_canvas_layer;
+  Layer* crt_layer = s_crt_layer;
+  main_window_unload(NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_layer_destroy_count);
+  TEST_ASSERT_EQUAL_PTR(crt_layer, mock_layer_destroyed[0]);
+  TEST_ASSERT_EQUAL_PTR(canvas_layer, mock_layer_destroyed[1]);
+  TEST_ASSERT_NULL(s_canvas_layer);
+  TEST_ASSERT_NULL(s_time_layer);
+  TEST_ASSERT_NULL(s_crt_layer);
+  TEST_ASSERT_EQUAL_INT(1, mock_unobstructed_unsubscribe_count);
+}
+
+void test_deinit_should_release_every_service_init_subscribed(void) {
+  init();
+  deinit();
+  TEST_ASSERT_EQUAL_INT(mock_tick_subscribe_count, mock_tick_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(mock_battery_subscribe_count, mock_battery_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(mock_connection_subscribe_count, mock_connection_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(mock_health_subscribe_count, mock_health_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(mock_backlight_subscribe_count, mock_backlight_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_app_focus_unsubscribe_count);
 }
 
 int main(void) {
@@ -4689,6 +5797,16 @@ int main(void) {
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_hum_pcp_window_should_paint_its_halves);
   RUN_TEST(test_hum_pcp_captions_should_centre_over_the_fields);
+  RUN_TEST(test_aqi_uv_window_should_centre_each_reading_in_its_own_field);
+  RUN_TEST(test_ascii_window_title_gap_should_match_the_title_cell);
+  RUN_TEST(test_beats_should_accent_the_at_sign);
+  RUN_TEST(test_short_date_should_accent_the_weekday_where_it_sits);
+  RUN_TEST(test_full_date_should_accent_the_weekday_unless_hidden);
+  RUN_TEST(test_hum_pcp_should_hint_a_quiet_precip_amount_and_band_a_heavy_one);
+  RUN_TEST(test_weather_strip_should_fill_only_the_chip_that_earns_a_band);
+  RUN_TEST(test_wind_without_a_bearing_should_draw_the_speed_alone);
+  RUN_TEST(test_bt_qt_narrow_should_draw_one_run_not_two_boxes);
+  RUN_TEST(test_progress_bar_should_show_dashes_without_a_reading);
   RUN_TEST(test_bt_qt_wide_should_draw_both_checkboxes);
   RUN_TEST(test_bt_qt_window_should_register_captions_and_boxes_on_one_strip);
   RUN_TEST(test_battery_bar_should_paint_its_fill_as_one_rect);
@@ -4789,7 +5907,8 @@ int main(void) {
   RUN_TEST(test_health_handler_should_not_throttle_significant_updates);
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
-  RUN_TEST(test_inbox_should_clamp_garbage_weather_ints);
+  RUN_TEST(test_inbox_should_sentinel_out_of_range_semantic_ints_and_cap_display_widths);
+  RUN_TEST(test_inbox_should_keep_weather_ints_at_the_edges_of_their_ranges);
   RUN_TEST(test_inbox_should_not_clamp_uv_above_11);
   RUN_TEST(test_inbox_should_parse_narrow_width_weather_ints);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
@@ -4811,7 +5930,7 @@ int main(void) {
   RUN_TEST(test_refresh_state_should_refresh_the_hi_lo_phase_hour);
   RUN_TEST(test_refresh_state_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_refresh_state_should_keep_date_output_when_nothing_changes);
-  RUN_TEST(test_chime_gate_should_fire_only_on_the_hour_when_enabled_and_unmuted);
+  RUN_TEST(test_chime_gate_should_be_due_only_on_the_hour_when_enabled);
   RUN_TEST(test_chime_should_beep_the_post_tone_once_at_the_full_hour);
   RUN_TEST(test_chime_should_stay_silent_when_the_setting_is_off);
   RUN_TEST(test_chime_should_stay_silent_off_the_full_hour);
@@ -4829,6 +5948,10 @@ int main(void) {
   RUN_TEST(test_inbox_should_fetch_when_a_weather_slot_first_appears);
   RUN_TEST(test_inbox_should_fetch_when_a_slot_changes_with_weather_already_shown);
   RUN_TEST(test_dropped_weather_request_should_retry_a_bounded_number_of_times);
+  RUN_TEST(test_fresh_request_should_cancel_an_armed_retry_timer);
+  RUN_TEST(test_landed_payload_should_cancel_an_armed_retry_timer);
+  RUN_TEST(test_retry_reset_should_not_cancel_when_no_timer_is_armed);
+  RUN_TEST(test_second_failure_should_supersede_the_armed_retry);
   RUN_TEST(test_answered_weather_request_should_rearm_the_retry_budget);
   RUN_TEST(test_weather_cache_should_skip_rewrite_when_payload_is_unchanged);
   RUN_TEST(test_settings_message_should_not_rewrite_unchanged_keys);
@@ -4860,15 +5983,66 @@ int main(void) {
   RUN_TEST(test_crt_warp_should_spread_steps_across_rows);
   RUN_TEST(test_crt_strike_should_jitter_rows_and_decay);
   RUN_TEST(test_crt_sound_should_play_only_when_enabled_and_unmuted);
+  RUN_TEST(test_crt_strike_should_not_prime_before_the_first_did_focus);
+  RUN_TEST(test_crt_strike_should_prime_after_the_first_did_focus);
   RUN_TEST(test_crt_strike_should_ignore_backlight_while_the_face_is_covered);
   RUN_TEST(test_crt_strike_should_eat_the_dismissals_backlight);
   RUN_TEST(test_crt_strike_should_fire_on_the_backlight_after_the_dismissal);
   RUN_TEST(test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight);
+  RUN_TEST(test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_view);
   RUN_TEST(test_crt_strike_pcm_should_thunk_fall_and_never_click);
   RUN_TEST(test_crt_strike_pcm_should_fit_the_speaker_budget);
+  RUN_TEST(test_crt_strike_pcm_should_fade_to_zero_instead_of_cutting);
+  RUN_TEST(test_crt_strike_pcm_should_exist_only_while_the_sound_is_on);
+  RUN_TEST(test_crt_deinit_should_cancel_the_strike_and_drop_the_layer);
+  RUN_TEST(test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off);
+  RUN_TEST(test_crt_setting_change_should_disarm_a_pending_cover_suppression);
+  RUN_TEST(test_crt_pass_should_follow_the_row_stride);
+  RUN_TEST(test_crt_strike_should_widen_the_channel_separation);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);
   RUN_TEST(test_crt_setting_push_should_redraw_the_overlay);
+  RUN_TEST(test_crt_sound_off_push_should_free_the_strike_pcm);
   RUN_TEST(test_crt_toggle_off_should_force_a_full_repaint);
   RUN_TEST(test_crt_toggle_off_mid_strike_should_cancel_the_chain);
+  RUN_TEST(test_weather_age_should_judge_by_age_and_local_day);
+  RUN_TEST(test_weather_stamp_for_should_trust_only_sane_fetch_times);
+  RUN_TEST(test_weather_expire_should_keep_everything_while_fresh);
+  RUN_TEST(test_weather_expire_should_blank_every_reading_when_stale);
+  RUN_TEST(test_weather_expire_should_drop_only_the_day_bound_readings_after_midnight);
+  RUN_TEST(test_tick_handler_should_show_dashes_for_weather_older_than_two_hours);
+  RUN_TEST(test_tick_handler_should_not_present_yesterdays_hi_lo_as_todays);
+  RUN_TEST(test_weather_cache_should_drop_extremes_cached_on_an_earlier_day);
+  RUN_TEST(test_weather_cache_should_restore_the_stamp_and_reject_old_data_by_it);
+  RUN_TEST(test_inbox_should_stamp_the_cache_with_the_phones_fetch_time);
+  RUN_TEST(test_inbox_should_stamp_with_arrival_time_when_the_fetch_time_is_missing_or_impossible);
+  RUN_TEST(test_inbox_should_treat_a_replayed_payload_older_than_two_hours_as_no_data);
+  RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather);
+  RUN_TEST(test_inbox_units_change_should_discard_held_weather_and_the_cache_stamp);
+  RUN_TEST(test_inbox_window_change_should_discard_held_weather);
+  RUN_TEST(test_inbox_unchanged_units_should_keep_held_weather);
+  RUN_TEST(test_weather_table_sentinels_should_equal_the_globals_boot_values);
+  RUN_TEST(test_weather_fetch_due_should_need_the_half_hour_edge_and_a_weather_slot);
+  RUN_TEST(test_weather_fetch_after_settings_should_follow_what_changed_and_what_is_shown);
+  RUN_TEST(test_a_failed_send_should_not_spend_the_budget_until_its_retry_fires);
+  RUN_TEST(test_a_tick_request_should_start_the_retry_budget_over);
+  RUN_TEST(test_a_settings_request_should_start_the_retry_budget_over);
+  RUN_TEST(test_a_launch_request_should_start_the_retry_budget_over);
+  RUN_TEST(test_inbox_should_empty_a_slot_assigned_a_source_without_a_spec);
+  RUN_TEST(test_load_settings_should_empty_a_persisted_source_without_a_spec);
+  RUN_TEST(test_health_handler_should_do_nothing_when_no_visible_slot_shows_health);
+  RUN_TEST(test_health_handler_should_still_work_when_a_health_slot_is_visible);
+  RUN_TEST(test_full_weather_and_settings_dicts_should_fit_the_inbox);
+  RUN_TEST(test_init_should_open_app_message_with_the_named_sizes);
+  RUN_TEST(test_init_should_log_when_app_message_open_fails);
+  RUN_TEST(test_inbox_dropped_should_log_the_reason);
+  RUN_TEST(test_tuple_get_int_should_read_a_four_byte_unsigned);
+  RUN_TEST(test_handle_bluetooth_should_record_the_link_and_redraw);
+  RUN_TEST(test_chime_should_not_ask_the_speaker_off_the_full_hour_or_when_disabled);
+  RUN_TEST(test_chime_should_stay_silent_at_volume_zero);
+  RUN_TEST(test_chime_should_not_repeat_in_a_replayed_wall_hour);
+  RUN_TEST(test_chime_muted_hour_should_still_chime_if_unmuted_within_the_hour);
+  RUN_TEST(test_refresh_state_should_tolerate_a_missing_time_layer);
+  RUN_TEST(test_window_unload_should_drop_the_layer_handles_and_the_unobstructed_subscription);
+  RUN_TEST(test_deinit_should_release_every_service_init_subscribed);
   return UNITY_END();
 }

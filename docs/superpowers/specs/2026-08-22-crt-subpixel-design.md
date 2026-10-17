@@ -32,14 +32,14 @@ by reading the driver:
 
 - Emery's physical board is `obelix` (`tools/waf/pebble_test.py:422` maps board
   `obelix` → `CONFIG_PLATFORM_EMERY`), 200x228, `PBL_COLOR`
-  (`src/fw/board/displays/display_obelix.h:12-17`).
+  (`fw/board/displays/display_obelix.h:12-17`).
 - The panel is driven over the SoC's LCDC in a JDI parallel interface
-  (`src/fw/board/boards/board_obelix.c:60-67`), pinmuxed as six discrete lines,
+  (`fw/board/boards/board_obelix.c:60-67`), pinmuxed as six discrete lines,
   `r1,r2,g1,g2,b1,b2` (`board_obelix.c:90-121`) — two bits per element, which is
   where the 64 colours come from.
 - **The app's byte reaches those lines unmodified.** `display_update()` converts
   the row from 222 to the LCDC's 332 packing by moving bit positions only
-  (`src/fw/drivers/display/sf32lb/display_jdi.c:439-444`), and the driver has no
+  (`drivers/display/sf32lb/display_jdi.c:439-444`), and the driver has no
   gamma table, no LUT, no spatial or temporal dither. Writing `R=3,G=0,B=0`
   drives the red pair and nothing else. This is the precondition the idea
   normally dies on; here it holds.

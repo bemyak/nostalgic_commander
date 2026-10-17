@@ -65,7 +65,6 @@ const WatchTheme s_theme_navigator = {.center_bg = GColorDarkGray,
                                       .status_red = GColorSunsetOrange};
 
 uint8_t theme_ground_level(const WatchTheme* t) {
-  if (gcolor_equal(t->center_bg, GColorWhite)) return 3;
   if (gcolor_equal(t->center_bg, GColorLightGray)) return 2;
   if (gcolor_equal(t->center_bg, GColorDarkGray)) return 1;
   return 0;
@@ -73,15 +72,15 @@ uint8_t theme_ground_level(const WatchTheme* t) {
 
 const WatchTheme* determine_theme(int theme_setting) {
   switch (theme_setting) {
-    case 1:
+    case THEME_SETTING_DIALOG:
       return &s_theme_dialog;
-    case 2:
+    case THEME_SETTING_PANEL:
       return &s_theme_panel;
-    case 3:
+    case THEME_SETTING_SHADOW:
       return &s_theme_shadow;
-    case 4:
+    case THEME_SETTING_NAVIGATOR:
       return &s_theme_navigator;
-    default:  // 0 was Auto; it and anything unrecognized fall back to Norton
+    default:  // anything unrecognized, a stale 0 included, falls back to Norton
       return &s_theme_panel;
   }
 }

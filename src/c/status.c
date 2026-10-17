@@ -8,7 +8,7 @@
 // chip (via WEATHER_TEMP). The thresholds live here, once. A missing reading
 // stays neutral — "--" is neither hot nor cold.
 static GColor temp_band_color(int temp) {
-  if (temp == -999) return s_active_theme->text_primary;
+  if (temp == WEATHER_TEMP_NONE) return s_active_theme->text_primary;
   if (s_settings_units == UNITS_METRIC) {
     if (temp > 29) return s_active_theme->status_red;
     if (temp < 4) return s_active_theme->accent_cold;
@@ -20,8 +20,6 @@ static GColor temp_band_color(int temp) {
 }
 
 GColor get_source_color(ComplicationDataSource source) {
-  if (!s_active_theme) return GColorWhite;
-
   switch (source) {
     case DATA_SOURCE_BATTERY:
     case DATA_SOURCE_BATTERY_BAR:
@@ -64,12 +62,12 @@ GColor get_source_color(ComplicationDataSource source) {
     // Clean air and mild sun are unremarkable: only a flagged reading
     // earns a color, and the band follows it.
     case DATA_SOURCE_AQI:
-      if (s_weather_aqi == -1) return s_active_theme->text_primary;
+      if (s_weather_aqi == WEATHER_NONE) return s_active_theme->text_primary;
       if (s_weather_aqi > 100) return s_active_theme->status_red;
       if (s_weather_aqi > 50) return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
     case DATA_SOURCE_UV:
-      if (s_weather_uv == -1) return s_active_theme->text_primary;
+      if (s_weather_uv == WEATHER_NONE) return s_active_theme->text_primary;
       if (s_weather_uv >= 6) return s_active_theme->status_red;
       if (s_weather_uv >= 3) return s_active_theme->status_yellow;
       return s_active_theme->text_primary;
@@ -84,7 +82,7 @@ GColor get_source_color(ComplicationDataSource source) {
       }
       // A dry timeline is unremarkable — at or under 50 there is nothing to
       // plan around. Past 50: worth a thought; past 70: plan around it.
-      if (s_weather_pcp == -1 || s_weather_pcp <= 50) return s_active_theme->text_primary;
+      if (s_weather_pcp == WEATHER_NONE || s_weather_pcp <= 50) return s_active_theme->text_primary;
       if (s_weather_pcp > 70) return s_active_theme->status_red;
       return s_active_theme->status_yellow;
     case DATA_SOURCE_TEMP_HIGH_LOW: {
@@ -92,11 +90,12 @@ GColor get_source_color(ComplicationDataSource source) {
       // — a freezing low under a mild high stays neutral. Once today's peak
       // passes, tomorrow's high takes the headline.
       int hi = high_low_displayed_high();
-      if (hi == -999) return s_active_theme->text_primary;
+      if (hi == WEATHER_TEMP_NONE) return s_active_theme->text_primary;
       return temp_band_color(hi);
     }
     case DATA_SOURCE_AQI_UV: {
-      if (s_weather_aqi == -1 && s_weather_uv == -1) return s_active_theme->text_primary;
+      if (s_weather_aqi == WEATHER_NONE && s_weather_uv == WEATHER_NONE)
+        return s_active_theme->text_primary;
       bool is_red = (s_weather_aqi > 100 || s_weather_uv >= 6);
       bool is_yellow = (s_weather_aqi > 50 || s_weather_uv >= 3);
       if (is_red) return s_active_theme->status_red;
