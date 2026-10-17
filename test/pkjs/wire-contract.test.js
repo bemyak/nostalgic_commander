@@ -2,9 +2,8 @@
 
 // The wire contract across the language boundary: the weather field table
 // exists once in C (src/c/messaging.c, s_weather_fields) and once in JS
-// (src/pkjs/weather.js, WEATHER_FIELDS), the cache TTL exists once in
-// seconds (messaging.h) and once in milliseconds (weather.js), and package.json's messageKeys list
-// the keys both halves speak. These tests parse the C side as text and demand equality, so a
+// (src/pkjs/weather.js, WEATHER_FIELDS), and package.json's messageKeys list the
+// keys both halves speak. These tests parse the C side as text and demand equality, so a
 // one-sided rename or sentinel drift fails here instead of surfacing as "--" on the wrist. The
 // same scrape idiom pins the other cross-language seams: Clay's offered option ids and labels
 // against the ComplicationDataSource enum, and the Clay shipped defaults against the C boots.
@@ -92,17 +91,6 @@ const EXPECTED_PERSIST = new Map([
   ['SLOT_6', 'PERSIST_KEY_SLOT_6'],
 ]);
 
-// "30 * 60" → 1800; digits and '*' only.
-function evalProduct(expr) {
-  return expr.split('*')
-      .map(p => {
-        const n = Number(p.trim());
-        assert.ok(Number.isSafeInteger(n), `not an int literal: "${p}"`);
-        return n;
-      })
-      .reduce((a, b) => a * b, 1);
-}
-
 const messagingC = readRepoFile('src/c/messaging.c');
 
 test('C and JS weather tables carry identical keys and sentinels', () => {
@@ -137,16 +125,6 @@ test('persist values are unique and every pinned key is defined', () => {
   for (const name of EXPECTED_PERSIST.values()) {
     assert.ok(defs.has(name), `${name} is pinned but never defined`);
   }
-});
-
-test('the weather cache TTL agrees in seconds (C) and milliseconds (JS)', () => {
-  const sDef = readRepoFile('src/c/messaging.h')
-                   .match(/#define WEATHER_CACHE_MAX_AGE_S \(?(\d+(?:\s*\*\s*\d+)*)\)?/);
-  const msDef = readRepoFile('src/pkjs/weather.js')
-                    .match(/WEATHER_CACHE_MAX_AGE_MS = (\d+(?:\s*\*\s*\d+)*);/);
-  assert.ok(sDef, 'WEATHER_CACHE_MAX_AGE_S not found/parseable in messaging.h');
-  assert.ok(msDef, 'WEATHER_CACHE_MAX_AGE_MS not found/parseable in weather.js');
-  assert.equal(evalProduct(msDef[1]), evalProduct(sDef[1]) * 1000);
 });
 
 test('package.json messageKeys are exactly the keys messaging.c speaks', () => {
@@ -200,6 +178,12 @@ test('every slot option id Clay offers exists in ComplicationDataSource', () => 
   for (const id of scrape.claySlotOptionIds()) {
     assert.ok(ids.has(id), `Clay offers source id ${id}, absent from the enum`);
   }
+});
+
+test('the sources the phone fetches AQI for are the enum ids of AQI and AQI + UV', () => {
+  const ids = scrape.dataSourceIds();
+  const expected = [ids.get('DATA_SOURCE_AQI'), ids.get('DATA_SOURCE_AQI_UV')].map(String);
+  assert.deepEqual(weather.AQI_SOURCES, expected);
 });
 
 test('the Clay label ↔ enum name join holds on both sides', () => {

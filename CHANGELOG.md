@@ -21,8 +21,15 @@ All notable changes to Nostalgic Commander. Format follows
 - Cloudy reads `CLDY` (was `CLD`).
 - Weather older than 2 hours shows `--`.
 - A change of units or forecast window discards the readings in the old units
-  and always fetches again. The phone's cached reply is replayed only for the
-  units and window it was fetched with.
+  and always fetches again.
+- Less battery: the CRT pass runs about a quarter faster with identical
+  pixels; health events re-read only their own metric; backlight, focus,
+  battery and health events are subscribed only when a slot or the CRT effect
+  uses them; no weather requests go out while the phone is disconnected, and
+  stale weather is fetched on reconnect.
+- Less phone work: the phone no longer resends its cached weather on every
+  face launch, reuses a location fix for one fetch cycle, and skips the air
+  quality request when no slot shows AQI.
 - The UV and precipitation window follows the clock at the location, not the
   phone's.
 - Coordinates sent to Open-Meteo are rounded to 2 decimals.

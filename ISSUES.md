@@ -44,3 +44,19 @@ the analog DAC and VCM while the PA is still on, with no ramp. `audec_start`
 clears `RAMP_EN`. Suggested firmware fix: drop `pa_ctrl` before `audec_stop`,
 mute the DAC path before the DMA stop, and move the PLL off to the end.
 Unverified on hardware.
+
+## CRT turned on while a notification covers the face — accepted
+
+The strike can play over the cover until the next focus change. The Pebble SDK
+has no API to peek the current app focus, so `crt_set_in_focus()` (called when
+the CRT is subscribed mid-run) can only assume the face is in focus.
+
+Accepted: a rare, one-off cosmetic miss that the next focus change corrects.
+
+## Weather after a slow phone-app start — accepted
+
+The watch's launch request is retried twice at 5 s. If the phone's JS takes
+longer than ~10 s to start, a watch with no fresh cache shows `--` until the
+next :00/:30 fetch. A watch with a fresh cache is unaffected.
+
+Accepted: a slow phone-app start is rare, and the scheduled fetch recovers.

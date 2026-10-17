@@ -13,6 +13,9 @@ const NOW = Date.UTC(2026, 7, 8, 12, 30);
 // tests here pass it explicitly wherever the width itself is the point, and
 // otherwise rely on the 12h default.
 
+// Every WEATHER_FIELDS row present in the payload.
+const isComplete = (payload) => weather.WEATHER_FIELDS.every(f => payload[f.key] !== undefined);
+
 // Consecutive API-style hour stamps: location-local "YYYY-MM-DDTHH:MM".
 function isoHours(startMs, count) {
   const out = [];
@@ -70,8 +73,7 @@ test('field table declares every key once, with the contract sentinel', () => {
                'WEATHER_LO_HOUR_TOMORROW'])
     assert.equal(sentinel[k], -1, k);
   assert.equal(sentinel['WEATHER_FETCHED_AT'], 0);
-  // The sentinel payload is complete by construction.
-  assert.ok(weather.isCompleteWeatherPayload(weather.sentinelPayload()));
+  assert.ok(isComplete(weather.sentinelPayload()));
 });
 
 test('parseForecast maps and rounds the current block', () => {
@@ -82,7 +84,7 @@ test('parseForecast maps and rounds the current block', () => {
   assert.equal(out.WEATHER_WIND_DIRECTION, 270);
   assert.equal(out.WEATHER_WIND_SPEED, 12);
   assert.equal(out.WEATHER_PRECIP_NOW, 4);  // 0.35mm → tenths
-  assert.ok(weather.isCompleteWeatherPayload(out));
+  assert.ok(isComplete(out));
 });
 
 test('parseForecast falls back to sentinels per field', () => {
@@ -93,7 +95,7 @@ test('parseForecast falls back to sentinels per field', () => {
   assert.equal(out.WEATHER_UV, -1);
   assert.equal(out.WEATHER_HIGH, -999);
   assert.equal(out.WEATHER_HI_HOUR_TODAY, -1);
-  assert.ok(weather.isCompleteWeatherPayload(out));
+  assert.ok(isComplete(out));
 });
 
 test('a response with neither temperature nor weather code is a failure', () => {
@@ -246,19 +248,6 @@ test('parseAqi rounds real values and reads junk as no-data', () => {
   assert.equal(weather.parseAqi({}), -1);
 });
 
-test('a cache from an older build fails completeness', () => {
-  const full = weather.parseForecast(fullResponse(), NOW);
-  assert.ok(weather.isCompleteWeatherPayload(full));
-  delete full.WEATHER_UV;
-  assert.ok(!weather.isCompleteWeatherPayload(full));
-});
-
-test('cache freshness: inside the window fresh, at the edge already stale', () => {
-  assert.equal(weather.isFreshWeatherCache(NOW - 1000, NOW), true);
-  assert.equal(weather.isFreshWeatherCache(NOW - weather.WEATHER_CACHE_MAX_AGE_MS, NOW), false);
-  assert.equal(weather.isFreshWeatherCache(NOW - weather.WEATHER_CACHE_MAX_AGE_MS - 1, NOW), false);
-});
-
 test('unitsFromClaySettings: imperial is the operative default, in every no-settings shape', () => {
   const imperial = {tempUnit: 'fahrenheit', windSpeedUnit: 'mph'};
   assert.deepEqual(weather.unitsFromClaySettings(undefined), imperial);
@@ -273,17 +262,11 @@ test('unitsFromClaySettings: metric exactly on the select\'s 1, string or numeri
   assert.deepEqual(weather.unitsFromClaySettings({SETTINGS_UNITS: 1}), metric);
 });
 
-test('cache freshness: garbage and future timestamps are never fresh', () => {
-  assert.equal(weather.isFreshWeatherCache(NaN, NOW), false);
-  assert.equal(weather.isFreshWeatherCache(undefined, NOW), false);
-  assert.equal(weather.isFreshWeatherCache(NOW + 1000, NOW), false);
-  assert.equal(weather.isFreshWeatherCache(NOW - 1000, NaN), false);
-});
-
 const METRIC = {
   tempUnit: 'celsius',
   windSpeedUnit: 'ms'
 };
+
 const IMPERIAL = {
   tempUnit: 'fahrenheit',
   windSpeedUnit: 'mph'
@@ -320,28 +303,6 @@ test('every field parseForecast reads is requested from the API', () => {
     read[block].delete('time');  // always returned, never requested
     assert.ok(read[block].size > 0, block);
     for (const field of read[block]) assert.ok(requested.includes(field), `${block}.${field}`);
-  }
-});
-
-test('cache replay needs fresh, complete and matching units and window', () => {
-  const payload = weather.parseForecast(fullResponse(), NOW);
-  const entry = weather.makeWeatherCacheEntry(payload, NOW, METRIC, 12);
-  const replay = (cache, units, hours, now) =>
-      weather.shouldReplayWeatherCache(cache, now === undefined ? NOW + 1000 : now, units, hours);
-
-  assert.equal(replay(entry, METRIC, 12), true);
-  assert.equal(replay(JSON.parse(JSON.stringify(entry)), METRIC, 12), true);  // survives storage
-  assert.equal(replay(entry, IMPERIAL, 12), false);
-  assert.equal(replay(entry, METRIC, 2), false);
-  const windOnly = {tempUnit: METRIC.tempUnit, windSpeedUnit: 'mph'};
-  assert.equal(replay(entry, windOnly, 12), false);
-  assert.equal(replay(entry, METRIC, 12, NOW + weather.WEATHER_CACHE_MAX_AGE_MS), false);
-
-  const incomplete = weather.makeWeatherCacheEntry({WEATHER_TEMP: 1}, NOW, METRIC, 12);
-  assert.equal(replay(incomplete, METRIC, 12), false);
-
-  for (const junk of [null, undefined, {}, {payload}, {payload, fetchedAt: NOW}]) {
-    assert.equal(replay(junk, METRIC, 12), false);
   }
 });
 
@@ -401,4 +362,32 @@ test('a failure with a trigger queued hands over to the rerun instead of a retry
   assert.equal(guard.state.retryScheduled, false);
   assert.equal(guard.state.inFlight, true);
   assert.equal(guard.state.pending, false);
+});
+
+test('needsAqi: AQI and AQI + UV slots need the request, string or int', () => {
+  const slots = (...v) => Object.fromEntries(v.map((x, i) => ['SLOT_' + (i + 1), x]));
+  assert.equal(weather.needsAqi(slots('5', '2', '1', '6', '9', '23')), false);
+  assert.equal(weather.needsAqi(slots('16', '2', '1', '6', '9', '23')), true);
+  assert.equal(weather.needsAqi(slots('5', '2', '1', '6', '9', '18')), true);
+  assert.equal(weather.needsAqi(slots(5, 2, 1, 6, 9, 16)), true);
+  assert.equal(weather.needsAqi(slots(5, 2, 1, 6, 9, 18)), true);
+  assert.equal(weather.needsAqi(slots(5, 2, 1, 6, 9, 17)), false);  // UV alone: forecast data
+  assert.equal(weather.needsAqi(slots('5', '2', '1', '6', '9', '160')), false);
+});
+
+test('needsAqi: unknown slots default to needing AQI', () => {
+  for (const missing of [undefined, null, {}, {SETTINGS_UNITS: '1'}])
+    assert.equal(weather.needsAqi(missing), true);
+  const partial = {SLOT_1: '5', SLOT_2: '2', SLOT_3: '1', SLOT_4: '6', SLOT_5: '9'};
+  assert.equal(weather.needsAqi(partial), true);
+});
+
+test('a skipped AQI request leaves the field at its no-data sentinel', () => {
+  const out = weather.parseForecast(fullResponse(), NOW);
+  assert.equal(out.WEATHER_AQI, -1);
+  assert.equal(weather.sentinelPayload().WEATHER_AQI, -1);
+});
+
+test('the geolocation fix is reusable for just over one 30-minute cadence', () => {
+  assert.equal(weather.GEOLOCATION_MAX_AGE_MS, 31 * 60 * 1000);
 });

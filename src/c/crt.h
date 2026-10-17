@@ -190,6 +190,9 @@ void crt_play_strike_sound(void);
 // the next in-focus backlight-on, so the dismissal's flash cannot strike.
 void crt_app_focus_will_handler(bool in_focus);
 void crt_app_focus_did_handler(bool in_focus);
+// Seeds the focus state for a subscription taken after launch, when the
+// did_focus that would establish it has already come and gone.
+void crt_set_in_focus(bool in_focus);
 // Re-applies the CRT and CRT-sound settings: with the effect on it only marks
 // the overlay dirty; turning it off repaints — the OFF frame is painted by the
 // canvas/clock underneath once the background re-dirties, the overlay then

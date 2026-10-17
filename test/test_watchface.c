@@ -30,6 +30,10 @@ static const ComplicationDataSource kSlotsNoWeather[NUM_SLOTS] = {
     DATA_SOURCE_DATE,       DATA_SOURCE_BLUETOOTH, DATA_SOURCE_STEPS,
     DATA_SOURCE_HEART_RATE, DATA_SOURCE_BEATS,     DATA_SOURCE_FULL_DATE};
 
+static const ComplicationDataSource kSlotsAllHealth[NUM_SLOTS] = {
+    DATA_SOURCE_STEPS,          DATA_SOURCE_SLEEP,     DATA_SOURCE_HEART_RATE,
+    DATA_SOURCE_ACTIVE_MINUTES, DATA_SOURCE_BLUETOOTH, DATA_SOURCE_FULL_DATE};
+
 static void set_slots(const ComplicationDataSource* sources) {
   for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = sources[i];
 }
@@ -80,7 +84,10 @@ static void reset_all_state(void) {
   s_weather_request_retries = 0;
   s_weather_retry_timer = NULL;
   s_last_chimed_hour = -1;
-  s_last_throttled_health_refresh = 0;
+  s_last_movement_refresh = 0;
+  s_last_sleep_refresh = 0;
+  s_last_reconnect_request = 0;
+  s_subscribed = (SubscriptionSet){0};
   s_fmt_yday = -1;
   s_fmt_format = -1;
   s_fmt_dow = -1;
@@ -3200,6 +3207,16 @@ void test_health_handler_should_throttle_movement_updates(void) {
   TEST_ASSERT_EQUAL_INT(dirty_after_first, mock_mark_dirty_count);
 }
 
+void test_health_handler_should_throttle_each_event_type_separately(void) {
+  set_slots(kSlotsAllHealth);
+
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+  mock_time_offset += 1;
+  health_handler(HealthEventSleepUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(3, mock_health_accessible_count);
+}
+
 void test_health_handler_should_refresh_again_after_the_throttle_window(void) {
   set_slots(kSlotsOnlySteps);
 
@@ -3214,7 +3231,7 @@ void test_health_handler_should_refresh_again_after_the_throttle_window(void) {
 // A posted HR reading is already fresh — stale BPM is worse than a redraw
 // (ISSUES.md), so heart-rate events bypass the throttle.
 void test_health_handler_should_not_throttle_heart_rate_updates(void) {
-  set_slots(kSlotsOnlySteps);
+  set_slots(kSlotsBoot);
 
   health_handler(HealthEventMovementUpdate, NULL);  // opens a throttle window
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
@@ -3232,6 +3249,74 @@ void test_health_handler_should_not_throttle_significant_updates(void) {
   TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
   health_handler(HealthEventSignificantUpdate, NULL);
   TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+}
+
+static void reset_health_read_counts(void) {
+  mock_health_accessible_count = 0;
+  mock_health_sum_today_count = 0;
+  mock_health_peek_count = 0;
+}
+
+void test_health_events_should_read_only_their_own_metrics(void) {
+  set_slots(kSlotsAllHealth);
+
+  // Movement: steps and active minutes.
+  s_sleep_seconds = 111;
+  s_heart_rate = 77;
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricStepCount], s_step_count);
+  TEST_ASSERT_EQUAL_INT(111, s_sleep_seconds);
+  TEST_ASSERT_EQUAL_INT(77, s_heart_rate);
+
+  // Sleep: sleep alone.
+  reset_health_read_counts();
+  mock_time_offset += HEALTH_EVENT_THROTTLE_S + 1;
+  health_handler(HealthEventSleepUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_peek_count);
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricSleepSeconds],
+                        s_sleep_seconds);
+  TEST_ASSERT_EQUAL_INT(77, s_heart_rate);
+
+  // Heart rate: HR alone, through the instant peek.
+  reset_health_read_counts();
+  mock_heart_rate = 64;
+  health_handler(HealthEventHeartRateUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_peek_count);
+  TEST_ASSERT_EQUAL_INT(64, s_heart_rate);
+  TEST_ASSERT_EQUAL_INT((int)mock_health_sum_today_value[HealthMetricSleepSeconds],
+                        s_sleep_seconds);
+
+  // Significant: everything.
+  reset_health_read_counts();
+  health_handler(HealthEventSignificantUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(4, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(3, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_peek_count);
+}
+
+void test_health_events_the_face_does_not_use_should_read_nothing(void) {
+  set_slots(kSlotsAllHealth);
+
+  health_handler(HealthEventMetricAlert, NULL);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_accessible_count);
+}
+
+void test_minute_tick_should_read_every_health_metric(void) {
+  set_slots(kSlotsAllHealth);
+
+  struct tm t = {0};
+  t.tm_min = 14;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(4, mock_health_accessible_count);
+  TEST_ASSERT_EQUAL_INT(3, mock_health_sum_today_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_peek_count);
 }
 
 void test_undisplayed_health_metrics_should_read_as_no_data(void) {
@@ -4131,14 +4216,133 @@ void test_request_weather_should_drop_quietly_when_the_outbox_is_unavailable(voi
   TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
 }
 
-void test_init_should_subscribe_services(void) {
+void test_init_should_subscribe_only_what_the_default_layout_uses(void) {
   init();
   TEST_ASSERT_EQUAL_INT(1, mock_tick_subscribe_count);
   TEST_ASSERT_EQUAL_INT(MINUTE_UNIT, mock_tick_units);
-  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_connection_subscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_health_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_backlight_subscribe_count);
+  TEST_ASSERT_NULL(mock_app_focus_handlers.did_focus);
+}
+
+void test_init_should_subscribe_the_crt_services_when_the_effect_is_on(void) {
+  s_settings_crt = 1;
+  init();
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
+  TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.did_focus);
+  TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.will_focus);
+  // Launch focus still arrives through did_focus.
+  TEST_ASSERT_FALSE(s_app_in_focus);
+}
+
+void test_init_should_subscribe_the_battery_when_a_slot_shows_it(void) {
+  mock_battery_percent = 37;
+  s_complication_slots[1].source = DATA_SOURCE_BATTERY_BAR;
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(37, s_battery_level);
+}
+
+void test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_strike(void) {
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_backlight_subscribe_count);
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT, "1");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
+  TEST_ASSERT_NOT_NULL(mock_backlight_handler);
+  TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.did_focus);
+
+  mock_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+
+  // Unrelated pushes leave the subscription alone.
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_THEME, "1");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_backlight_unsubscribe_count);
+}
+
+void test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike(void) {
+  s_settings_crt = 1;
+  init();
+  mock_app_focus_handlers.did_focus(true);
+  mock_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+
+  mock_dict_reset();
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT, "0");
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  TEST_ASSERT_EQUAL_INT(1, mock_backlight_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_app_focus_unsubscribe_count);
+  TEST_ASSERT_NULL(mock_backlight_handler);
+}
+
+void test_removing_every_health_slot_should_unsubscribe_health(void) {
+  init();
+  TEST_ASSERT_EQUAL_INT(1, mock_health_subscribe_count);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_2, DATA_SOURCE_DATE);
+  mock_dict_add_int(MESSAGE_KEY_SLOT_3, DATA_SOURCE_DATE);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, mock_health_unsubscribe_count);  // HR still shown
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_4, DATA_SOURCE_DATE);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_unsubscribe_count);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_4, DATA_SOURCE_STEPS);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_subscribe_count);
+}
+
+void test_adding_a_battery_slot_should_subscribe_and_show_the_current_level(void) {
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_battery_subscribe_count);
+  mock_battery_percent = 42;
+  mock_battery_charging = true;
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_2, DATA_SOURCE_BATTERY);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(42, s_battery_level);
+  TEST_ASSERT_TRUE(s_battery_charging);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_2, DATA_SOURCE_BATTERY_BAR);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_battery_unsubscribe_count);
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SLOT_2, DATA_SOURCE_SLEEP);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_unsubscribe_count);
+}
+
+void test_wanted_subscriptions_should_follow_slots_and_settings(void) {
+  set_slots(kSlotsNoHealth);
+  SubscriptionSet want = wanted_subscriptions();
+  TEST_ASSERT_FALSE(want.battery);
+  TEST_ASSERT_FALSE(want.health);
+  TEST_ASSERT_FALSE(want.crt);
+
+  set_slots(kSlotsAllHealth);
+  s_settings_crt = 1;
+  s_complication_slots[4].source = DATA_SOURCE_BATTERY;
+  want = wanted_subscriptions();
+  TEST_ASSERT_TRUE(want.battery);
+  TEST_ASSERT_TRUE(want.health);
+  TEST_ASSERT_TRUE(want.crt);
 }
 
 void test_init_should_register_appmessage_handlers(void) {
@@ -5402,6 +5606,41 @@ void test_crt_pass_should_follow_the_row_stride(void) {
   }
 }
 
+// Grey ink, coloured fills and hard edges across the whole face, corner boxes
+// and interior alike.
+static uint8_t crt_regression_pixel(int x, int y) {
+  uint8_t grey = (uint8_t)(((x / 4 + y / 6) % 4) * 21);
+  uint8_t px = 0xC0 | grey;
+  int bx = x / 24, by = y / 20;
+  if ((bx + by) % 5 == 2)
+    px = 0xC0 | (uint8_t)(((bx % 4) << 4) | ((by % 4) << 2) | ((bx + by + 1) % 4));
+  if (x % 37 == 0 || y % 29 == 0) px = 0xFF;
+  if (x % 53 == 1) px = 0xC0;
+  return px;
+}
+
+// FNV-1a over the pass's output for every theme, idle and mid-strike. The
+// hash pins byte-identical output: re-pin it only for an intended visual
+// change, never for a pass optimisation.
+void test_crt_pass_should_keep_its_pinned_output(void) {
+  static uint8_t fb[SCREEN_W * SCREEN_H];
+  const WatchTheme* themes[] = {&s_theme_panel, &s_theme_shadow, &s_theme_dialog,
+                                &s_theme_navigator, &s_theme_amber};
+  const int phases[] = {CRT_FLASH_IDLE, 3};
+  uint32_t hash = 2166136261u;
+  for (unsigned t = 0; t < sizeof(themes) / sizeof(themes[0]); t++) {
+    for (unsigned p = 0; p < sizeof(phases) / sizeof(phases[0]); p++) {
+      s_active_theme = themes[t];
+      for (int y = 0; y < SCREEN_H; y++) {
+        for (int x = 0; x < SCREEN_W; x++) fb[y * SCREEN_W + x] = crt_regression_pixel(x, y);
+      }
+      crt_apply_framebuffer(fb, SCREEN_W, SCREEN_H, SCREEN_W, phases[p]);
+      for (int i = 0; i < SCREEN_W * SCREEN_H; i++) hash = (hash ^ fb[i]) * 16777619u;
+    }
+  }
+  TEST_ASSERT_EQUAL_HEX32(0x01EA6621u, hash);
+}
+
 // R-minus-B centroid of a one-pixel white column on black, along one row: the
 // channels' separation, which row jitter moves identically and so cancels.
 static int ca_channel_separation(void) {
@@ -5914,6 +6153,91 @@ void test_a_launch_request_should_start_the_retry_budget_over(void) {
   TEST_ASSERT_EQUAL_INT(0, s_weather_request_retries);
 }
 
+void test_weather_requests_should_not_send_while_the_phone_is_disconnected(void) {
+  s_connected = false;
+
+  request_weather();
+  request_weather_retry();
+  weather_retry_callback(NULL);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+
+  struct tm t = {0};
+  t.tm_min = 30;
+  tick_handler(&t, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+}
+
+void test_init_should_not_fetch_weather_while_the_phone_is_disconnected(void) {
+  mock_bt_connected = false;
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+}
+
+void test_weather_fetch_on_reconnect_should_follow_the_stamp_age(void) {
+  time_t now = 1000000;
+  TEST_ASSERT_TRUE(weather_fetch_on_reconnect(true, 0, now, 0));
+  TEST_ASSERT_TRUE(weather_fetch_on_reconnect(true, now - WEATHER_CACHE_MAX_AGE_S - 1, now, 0));
+  TEST_ASSERT_TRUE(
+      weather_fetch_on_reconnect(true, now + WEATHER_STAMP_FUTURE_SLACK_S + 1, now, 0));
+  TEST_ASSERT_FALSE(weather_fetch_on_reconnect(true, now - WEATHER_CACHE_MAX_AGE_S, now, 0));
+  TEST_ASSERT_FALSE(weather_fetch_on_reconnect(true, now, now, 0));
+  TEST_ASSERT_FALSE(weather_fetch_on_reconnect(false, 0, now, 0));
+}
+
+void test_weather_fetch_on_reconnect_should_hold_the_minimum_gap(void) {
+  time_t now = 1000000;
+  time_t stale = now - WEATHER_CACHE_MAX_AGE_S - 1;
+  TEST_ASSERT_FALSE(weather_fetch_on_reconnect(true, stale, now, now - 10));
+  TEST_ASSERT_FALSE(
+      weather_fetch_on_reconnect(true, stale, now, now - WEATHER_RECONNECT_MIN_GAP_S + 1));
+  TEST_ASSERT_TRUE(weather_fetch_on_reconnect(true, stale, now, now - WEATHER_RECONNECT_MIN_GAP_S));
+  TEST_ASSERT_TRUE(weather_fetch_on_reconnect(true, stale, now, now + 10));
+}
+
+void test_reconnect_should_request_weather_once_when_the_data_is_stale(void) {
+  s_weather_stamp = (int)time(NULL) - WEATHER_CACHE_MAX_AGE_S - 60;
+  handle_bluetooth(false);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sends);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
+}
+
+void test_reconnect_should_not_request_again_within_the_minimum_gap(void) {
+  s_weather_stamp = (int)time(NULL) - WEATHER_CACHE_MAX_AGE_S - 60;
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sends);
+
+  mock_time_offset += 10;
+  handle_bluetooth(false);
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sends);
+
+  mock_time_offset += 51;
+  handle_bluetooth(false);
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(2, mock_outbox_sends);
+}
+
+void test_reconnect_should_not_request_weather_when_the_data_is_fresh(void) {
+  s_weather_stamp = (int)time(NULL) - 60;
+  handle_bluetooth(false);
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+}
+
+void test_reconnect_should_not_request_weather_without_a_weather_slot(void) {
+  set_slots(kSlotsNoWeather);
+  s_weather_stamp = 0;
+  handle_bluetooth(false);
+  handle_bluetooth(true);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
+}
+
 // -----------------------------------------------------------------------------
 // Slots, health events, app message, wire widths, bluetooth
 // -----------------------------------------------------------------------------
@@ -6119,7 +6443,11 @@ void test_window_unload_should_drop_the_layer_handles_and_the_unobstructed_subsc
 }
 
 void test_deinit_should_release_every_service_init_subscribed(void) {
+  s_settings_crt = 1;
+  s_complication_slots[1].source = DATA_SOURCE_BATTERY;
   init();
+  TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
   deinit();
   TEST_ASSERT_EQUAL_INT(mock_tick_subscribe_count, mock_tick_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(mock_battery_subscribe_count, mock_battery_unsubscribe_count);
@@ -6251,9 +6579,13 @@ int main(void) {
   RUN_TEST(test_update_health_info_should_read_only_displayed_metrics);
   RUN_TEST(test_update_health_info_should_land_each_metric_on_its_own_target);
   RUN_TEST(test_health_handler_should_throttle_movement_updates);
+  RUN_TEST(test_health_handler_should_throttle_each_event_type_separately);
   RUN_TEST(test_health_handler_should_refresh_again_after_the_throttle_window);
   RUN_TEST(test_health_handler_should_not_throttle_heart_rate_updates);
   RUN_TEST(test_health_handler_should_not_throttle_significant_updates);
+  RUN_TEST(test_health_events_should_read_only_their_own_metrics);
+  RUN_TEST(test_health_events_the_face_does_not_use_should_read_nothing);
+  RUN_TEST(test_minute_tick_should_read_every_health_metric);
   RUN_TEST(test_undisplayed_health_metrics_should_read_as_no_data);
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_should_sentinel_out_of_range_semantic_ints_and_cap_display_widths);
@@ -6308,7 +6640,22 @@ int main(void) {
   RUN_TEST(test_init_should_not_fetch_when_the_cache_is_fresh);
   RUN_TEST(test_init_should_not_fetch_without_a_weather_slot);
   RUN_TEST(test_request_weather_should_drop_quietly_when_the_outbox_is_unavailable);
-  RUN_TEST(test_init_should_subscribe_services);
+  RUN_TEST(test_init_should_subscribe_only_what_the_default_layout_uses);
+  RUN_TEST(test_init_should_subscribe_the_crt_services_when_the_effect_is_on);
+  RUN_TEST(test_init_should_subscribe_the_battery_when_a_slot_shows_it);
+  RUN_TEST(test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_strike);
+  RUN_TEST(test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike);
+  RUN_TEST(test_removing_every_health_slot_should_unsubscribe_health);
+  RUN_TEST(test_adding_a_battery_slot_should_subscribe_and_show_the_current_level);
+  RUN_TEST(test_wanted_subscriptions_should_follow_slots_and_settings);
+  RUN_TEST(test_weather_requests_should_not_send_while_the_phone_is_disconnected);
+  RUN_TEST(test_init_should_not_fetch_weather_while_the_phone_is_disconnected);
+  RUN_TEST(test_weather_fetch_on_reconnect_should_follow_the_stamp_age);
+  RUN_TEST(test_weather_fetch_on_reconnect_should_hold_the_minimum_gap);
+  RUN_TEST(test_reconnect_should_not_request_again_within_the_minimum_gap);
+  RUN_TEST(test_reconnect_should_request_weather_once_when_the_data_is_stale);
+  RUN_TEST(test_reconnect_should_not_request_weather_when_the_data_is_fresh);
+  RUN_TEST(test_reconnect_should_not_request_weather_without_a_weather_slot);
   RUN_TEST(test_init_should_register_appmessage_handlers);
   RUN_TEST(test_window_load_should_subscribe_unobstructed_area);
   RUN_TEST(test_tuple_get_int_should_parse_every_wire_width);
@@ -6356,6 +6703,7 @@ int main(void) {
   RUN_TEST(test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off);
   RUN_TEST(test_crt_setting_change_should_disarm_a_pending_cover_suppression);
   RUN_TEST(test_crt_pass_should_follow_the_row_stride);
+  RUN_TEST(test_crt_pass_should_keep_its_pinned_output);
   RUN_TEST(test_crt_strike_should_widen_the_channel_separation);
   RUN_TEST(test_crt_strike_should_pull_a_box_apart_by_the_boost_in_whole_pixels);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);

@@ -54,13 +54,21 @@ typedef enum {
 // sentinels: every update pass starts from these empty values, health
 // hardware or not. A metric is read while any visible slot's spec
 // attributes it (complication.c's .health_metric); the watchful source list
-// is the registry's, not this table's.
+// is the registry's, not this table's. `events` is the set of health events
+// that refresh the metric: PebbleOS posts each kind on its own cadence, and
+// the Sleep and ActiveSeconds reads walk 30 days of history, so an event
+// pays only for the metrics it can have changed. SignificantUpdate and the
+// minute tick refresh them all (HEALTH_REFRESH_ALL).
+#define HEALTH_EVENT_BIT(event) (1u << (event))
+#define HEALTH_REFRESH_ALL (~0u)
+
 typedef struct {
   HealthMetric metric;
   int* target;
   int empty_value;
   HealthReadMode mode;
   int divisor;  // seconds → display unit (active minutes)
+  unsigned events;
 } HealthRead;
 
 static const HealthRead s_health_reads[] = {
@@ -68,34 +76,42 @@ static const HealthRead s_health_reads[] = {
      .target = &s_step_count,
      .empty_value = -1,
      .mode = HEALTH_READ_RANGE_SUM,
-     .divisor = 1},
+     .divisor = 1,
+     .events = HEALTH_EVENT_BIT(HealthEventMovementUpdate)},
     {.metric = HealthMetricSleepSeconds,
      .target = &s_sleep_seconds,
      .empty_value = -1,
      .mode = HEALTH_READ_RANGE_SUM,
-     .divisor = 1},
+     .divisor = 1,
+     .events = HEALTH_EVENT_BIT(HealthEventSleepUpdate)},
     {.metric = HealthMetricActiveSeconds,
      .target = &s_active_minutes,
      .empty_value = -1,
      .mode = HEALTH_READ_RANGE_SUM,
-     .divisor = 60},
+     .divisor = 60,
+     .events = HEALTH_EVENT_BIT(HealthEventMovementUpdate)},
     {.metric = HealthMetricHeartRateBPM,
      .target = &s_heart_rate,
      .empty_value = 0,
      .mode = HEALTH_READ_INSTANT_PEEK,
-     .divisor = 1},
+     .divisor = 1,
+     .events = HEALTH_EVENT_BIT(HealthEventHeartRateUpdate)},
 };
 
-// Every update pass starts from the table's empty values: a skipped or denied
-// metric keeps its sentinel, a watched and accessible one gets overwritten.
-static void reset_health_readings(void) {
+// Every update pass starts the metrics it refreshes from the table's empty
+// values: a skipped or denied metric keeps its sentinel, a watched and
+// accessible one gets overwritten. `trigger` is a HEALTH_EVENT_BIT or
+// HEALTH_REFRESH_ALL.
+static void reset_health_readings(unsigned trigger) {
   for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
-    *s_health_reads[i].target = s_health_reads[i].empty_value;
+    if (s_health_reads[i].events & trigger) {
+      *s_health_reads[i].target = s_health_reads[i].empty_value;
+    }
   }
 }
 
-static void update_health_info(void) {
-  reset_health_readings();
+static void update_health_metrics(unsigned trigger) {
+  reset_health_readings(trigger);
 #if defined(PBL_HEALTH)
   time_t start = time_start_of_today();
   time_t now = time(NULL);
@@ -105,6 +121,7 @@ static void update_health_info(void) {
   // data — the tick that follows the settings push refills them.
   for (unsigned i = 0; i < sizeof(s_health_reads) / sizeof(s_health_reads[0]); i++) {
     const HealthRead* read = &s_health_reads[i];
+    if (!(read->events & trigger)) continue;
     if (!any_slot_monitors_health(read->metric)) continue;
     HealthServiceAccessibilityMask mask =
         read->mode == HEALTH_READ_INSTANT_PEEK
@@ -117,6 +134,10 @@ static void update_health_info(void) {
     *read->target = (int)(value / read->divisor);
   }
 #endif
+}
+
+static void update_health_info(void) {
+  update_health_metrics(HEALTH_REFRESH_ALL);
 }
 
 void refresh_state(void) {
@@ -240,9 +261,19 @@ static void battery_callback(BatteryChargeState state) {
   request_ui_redraw();
 }
 
+static time_t s_last_reconnect_request;
+
 static void handle_bluetooth(bool connected) {
   s_connected = connected;
   request_ui_redraw();
+  // Sends are skipped while the link is down, so a reconnect is the first
+  // chance to catch up on a fetch that came due in the meantime.
+  time_t now = time(NULL);
+  if (connected && weather_fetch_on_reconnect(any_slot_needs_weather(), s_weather_stamp, now,
+                                              s_last_reconnect_request)) {
+    s_last_reconnect_request = now;
+    request_weather();
+  }
 }
 
 #if defined(PBL_HEALTH)
@@ -250,11 +281,12 @@ static void handle_bluetooth(bool connected) {
 // long as the wearer keeps moving; SleepUpdate rides the same accel-driven
 // cadence. With a step- or sleep-bearing slot visible every one of them
 // changed the snapshot, so the face rendered several times a second while
-// walking. Timestamp-based leading-edge throttle (no app_timer): the 60 s
-// tick stays the freshness floor, and a dropped event's data lands at the
-// next in-window event or tick.
+// walking. Timestamp-based leading-edge throttle per event type (no
+// app_timer): the 60 s tick stays the freshness floor, and a dropped event's
+// data lands at the next in-window event or tick.
 #define HEALTH_EVENT_THROTTLE_S 5
-static time_t s_last_throttled_health_refresh;
+static time_t s_last_movement_refresh;
+static time_t s_last_sleep_refresh;
 
 static void health_handler(HealthEventType event, void* context) {
   (void)context;
@@ -263,20 +295,85 @@ static void health_handler(HealthEventType event, void* context) {
   // rollover, subscribe); rare, load-bearing, never throttled. HeartRateUpdate
   // bypasses the throttle too: a posted reading is already fresh, and stale
   // BPM is worse than a redraw (see ISSUES.md).
-  if (event == HealthEventHeartRateUpdate || event == HealthEventSignificantUpdate) {
+  if (event == HealthEventSignificantUpdate) {
     update_health_info();
+    request_ui_redraw();
+    return;
+  }
+  if (event == HealthEventHeartRateUpdate) {
+    update_health_metrics(HEALTH_EVENT_BIT(event));
     request_ui_redraw();
     return;
   }
   if (event == HealthEventMovementUpdate || event == HealthEventSleepUpdate) {
     time_t now = time(NULL);
-    if (now - s_last_throttled_health_refresh < HEALTH_EVENT_THROTTLE_S) return;
-    s_last_throttled_health_refresh = now;
-    update_health_info();
+    time_t* last =
+        event == HealthEventMovementUpdate ? &s_last_movement_refresh : &s_last_sleep_refresh;
+    if (now - *last < HEALTH_EVENT_THROTTLE_S) return;
+    *last = now;
+    update_health_metrics(HEALTH_EVENT_BIT(event));
     request_ui_redraw();
   }
 }
 #endif
+
+// The services whose events feed only some configurations; connection and
+// the minute tick are always on. Each is held only while something consumes
+// it: a subscription wakes the app for every event it delivers.
+typedef struct {
+  bool battery;  // a slot shows the battery
+  bool health;   // a slot shows a health metric
+  bool crt;      // the CRT effect's backlight strike and app focus gate
+} SubscriptionSet;
+
+static SubscriptionSet s_subscribed;
+
+static SubscriptionSet wanted_subscriptions(void) {
+  return (SubscriptionSet){.battery = any_slot_backed_by(DATA_SOURCE_BATTERY),
+                           .health = any_slot_shows_health(),
+                           .crt = s_settings_crt != 0};
+}
+
+// Subscribes and unsubscribes only the services whose want changed.
+// `running` is false at launch, where focus still arrives through
+// did_focus; a CRT turned on mid-run has no such event coming, since focus
+// is long established.
+static void apply_subscriptions(SubscriptionSet want, bool running) {
+  if (want.battery != s_subscribed.battery) {
+    if (want.battery) {
+      battery_state_service_subscribe(battery_callback);
+      // The level goes stale while unsubscribed.
+      battery_callback(battery_state_service_peek());
+    } else {
+      battery_state_service_unsubscribe();
+    }
+  }
+  if (want.crt != s_subscribed.crt) {
+    if (want.crt) {
+      backlight_service_subscribe(crt_backlight_handler);
+      app_focus_service_subscribe_handlers((AppFocusHandlers){
+          .will_focus = crt_app_focus_will_handler, .did_focus = crt_app_focus_did_handler});
+      if (running) crt_set_in_focus(true);
+    } else {
+      backlight_service_unsubscribe();
+      app_focus_service_unsubscribe();
+    }
+  }
+#if defined(PBL_HEALTH)
+  if (want.health != s_subscribed.health) {
+    if (want.health) {
+      health_service_events_subscribe(health_handler, NULL);
+    } else {
+      health_service_events_unsubscribe();
+    }
+  }
+#endif
+  s_subscribed = want;
+}
+
+void refresh_subscriptions(void) {
+  apply_subscriptions(wanted_subscriptions(), true);
+}
 
 // -----------------------------------------------------------------------------
 // Window Management
@@ -359,19 +456,13 @@ static void init(void) {
   window_stack_push(s_main_window, true);
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-  battery_state_service_subscribe(battery_callback);
-  backlight_service_subscribe(crt_backlight_handler);
-  app_focus_service_subscribe_handlers((AppFocusHandlers){.will_focus = crt_app_focus_will_handler,
-                                                          .did_focus = crt_app_focus_did_handler});
   connection_service_subscribe(
       (ConnectionHandlers){.pebble_app_connection_handler = handle_bluetooth});
-#if defined(PBL_HEALTH)
-  health_service_events_subscribe(health_handler, NULL);
-#endif
+  // The battery level is seeded here through battery_callback when shown.
+  apply_subscriptions(wanted_subscriptions(), false);
 
-  // Peek the initial states — seeding through battery_callback is fine, but
-  // handle_bluetooth on launch would buzz while the phone is merely away.
-  battery_callback(battery_state_service_peek());
+  // Peek the initial states — handle_bluetooth on launch would buzz while
+  // the phone is merely away.
   s_connected = connection_service_peek_pebble_app_connection();
   s_quiet_time_active = quiet_time_is_active();
 
@@ -395,13 +486,8 @@ static void init(void) {
 
 static void deinit(void) {
   tick_timer_service_unsubscribe();
-  battery_state_service_unsubscribe();
-  backlight_service_unsubscribe();
-  app_focus_service_unsubscribe();
+  apply_subscriptions((SubscriptionSet){0}, true);
   connection_service_unsubscribe();
-#if defined(PBL_HEALTH)
-  health_service_events_unsubscribe();
-#endif
   crt_deinit();
   window_destroy(s_main_window);
   canvas_deinit();

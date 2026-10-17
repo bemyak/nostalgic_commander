@@ -447,6 +447,14 @@ bool any_slot_needs_weather(void) {
   return false;
 }
 
+bool any_slot_backed_by(ComplicationDataSource source) {
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);
+    if (spec && spec->backs == source) return true;
+  }
+  return false;
+}
+
 bool any_slot_monitors_health(int metric) {
   for (int i = 0; i < NUM_SLOTS; i++) {
     const ComplicationSpec* spec = complication_spec(s_complication_slots[i].source);

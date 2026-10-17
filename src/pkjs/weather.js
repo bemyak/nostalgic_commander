@@ -6,11 +6,11 @@
 // is, is a setting; this is its shipped default.
 var DEFAULT_WINDOW_HOURS = 12;
 
-// One row per value the watch consumes. The AppMessage dict, the sentinel
-// fallback for anything unparsable, and the cached-payload completeness check
-// are all projections of this table. Adding a field is one row here, its
-// parse code in parseForecast below, and the C-side walk row. AQI is filled
-// from the second (air-quality) response, not the forecast JSON.
+// One row per value the watch consumes. The AppMessage dict and the sentinel
+// fallback for anything unparsable are projections of this table. Adding a
+// field is one row here, its parse code in parseForecast below, and the C-side
+// walk row. AQI is filled from the second (air-quality) response, not the
+// forecast JSON.
 var WEATHER_FIELDS = [
   {key: 'WEATHER_TEMP', sentinel: -999},
   {key: 'WEATHER_COND', sentinel: -1},  // raw WMO weather code
@@ -42,45 +42,10 @@ function sentinelPayload() {
   return out;
 }
 
-// A payload missing any field row is never replayed from the cache.
-function isCompleteWeatherPayload(payload) {
-  return WEATHER_FIELDS.every(function(f) { return payload[f.key] !== undefined; });
-}
-
-// The phone-side weather cache's freshness window. The watch keeps the same
-// figure in seconds (messaging.h's WEATHER_CACHE_MAX_AGE_S) —
-// wire-contract.test.js pins the two in agreement.
-var WEATHER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
-
-// Position staleness is its own budget, not the payload cache's: a cached fix
-// plus a cached payload can describe where you were up to ~1 h ago, so raising
-// the TTL must not silently widen the accepted GPS age.
-var GEOLOCATION_MAX_AGE_MS = 30 * 60 * 1000;
-
-// Fresh = fetched within the window. Garbage timestamps (NaN, undefined) are
-// never fresh, nor is a future one; at exactly the window edge the cache is
-// already stale.
-function isFreshWeatherCache(fetchedAtMs, nowMs) {
-  if (typeof fetchedAtMs !== 'number' || !isFinite(fetchedAtMs) || typeof nowMs !== 'number' ||
-      !isFinite(nowMs)) {
-    return false;
-  }
-  var age = nowMs - fetchedAtMs;
-  return age >= 0 && age < WEATHER_CACHE_MAX_AGE_MS;
-}
-
-function makeWeatherCacheEntry(payload, nowMs, units, windowHours) {
-  return {payload: payload, fetchedAt: nowMs, units: units, windowHours: windowHours};
-}
-
-// A cached payload is replayed only when it is fresh, complete, and was
-// fetched with the units and window the settings select now.
-function shouldReplayWeatherCache(cache, nowMs, units, windowHours) {
-  return !!cache && !!cache.payload && !!cache.units &&
-      isFreshWeatherCache(cache.fetchedAt, nowMs) && isCompleteWeatherPayload(cache.payload) &&
-      cache.units.tempUnit === units.tempUnit &&
-      cache.units.windSpeedUnit === units.windSpeedUnit && cache.windowHours === windowHours;
-}
+// Position staleness is its own budget. The reuse window is just over one
+// 30-minute fetch cadence, so every other fetch reliably reuses the previous
+// fix instead of depending on timing jitter.
+var GEOLOCATION_MAX_AGE_MS = 31 * 60 * 1000;
 
 // The settings select stores raw option values as strings ('1' = metric,
 // matching data.h's UNITS_METRIC — wire-contract.test.js pins that join).
@@ -105,6 +70,20 @@ function windowHoursFromClaySettings(settings) {
   if (raw === undefined) return DEFAULT_WINDOW_HOURS;
   var hours = parseInt(raw, 10);
   return isNaN(hours) ? DEFAULT_WINDOW_HOURS : hours;
+}
+
+// ComplicationDataSource ids (data.h) that read WEATHER_AQI: AQI and AQI + UV.
+var AQI_SOURCES = ['16', '18'];
+var SLOT_KEYS = ['SLOT_1', 'SLOT_2', 'SLOT_3', 'SLOT_4', 'SLOT_5', 'SLOT_6'];
+
+// Whether any slot shows an AQI-bearing source. The slot selects store raw
+// option values as strings. A slot missing from the settings (nothing saved
+// yet) is unknown, so it counts as needing AQI.
+function needsAqi(settings) {
+  return SLOT_KEYS.some(function(key) {
+    var raw = settings ? settings[key] : undefined;
+    return raw === undefined || raw === null || AQI_SOURCES.indexOf(String(raw)) !== -1;
+  });
 }
 
 var FORECAST_CURRENT_FIELDS = [
@@ -310,14 +289,11 @@ module.exports = {
   DEFAULT_WINDOW_HOURS : DEFAULT_WINDOW_HOURS,
   windowHoursFromClaySettings : windowHoursFromClaySettings,
   sentinelPayload : sentinelPayload,
-  isCompleteWeatherPayload : isCompleteWeatherPayload,
-  makeWeatherCacheEntry : makeWeatherCacheEntry,
-  shouldReplayWeatherCache : shouldReplayWeatherCache,
   buildForecastUrl : buildForecastUrl,
   buildAqiUrl : buildAqiUrl,
-  WEATHER_CACHE_MAX_AGE_MS : WEATHER_CACHE_MAX_AGE_MS,
   GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
-  isFreshWeatherCache : isFreshWeatherCache,
+  needsAqi : needsAqi,
+  AQI_SOURCES : AQI_SOURCES,
   unitsFromClaySettings : unitsFromClaySettings,
   parseForecast : parseForecast,
   parseAqi : parseAqi,

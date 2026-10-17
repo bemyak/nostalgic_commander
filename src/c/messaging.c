@@ -193,6 +193,15 @@ bool weather_fetch_after_settings(bool needs_weather, bool units_changed, bool w
   return needs_weather && (units_changed || window_changed || !needed_weather || slots_changed);
 }
 
+bool weather_fetch_on_reconnect(bool needs_weather, time_t stamp, time_t now, time_t last_request) {
+  if (!needs_weather) return false;
+  if (last_request > 0 && now >= last_request && now - last_request < WEATHER_RECONNECT_MIN_GAP_S) {
+    return false;
+  }
+  return stamp <= 0 || stamp > now + WEATHER_STAMP_FUTURE_SLACK_S ||
+         now - stamp > WEATHER_CACHE_MAX_AGE_S;
+}
+
 static void weather_clear(void) {
   for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
     *s_weather_fields[i].target = s_weather_fields[i].sentinel;
@@ -263,6 +272,9 @@ void load_settings(void) {
 }
 
 static void send_weather_request(void) {
+  // With no phone link the outbox fails at once and would only arm the
+  // retry timer; weather_fetch_on_reconnect() asks again when the link is back.
+  if (!s_connected) return;
   DictionaryIterator* iter;
   app_message_outbox_begin(&iter);
   // No retry on begin failure (outbox_failed never fires when nothing was
@@ -373,6 +385,8 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     s_complication_slots[i].source = source;
     persist_write_int_if_changed(s_slot_keys[i].persist_key, s_complication_slots[i].source);
   }
+
+  refresh_subscriptions();
 
   // A weather reply carries no SLOT_*/SETTINGS_* keys and changes no
   // assignments, so it never re-arms a request.

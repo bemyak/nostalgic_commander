@@ -7,3 +7,6 @@ extern TextLayer* s_time_layer;
 
 void refresh_state(void);
 void weather_retries_reset(void);
+// Re-derives which services are subscribed from the slots and settings;
+// call after either changes.
+void refresh_subscriptions(void);

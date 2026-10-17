@@ -45,5 +45,6 @@ const ComplicationSpec* complication_spec(ComplicationDataSource source);
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent);
 const char* get_source_label(ComplicationDataSource source);
 bool any_slot_needs_weather(void);
+bool any_slot_backed_by(ComplicationDataSource source);
 bool any_slot_monitors_health(int metric);
 bool any_slot_shows_health(void);

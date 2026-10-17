@@ -5,6 +5,15 @@
 #include "main.h"
 #include "theme.h"
 
+// The pass runs per pixel on every CRT frame; the SDK's -Os trades its speed
+// for code size the app can afford. Pragma, not a function attribute, so the
+// inlined helpers below share the level; popped at the end of the file, where
+// the host tests' single translation unit continues with other modules.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+#endif
+
 // Everything runs on GColor8 bytes (0xAARRGGBB, 2 bits per channel) captured
 // from the framebuffer. Emery-only build; the face targets no B&W platform.
 
@@ -300,6 +309,10 @@ static int max2(int a, int b) {
   return a > b ? a : b;
 }
 
+static bool is_grey(uint8_t c) {
+  return ((c >> 4) & 3) == ((c >> 2) & 3) && ((c >> 2) & 3) == (c & 3);
+}
+
 static int hold_hue(int v, int src, int other1, int other2) {
   return (src > 0 && v == 0 && (other1 > 0 || other2 > 0)) ? 1 : v;
 }
@@ -333,13 +346,12 @@ static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, c
 
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
   static uint8_t row_ca[SCREEN_W];
-  // Per-column: was the pixel grey as DRAWN? Stage 2 decides it from the raw
-  // row; stage 3 needs the same answer for the column its blend leans on.
-  static bool row_grey[SCREEN_W];
   static uint16_t s_ca_xq[SCREEN_W];
   // Per-column side-axis vignette depth, and the corner arcs' depth by (ey, ex).
   static uint16_t s_col_depth[SCREEN_W];
   static uint8_t s_corner_d[CRT_CORNER_RADIUS][CRT_CORNER_RADIUS];
+  // First column whose side depth reaches CRT_VIGNETTE_PX, or w if none.
+  static int s_interior_x0 = 0;
   static int s_tables_w = 0;
   if (w > SCREEN_W || w <= 1 || h <= 1 || stride < w) return;
   if (s_tables_w != w) {
@@ -348,6 +360,8 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       s_ca_xq[x] = (uint16_t)((dx * dx * 256) / ((w - 1) * (w - 1)));
       s_col_depth[x] = (uint16_t)edge_depth_x(x < w - 1 - x ? x : w - 1 - x);
     }
+    s_interior_x0 = 0;
+    while (s_interior_x0 < w && s_col_depth[s_interior_x0] < CRT_VIGNETTE_PX) s_interior_x0++;
     for (int ey = 0; ey < CRT_CORNER_RADIUS; ey++) {
       for (int ex = 0; ex < CRT_CORNER_RADIUS; ex++) {
         s_corner_d[ey][ex] = (uint8_t)corner_depth(ex, ey);
@@ -503,6 +517,11 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       // cannot answer that. Classify on the raw pixel, act on the CA'd one.
       const uint8_t* raw_row = s_vraw_ring[y % 3];
       for (int x = 0; x < w; x++) {
+        // At f = 256 every rule below is a no-op, so row_ca[x] is already final.
+        if (x == s_interior_x0 && ey_depth >= CRT_VIGNETTE_PX) {
+          x = w - s_interior_x0 - 1;
+          continue;
+        }
         int ex = x < w - 1 - x ? x : w - 1 - x;
         int ex_depth = s_col_depth[x];
         int d = (corner_row && ex_depth < CRT_CORNER_RADIUS)
@@ -529,8 +548,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
         int r = vignette_level(rs, f, t);
         int g = vignette_level(gs, f, (t + 5) & 15);
         int b = vignette_level(bs, f, (t + 10) & 15);
-        uint8_t q = raw_row[x];
-        bool grey_src = ((q >> 4) & 3) == ((q >> 2) & 3) && ((q >> 2) & 3) == (q & 3);
+        bool grey_src = is_grey(raw_row[x]);
         if (vig_ground > 0 && grey_src) {
           // Keep ink clear of the field's whole dither span — but only where
           // content is meant to be read. Below READ_Q8 the falloff IS the
@@ -556,7 +574,6 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
           g = hold_hue(g0, gs, r0, b0);
           b = hold_hue(b0, bs, r0, g0);
         }
-        row_grey[x] = grey_src;
         row_ca[x] = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
       }
 
@@ -595,6 +612,10 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
         int sx1 = sx + 1;
         if (sx1 >= w) sx1 = sx;
         uint8_t p0 = row_ca[sx], p1 = row_ca[sx1];
+        if (p0 == p1) {
+          row[x] = p0;
+          continue;
+        }
         int r = ((256 - fr) * ((p0 >> 4) & 3) + fr * ((p1 >> 4) & 3) + 128) >> 8;
         int g = ((256 - fr) * ((p0 >> 2) & 3) + fr * ((p1 >> 2) & 3) + 128) >> 8;
         int b = ((256 - fr) * (p0 & 3) + fr * (p1 & 3) + 128) >> 8;
@@ -603,7 +624,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
         // alarm red stage 2's hold_hue exists to prevent. Keyed on the LOWER
         // tap's content (usually the dominant one) so grey ink keeps the
         // separation stage 2 gave it instead of having a channel lifted back.
-        if (!row_grey[sx]) {
+        if (!is_grey(raw_row[sx])) {
           int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
           int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
           int sb = max2(p0 & 3, p1 & 3);
@@ -804,6 +825,10 @@ void crt_app_focus_did_handler(bool in_focus) {
   if (in_focus) s_app_in_focus = true;
 }
 
+void crt_set_in_focus(bool in_focus) {
+  s_app_in_focus = in_focus;
+}
+
 void crt_apply_setting_change(void) {
   if (!s_settings_crt_sound) crt_free_strike_pcm();
   if (s_settings_crt) {
@@ -839,3 +864,7 @@ void crt_deinit(void) {
   s_crt_layer = NULL;
   crt_free_strike_pcm();
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC pop_options
+#endif

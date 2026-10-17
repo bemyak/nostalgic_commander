@@ -86,17 +86,6 @@ function doSendWeatherDict(dict, logLabel, attempt) {
       });
 }
 
-function sendWeatherDict(dict, logLabel, units, windowHours) {
-  try {
-    localStorage.setItem(
-        'weather-cache',
-        JSON.stringify(weather.makeWeatherCacheEntry(dict, Date.now(), units, windowHours)));
-  } catch (e) {
-    console.log('Error writing weather cache: ' + e);
-  }
-  doSendWeatherDict(dict, logLabel, 0);
-}
-
 function readClaySettings() {
   try {
     return JSON.parse(localStorage.getItem('clay-settings')) || {};
@@ -106,37 +95,18 @@ function readClaySettings() {
   }
 }
 
-function readReplayableWeatherCache() {
-  try {
-    var cache = JSON.parse(localStorage.getItem('weather-cache'));
-    var settings = readClaySettings();
-    if (weather.shouldReplayWeatherCache(
-            cache, Date.now(), weather.unitsFromClaySettings(settings),
-            weather.windowHoursFromClaySettings(settings))) {
-      return cache.payload;
-    }
-  } catch (e) {
-    console.log('Error reading weather cache: ' + e);
-  }
-  return null;
-}
-
 Pebble.addEventListener('ready', function() {
   console.log('PebbleKit JS ready!');
-  // Resend a replayable cached payload so a watch with cleared storage still
-  // gets data — localStorage plus an AppMessage, no radio.
-  var cached = readReplayableWeatherCache();
-  if (cached) {
-    console.log('Weather cache fresh, resending cached payload');
-    Pebble.sendAppMessage(
-        cached, function() { console.log('Cached weather sent successfully!'); },
-        function(e) { console.log('Error sending: ' + JSON.stringify(e)); });
+  try {
+    localStorage.removeItem('weather-cache');
+  } catch (e) {
+    console.log('Error clearing weather cache: ' + e);
   }
-  // Nothing replayable: don't fetch proactively. The watch requests on
-  // launch when its own cache is stale and a weather slot exists, retries a
-  // dropped request on its side, and the appmessage listener always answers —
-  // the watch holds the authoritative slot state, so mirroring it here would
-  // only duplicate the request.
+  // Don't fetch proactively. The watch requests on launch when its own cache
+  // is stale and a weather slot exists, retries a dropped request on its side,
+  // and the appmessage listener always answers — the watch holds the
+  // authoritative slot state, so mirroring it here would only duplicate the
+  // request.
 });
 
 Pebble.addEventListener('appmessage', function() {
@@ -188,21 +158,24 @@ function getWeather(attempt) {
         var settings = readClaySettings();
         var units = weather.unitsFromClaySettings(settings);
         var windowHours = weather.windowHoursFromClaySettings(settings);
+        var wantAqi = weather.needsAqi(settings);
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
 
         // The forecast and AQI backends are independent; fan out and join so
         // the phone radio is up once instead of twice. A failed forecast
         // retries the whole fetch (an in-flight AQI result is discarded); a
-        // failed AQI sends with -1.
+        // failed AQI sends with -1. With no AQI slot the AQI request is
+        // skipped and the field keeps the -1 the forecast parse left in it.
         var forecast = null;
         var aqi = -1;
+        var expected = wantAqi ? 2 : 1;
         var settled = 0;
         var failedReason = null;
 
         function join() {
           settled++;
-          if (settled < 2) return;
+          if (settled < expected) return;
           if (failedReason) {
             retryWeather(attempt, failedReason);
             return;
@@ -212,8 +185,8 @@ function getWeather(attempt) {
             endWeatherFetch();
             return;
           }
-          forecast.WEATHER_AQI = aqi;
-          sendWeatherDict(forecast, 'Weather bundle', units, windowHours);
+          if (wantAqi) forecast.WEATHER_AQI = aqi;
+          doSendWeatherDict(forecast, 'Weather bundle', 0);
         }
 
         fetchJson(weather.buildForecastUrl(lat, lon, units), function(error, json) {
@@ -229,16 +202,18 @@ function getWeather(attempt) {
           join();
         });
 
-        fetchJson(weather.buildAqiUrl(lat, lon), function(error, json) {
-          if (!error) {
-            try {
-              aqi = weather.parseAqi(json);
-            } catch (e) {
-              console.log('Error parsing AQI: ' + e);
+        if (wantAqi) {
+          fetchJson(weather.buildAqiUrl(lat, lon), function(error, json) {
+            if (!error) {
+              try {
+                aqi = weather.parseAqi(json);
+              } catch (e) {
+                console.log('Error parsing AQI: ' + e);
+              }
             }
-          }
-          join();
-        });
+            join();
+          });
+        }
       },
       function(err) {
         // PERMISSION_DENIED (code 1) won't change under retrying (it would

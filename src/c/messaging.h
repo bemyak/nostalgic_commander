@@ -57,6 +57,8 @@
 #define WEATHER_STAMP_FUTURE_SLACK_S 60
 // The weather fetch rides this minute edge of the hour clock.
 #define WEATHER_FETCH_PERIOD_MIN 30
+// A flapping link must not turn each reconnect into a request.
+#define WEATHER_RECONNECT_MIN_GAP_S 60
 
 #define APP_MESSAGE_INBOX_SIZE 256
 #define APP_MESSAGE_OUTBOX_SIZE 64
@@ -81,6 +83,11 @@ time_t weather_stamp_for(int32_t fetched_at, time_t now);
 bool weather_fetch_due(int minute, bool needs_weather);
 bool weather_fetch_after_settings(bool needs_weather, bool units_changed, bool window_changed,
                                   bool needed_weather, bool slots_changed);
+// Whether a returning phone link should trigger a fetch: weather is shown
+// and the held reading is older than the normal fetch cadence (or absent),
+// unless the last reconnect-triggered request was under
+// WEATHER_RECONNECT_MIN_GAP_S ago (`last_request` 0 = none yet).
+bool weather_fetch_on_reconnect(bool needs_weather, time_t stamp, time_t now, time_t last_request);
 
 // Applies weather_age() to the held readings.
 void weather_expire(time_t now);

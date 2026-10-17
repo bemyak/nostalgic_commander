@@ -9,8 +9,7 @@ lives in [IDEAS.md](IDEAS.md) until it's approved.
   per relaunch with a stale cache) on a real phone.
   Emulator scripting notes: `pebble send-app-message` drops dicts beyond
   ~4-5 tuples silently; WEATHER_TEMP only applies paired with WEATHER_COND
-  (the gate pair); every CLI (re)connect makes PKJS resend cached real
-  weather 1-2 s later (screenshot injected state with no sleep). Health/
+  (the gate pair). Health/
   battery/BT/time via `emu-steps/sleep/heart-rate/battery/bt-connection/
   set-time`. Only the Clay config page still needs a phone.
 
