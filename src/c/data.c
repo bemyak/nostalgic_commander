@@ -95,7 +95,7 @@ typedef struct {
 } WmoCond;
 
 static const WmoCond s_wmo_conds[] = {
-    {0, 0, "SUN", false},   {1, 3, "CLD", false},   {45, 48, "FOG", false},
+    {0, 0, "SUN", false},   {1, 3, "CLDY", false},  {45, 48, "FOG", false},
     {51, 55, "RAIN", true}, {61, 65, "RAIN", true}, {80, 82, "RAIN", true},
     {71, 77, "SNOW", true}, {85, 86, "SNOW", true}, {95, 99, "TSTM", true},
 };

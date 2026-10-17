@@ -4,6 +4,12 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Cloudy reads `CLDY` (was `CLD`).
+
 ## [1.9.0] - 2026-08-30
 
 ### Added

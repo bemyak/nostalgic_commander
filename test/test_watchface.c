@@ -670,7 +670,7 @@ void test_heart_rate_chip_should_trail_the_heart(void) {
 }
 
 void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
-  // "CLD 72F": the condition word leads, the unit letter trails — both wear
+  // "CLDY 72F": the condition word leads, the unit letter trails — both wear
   // the theme mark, the value between stays primary. NC menus hint the
   // shortkey; there is no one-accent-per-chip budget.
   s_weather_temp = 72;
@@ -678,8 +678,8 @@ void test_weather_chip_should_hotkey_the_condition_and_the_unit(void) {
   mock_text_runs_reset();
   s_scene_cache_valid = false;
   canvas_update_proc(NULL, NULL);
-  GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "CLD 72F");
-  TEST_ASSERT_TRUE(row_has_run(row, "CLD", s_active_theme->mark));
+  GRect row = vga16_value_rect(s_complication_slots[0].box_rect, "CLDY 72F");
+  TEST_ASSERT_TRUE(row_has_run(row, "CLDY", s_active_theme->mark));
   TEST_ASSERT_TRUE(row_has_run(row, " 72", s_active_theme->text_primary));
   TEST_ASSERT_TRUE(row_has_run(row, "F", s_active_theme->mark));
 
@@ -1168,7 +1168,7 @@ void test_get_source_data_should_format_weather(void) {
   s_weather_temp = 22;
   s_weather_cond_code = 1;
   get_source_data(DATA_SOURCE_WEATHER, buf, sizeof(buf), NULL);
-  TEST_ASSERT_EQUAL_STRING("CLD +22C", buf);
+  TEST_ASSERT_EQUAL_STRING("CLDY +22C", buf);
 
   // Widest realistic forms still fit the 11-cell top-slot budget
   s_weather_temp = -22;
@@ -1956,7 +1956,7 @@ void test_wmo_cond_should_map_words_and_the_precipitation_facet(void) {
     int code;
     const char* word;
     bool precipitating;
-  } cases[] = {{0, "SUN", false},  {1, "CLD", false},  {3, "CLD", false},  {45, "FOG", false},
+  } cases[] = {{0, "SUN", false},  {1, "CLDY", false}, {3, "CLDY", false}, {45, "FOG", false},
                {55, "RAIN", true}, {56, "--", false},  {61, "RAIN", true}, {71, "SNOW", true},
                {80, "RAIN", true}, {82, "RAIN", true}, {85, "SNOW", true}, {95, "TSTM", true},
                {99, "TSTM", true}, {100, "--", false}, {-1, "--", false}};
