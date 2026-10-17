@@ -1947,6 +1947,16 @@ void test_every_theme_should_only_use_dos_palette_colors(void) {
   }
 }
 
+void test_navigator_should_take_dos_navigators_header_and_info_colors(void) {
+  const WatchTheme* t = &s_theme_navigator;
+  TEST_ASSERT_EQUAL_HEX(GColorDarkGray, t->center_bg);
+  TEST_ASSERT_EQUAL_HEX(GColorWhite, t->frame);
+  TEST_ASSERT_EQUAL_HEX(GColorWhite, t->text_primary);
+  // Titles are the column headers' yellow, marks the info line's cyan.
+  TEST_ASSERT_EQUAL_HEX(GColorIcterine, t->text_secondary);
+  TEST_ASSERT_EQUAL_HEX(GColorElectricBlue, t->mark);
+}
+
 void test_amber_should_keep_its_tiers_on_its_glowing_ground(void) {
   const WatchTheme* t = &s_theme_amber;
   TEST_ASSERT_EQUAL_HEX(GColorBulgarianRose, t->center_bg);
@@ -6220,6 +6230,7 @@ int main(void) {
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);
   RUN_TEST(test_status_ink_should_clear_every_fill_it_is_drawn_on);
   RUN_TEST(test_every_theme_should_only_use_dos_palette_colors);
+  RUN_TEST(test_navigator_should_take_dos_navigators_header_and_info_colors);
   RUN_TEST(test_amber_should_keep_its_tiers_on_its_glowing_ground);
   RUN_TEST(test_theme_ground_level_should_give_level_1_tinted_field);
   RUN_TEST(test_format_date_string_should_render_every_body);

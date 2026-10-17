@@ -49,16 +49,17 @@ const WatchTheme s_theme_dialog = {.center_bg = GColorLightGray,
                                    .status_yellow = GColorWindsorTan,
                                    .status_red = GColorDarkCandyAppleRed};
 
-// DOS Navigator's default screen as it actually renders: dark grey ground,
-// light text and chrome, dim grey secondary readouts, yellow hotkey marks.
-// Status stays on the bright variants to clear the grey, ink flips to black
-// on fills.
+// DOS Navigator 1.51's panels as they render: dark grey ground, white frames
+// and entries, yellow column headers, the file info line in light cyan. Titles
+// take the headers' yellow and marks the info line's cyan. Status stays on the
+// bright variants to clear the grey, ink flips to black on fills; light red is
+// the only red the 16 offer that reads on dark grey.
 const WatchTheme s_theme_navigator = {.center_bg = GColorDarkGray,
                                       .accent_cold = GColorElectricBlue,
                                       .frame = GColorWhite,
                                       .text_primary = GColorWhite,
-                                      .text_secondary = GColorLightGray,
-                                      .mark = GColorIcterine,
+                                      .text_secondary = GColorIcterine,
+                                      .mark = GColorElectricBlue,
                                       .status_ink = GColorBlack,
                                       .status_green = GColorScreaminGreen,
                                       .status_yellow = GColorIcterine,

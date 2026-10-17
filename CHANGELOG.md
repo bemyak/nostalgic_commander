@@ -14,6 +14,8 @@ All notable changes to Nostalgic Commander. Format follows
 ### Changed
 
 - Norton is listed first in the theme setting.
+- Navigator follows DOS Navigator 1.51's panels: yellow titles, like its
+  column headers, and cyan marks, like its file info line.
 - CRT chromatic aberration keeps the corner slots' text crisp: their title and
   value rows shift red and blue by whole pixels instead of blending them.
 - Cloudy reads `CLDY` (was `CLD`).

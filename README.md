@@ -47,7 +47,7 @@ emulator (`tools/update_screenshots.sh`).
   black frames and captions, red hotkey letters on light grey), Norton (the
   Commander panel, cyan frames, white entries over EGA blue), Dark (the
   same panel dimmed to grey chrome on black, the way Turbo Vision faked
-  it), Navigator (dark grey ground, white chrome, yellow hotkey
+  it), Navigator (dark grey ground, white chrome, yellow titles, cyan
   marks), and Amber (an amber monochrome monitor's glowing maroon glass,
   white values, amber chrome). The DOS themes use exact EGA colors, since Pebble's
   display uses the same channel steps.
