@@ -223,7 +223,6 @@ const EXPECTED_SETTINGS_OPTIONS = {
     ['1', 'Turbo Vision (light grey)'],
     ['3', 'Dark (black)'],
     ['4', 'Navigator (dark grey)'],
-    ['5', 'Phosphor (green)'],
     ['6', 'Amber (maroon)'],
   ],
   SETTINGS_UNITS: [['0', 'Imperial'], ['1', 'Metric']],

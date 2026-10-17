@@ -1849,8 +1849,8 @@ void test_get_source_data_should_format_active_minutes(void) {
 
 // Every theme, so a new one cannot be added without inheriting the guarantees
 // asserted below.
-static const WatchTheme* all_themes[] = {&s_theme_panel,     &s_theme_shadow,   &s_theme_dialog,
-                                         &s_theme_navigator, &s_theme_phosphor, &s_theme_amber};
+static const WatchTheme* all_themes[] = {&s_theme_panel, &s_theme_shadow, &s_theme_dialog,
+                                         &s_theme_navigator, &s_theme_amber};
 #define NUM_THEMES (sizeof(all_themes) / sizeof(all_themes[0]))
 
 void test_determine_theme_should_handle_all_configurations(void) {
@@ -1858,8 +1858,6 @@ void test_determine_theme_should_handle_all_configurations(void) {
   TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(2));
   TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, determine_theme(3));
   TEST_ASSERT_EQUAL_PTR(&s_theme_navigator, determine_theme(4));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_phosphor, determine_theme(THEME_SETTING_PHOSPHOR));
-  TEST_ASSERT_EQUAL_PTR(&s_theme_phosphor, determine_theme(5));
   TEST_ASSERT_EQUAL_PTR(&s_theme_amber, determine_theme(THEME_SETTING_AMBER));
   TEST_ASSERT_EQUAL_PTR(&s_theme_amber, determine_theme(6));
 
@@ -1935,8 +1933,7 @@ void test_every_theme_should_only_use_dos_palette_colors(void) {
   // crept in before — this is the guard.
   for (unsigned i = 0; i < NUM_THEMES; i++) {
     const WatchTheme* t = all_themes[i];
-    if (t == &s_theme_phosphor) continue;  // a monochrome monitor's phosphor, not a CGA palette
-    if (t == &s_theme_amber) continue;     // a monochrome monitor's phosphor, not a CGA palette
+    if (t == &s_theme_amber) continue;  // a monochrome monitor's phosphor, not a CGA palette
     TEST_ASSERT_TRUE(is_dos_palette_color(t->center_bg));
     TEST_ASSERT_TRUE(is_dos_palette_color(t->accent_cold));
     TEST_ASSERT_TRUE(is_dos_palette_color(t->frame));
@@ -1948,21 +1945,6 @@ void test_every_theme_should_only_use_dos_palette_colors(void) {
     TEST_ASSERT_TRUE(is_dos_palette_color(t->status_yellow));
     TEST_ASSERT_TRUE(is_dos_palette_color(t->status_red));
   }
-}
-
-void test_phosphor_should_keep_its_tiers_on_its_glowing_ground(void) {
-  const WatchTheme* t = &s_theme_phosphor;
-  TEST_ASSERT_EQUAL_HEX(GColorDarkGreen, t->center_bg);
-  // Values read white on the glow; the phosphor green carries titles and chrome.
-  TEST_ASSERT_EQUAL_HEX(GColorWhite, t->text_primary);
-  TEST_ASSERT_EQUAL_HEX(GColorScreaminGreen, t->text_secondary);
-  TEST_ASSERT_EQUAL_HEX(t->text_secondary, t->frame);
-
-  TEST_ASSERT_EQUAL_HEX(GColorScreaminGreen, t->status_green);
-  TEST_ASSERT_EQUAL_HEX(GColorIcterine, t->status_yellow);
-  TEST_ASSERT_EQUAL_HEX(GColorMelon, t->status_red);
-  TEST_ASSERT_EQUAL_HEX(GColorPictonBlue, t->accent_cold);
-  TEST_ASSERT_EQUAL_HEX(GColorBlack, t->status_ink);
 }
 
 void test_amber_should_keep_its_tiers_on_its_glowing_ground(void) {
@@ -1980,10 +1962,9 @@ void test_amber_should_keep_its_tiers_on_its_glowing_ground(void) {
   TEST_ASSERT_EQUAL_HEX(GColorBlack, t->status_ink);
 }
 
-void test_theme_ground_level_should_give_level_1_tinted_fields(void) {
+void test_theme_ground_level_should_give_level_1_tinted_field(void) {
   TEST_ASSERT_EQUAL_UINT8(2, theme_ground_level(&s_theme_dialog));
   TEST_ASSERT_EQUAL_UINT8(1, theme_ground_level(&s_theme_navigator));
-  TEST_ASSERT_EQUAL_UINT8(1, theme_ground_level(&s_theme_phosphor));
   TEST_ASSERT_EQUAL_UINT8(1, theme_ground_level(&s_theme_amber));
   // Not every dark ground with one lit channel: Norton's blue is (0,0,2).
   TEST_ASSERT_EQUAL_UINT8(0, theme_ground_level(&s_theme_panel));
@@ -6239,9 +6220,8 @@ int main(void) {
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);
   RUN_TEST(test_status_ink_should_clear_every_fill_it_is_drawn_on);
   RUN_TEST(test_every_theme_should_only_use_dos_palette_colors);
-  RUN_TEST(test_phosphor_should_keep_its_tiers_on_its_glowing_ground);
   RUN_TEST(test_amber_should_keep_its_tiers_on_its_glowing_ground);
-  RUN_TEST(test_theme_ground_level_should_give_level_1_tinted_fields);
+  RUN_TEST(test_theme_ground_level_should_give_level_1_tinted_field);
   RUN_TEST(test_format_date_string_should_render_every_body);
   RUN_TEST(test_every_date_combination_should_fit_its_window);
   RUN_TEST(test_weekday_position_should_be_independent_of_the_body);

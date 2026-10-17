@@ -43,14 +43,13 @@ emulator (`tools/update_screenshots.sh`).
   current temp, humidity and precipitation as captioned status chips), or a
   DOS progress bar for steps or battery — `█` blocks against a `░` track,
   with the percentage after it.
-- **Six themes, Norton by default.** Turbo Vision (the menu bar,
+- **Five themes, Norton by default.** Turbo Vision (the menu bar,
   black frames and captions, red hotkey letters on light grey), Norton (the
   Commander panel, cyan frames, white entries over EGA blue), Dark (the
   same panel dimmed to grey chrome on black, the way Turbo Vision faked
   it), Navigator (dark grey ground, white chrome, yellow hotkey
-  marks), Phosphor (an IBM 5151 monitor's glowing green glass, white
-  values, green chrome), and Amber (the same on maroon glass, white values,
-  amber chrome). The DOS themes use exact EGA colors, since Pebble's
+  marks), and Amber (an amber monochrome monitor's glowing maroon glass,
+  white values, amber chrome). The DOS themes use exact EGA colors, since Pebble's
   display uses the same channel steps.
 - **Colors only when something needs attention**: temperature runs
   red-hot / blue-cold, AQI and UV go yellow then red past their thresholds,
@@ -71,7 +70,7 @@ deliberately few:
 
 | Setting | Options |
 |---------|---------|
-| Theme | Norton (default), Turbo Vision, Dark, Navigator, Phosphor, Amber |
+| Theme | Norton (default), Turbo Vision, Dark, Navigator, Amber |
 | Units | Imperial, Metric |
 | Weather forecast window | Now, 2, 8, 12 (default), 24 hours |
 | Date format | ISO, DOS, full text, short |

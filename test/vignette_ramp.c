@@ -96,7 +96,6 @@ int main(void) {
   report("shadow", &s_theme_shadow, 0xC0);        // Black field
   report("dialog", &s_theme_dialog, 0xEA);        // LightGray field
   report("navigator", &s_theme_navigator, 0xD5);  // DarkGray field
-  report("phosphor", &s_theme_phosphor, 0xC4);    // DarkGreen field
   report("amber", &s_theme_amber, 0xD0);          // BulgarianRose field
   return 0;
 }

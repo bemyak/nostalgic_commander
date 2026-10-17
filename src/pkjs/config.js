@@ -78,8 +78,7 @@ module.exports = [
           [
             select('SETTINGS_THEME', 'Theme', '2', labeledOptions([
                      ['2', 'Norton (EGA blue)'], ['1', 'Turbo Vision (light grey)'],
-                     ['3', 'Dark (black)'], ['4', 'Navigator (dark grey)'],
-                     ['5', 'Phosphor (green)'], ['6', 'Amber (maroon)']
+                     ['3', 'Dark (black)'], ['4', 'Navigator (dark grey)'], ['6', 'Amber (maroon)']
                    ])),
             select('SETTINGS_CRT', 'CRT effect', '0', labeledOptions([['1', 'On'], ['0', 'Off']])),
             select(

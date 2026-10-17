@@ -73,9 +73,9 @@ test('wind carries its units only in the narrow bottom slots', () => {
   assert.equal(windLabel('SLOT_3'), 'Wind (m/s or mph)');
 });
 
-test('the theme select offers values 1-6, Norton first, Norton by default', () => {
+test('the theme select offers values 1-4 and 6, Norton first, Norton by default', () => {
   const theme = findSelect('SETTINGS_THEME');
-  assert.deepEqual(theme.options.map(o => String(o.value)).sort(), ['1', '2', '3', '4', '5', '6']);
+  assert.deepEqual(theme.options.map(o => String(o.value)).sort(), ['1', '2', '3', '4', '6']);
   assert.equal(String(theme.options[0].value), '2');
   assert.equal(theme.options[0].label, 'Norton (EGA blue)');
   assert.equal(String(theme.defaultValue), '2');
