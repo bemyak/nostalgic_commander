@@ -28,9 +28,12 @@ the change is wrong.
   legibility on the watch, legibility wins: the frames are solid 2px strokes
   rather than character-drawn rules, because box-drawing glyphs render thin and
   uneven at this size.
-- **Everything is tested.** New logic comes with unit tests, expanded and run
-  to prove it holds up. Pure logic (formatting, thresholds, theme selection)
-  belongs in testable modules, not inline in UI code.
+- **Core logic is tested.** Messaging and the wire contract, weather parsing
+  and caching, persistence, settings, thresholds, formatting and theme
+  palettes come with unit tests, expanded and run to prove they hold up. Pure
+  logic belongs in testable modules, not inline in UI code. Visual and audio
+  tuning (the CRT look, the degauss sound, pixel placement) is judged on the
+  watch, not pinned by tests.
 - **Configuration stays simple.** Every setting must justify its existence.
   Fewer, better defaults beat option sprawl.
 - **Themes are high contrast.** Every palette must keep text sharply

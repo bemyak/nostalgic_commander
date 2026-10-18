@@ -8,50 +8,33 @@ All notable changes to Nostalgic Commander. Format follows
 
 ### Added
 
-- Amber theme: white values and amber chrome on maroon glass, after the amber
-  monochrome monitors.
+- Amber theme.
 
 ### Changed
 
-- Norton is listed first in the theme setting.
-- Navigator follows DOS Navigator 1.51's panels: yellow titles, like its
-  column headers, and cyan marks, like its file info line.
-- CRT chromatic aberration keeps the corner slots' text crisp: their title and
-  value rows shift red and blue by whole pixels instead of blending them.
-- Cloudy reads `CLDY` (was `CLD`).
+- Longer battery life.
+- Crisp text in the corner slots with the CRT effect on.
+- Navigator matches DOS Navigator: yellow titles, cyan marks.
 - Weather older than 2 hours shows `--`.
-- A change of units or forecast window discards the readings in the old units
-  and always fetches again.
-- Less battery: the CRT pass runs about a quarter faster with identical
-  pixels; health events re-read only their own metric; backlight, focus,
-  battery and health events are subscribed only when a slot or the CRT effect
-  uses them; no weather requests go out while the phone is disconnected, and
-  stale weather is fetched on reconnect.
-- Less phone work: the phone no longer resends its cached weather on every
-  face launch, reuses a location fix for one fetch cycle, and skips the air
-  quality request when no slot shows AQI.
-- The UV and precipitation window follows the clock at the location, not the
-  phone's.
-- Coordinates sent to Open-Meteo are rounded to 2 decimals.
-- Clearer settings labels: `Humidity + Precipitation (PCP window max)` and
-  `AQI + UV Index (UV window max)`.
+- Changing units or forecast window refetches weather.
+- Cloudy reads `CLDY`.
+- Norton is first in the theme list.
+- Clearer AQI/UV and humidity/precipitation labels.
+- Fewer phone requests and location fixes.
+- UV and precipitation follow the local time at your location.
+- Coordinates sent to Open-Meteo are rounded.
 
 ### Fixed
 
-- Freezing drizzle and freezing rain read `RAIN`.
-- The degauss no longer plays while the face is sliding in after returning from
-  a menu or app.
-- UV above 11 shows its value instead of 11.
-- Yesterday's high and low are not shown as today's after midnight.
-- An empty reply from the weather API no longer replaces good data with `--`.
-- Garbage values from the phone show `--` instead of a plausible number.
-- The degauss sound fades out instead of clicking at the end.
-- The hourly chime does not sound twice when the clocks fall back, and volume 0
-  is silent.
-- A CRT wake is no longer swallowed after a cover event with the effect off.
-- The first wake after dismissing a notification strikes again. It was lost
-  when the backlight was still on at the dismissal.
-- Health events no longer wake the face when no slot shows health data.
+- Yesterday's high/low no longer shows after midnight.
+- A failed weather reply no longer blanks good data.
+- Freezing rain reads `RAIN`.
+- Degauss sound: no click at the end, first frame shown, no strike when
+  returning from a menu.
+- A wake after dismissing a notification strikes again.
+- No double hourly chime when clocks fall back.
+- UV above 11 shows its value.
+- Bad values from the phone show `--`.
 
 ## [1.9.0] - 2026-08-30
 
