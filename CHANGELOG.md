@@ -4,7 +4,7 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
-## [Unreleased]
+## [1.10.0]
 
 ### Added
 
