@@ -41,8 +41,8 @@ static double mean_level(uint8_t p) {
 }
 
 // Lowest LUT depth at which this field renders anything but black. Indexes the
-// curve directly — going through crt_vignette_q8 would need an x coordinate,
-// and the depth->x inverse rounds, which reports the first lit COLUMN instead.
+// curve directly — a depth->x inverse rounds, which would report the first lit
+// COLUMN instead.
 static int first_lit_depth(int ground) {
   if (ground <= 0) return -1;
   for (int d = 1; d <= CRT_VIGNETTE_PX; d++) {

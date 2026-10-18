@@ -147,7 +147,7 @@ peb kill || true
 pkill -x qemu-pebble || true
 sleep 1
 peb install --emulator emery
-sleep 6 # cold boot: let the first real render land, per visual-check
+sleep 6 # cold boot: let the first real render land
 
 # pypkjs ends here: it would push real weather and nothing more is needed
 # from the phone side.

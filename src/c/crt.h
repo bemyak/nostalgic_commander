@@ -149,26 +149,12 @@ typedef struct {
 int crt_strike_offset(int y, int flash_phase);
 
 #ifdef TEST_ENV
-// Pin oracles, built only for the host tests and the ramp tool: they address
-// a pixel by (x,y,w,h) and share their formulas with the pass.
-//
-// Q8 brightness factor at (x,y): 256 = untouched, 0 = black. Vignette
-// falloff, idle-only — the strike shakes geometry, not gain.
-int crt_vignette_q8(int x, int y, int w, int h);
-// Radial warp magnification in Q16 at (x,y): 65536 = identity, growing with
-// the elliptical squared radius. Side content warps too (deliberate — a
-// curved tube bows on all edges); the outermost ~4 columns' sources run off
-// the frame at mid-height and replicate the edge column — which the vignette
-// has already darkened to the rim's level anyway.
-int crt_warp_q16(int x, int y, int w, int h);
-// Source column for dest (x,y) under the warp alone (no strike jitter).
-int crt_warp_sx(int x, int y, int w, int h);
-// CA per-channel displacement in THIRDS of a px at (x,y): 0 inside the dead
-// zone, ramping to 4 past it — see the CRT_CA_* zone map above.
-int crt_ca_shift3(int x, int y, int w, int h);
 // The text box table of the face, left to right within each row band; returns
 // its length.
 int crt_text_boxes(const CrtTextBox** boxes);
+// Q8 brightness factor at falloff depth `d` for the active theme's ground;
+// 256 = untouched. The vignette ramp tool reads it.
+int crt_vignette_q8_from_depth(int d);
 #endif
 
 // The whole pass over an 8-bit GColor8 framebuffer (0xAARRGGBB packed bytes,

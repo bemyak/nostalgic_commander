@@ -482,7 +482,6 @@ extern int mock_inbox_dropped_count;
 extern int mock_outbox_sent_count;
 extern int mock_outbox_failed_count;
 extern int mock_wordwrap_calls;
-extern int mock_bar_glyph_calls;
 #define MOCK_MAX_FILL_RECTS 128
 extern GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
 extern GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];

@@ -192,54 +192,16 @@ static inline const uint16_t* vignette_lut(int ground_level) {
 }
 
 #ifdef TEST_ENV
-// Pin oracles: the same formulas the pass runs, in the (x, y, w, h) form the
-// tests and the ramp tool address pixels by.
-int crt_warp_q16(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  int dy = 2 * y - (h - 1);
-  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
-  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
-  return warp_mul16(xq + yq);
-}
-
-// Source column for dest (x,y) under the warp, without strike jitter —
-// nearest-rounded. The pass works in floor+frac of the same S (for the blend),
-// a half-px phase offset from this form.
-int crt_warp_sx(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  return ((w - 1) * 65536 + dx * crt_warp_q16(x, y, w, h) + 65536) >> 17;
-}
-
-int crt_ca_shift3(int x, int y, int w, int h) {
-  int dx = 2 * x - (w - 1);
-  int dy = 2 * y - (h - 1);
-  // Elliptical radius from the centre, Q8: corner ≈ 362, mid-edge = 256.
-  int xq = (dx * dx * 256) / ((w - 1) * (w - 1));
-  int yq = (dy * dy * 256) / ((h - 1) * (h - 1));
-  return crt_ca_t3_h2(xq + yq);
-}
-
+// Test-only accessors: the text box table, and the falloff gain by depth (the
+// vignette ramp tool reads it).
 int crt_text_boxes(const CrtTextBox** boxes) {
   *boxes = text_boxes();
   return CRT_TEXT_BOXES;
 }
 
-// Distance toward the nearest frame edge, counting around the corner arcs.
-// 0 = boundary itself, growing inward.
-static int crt_edge_distance(int x, int y, int w, int h) {
-  int ex = edge_depth_x(x < w - 1 - x ? x : w - 1 - x);
-  int ey = edge_depth_y(y < h - 1 - y ? y : h - 1 - y);
-  if (ex < CRT_CORNER_RADIUS && ey < CRT_CORNER_RADIUS) return corner_depth(ex, ey);
-  return ex < ey ? ex : ey;
-}
-
-static int crt_vignette_q8_from_depth(int d) {
+int crt_vignette_q8_from_depth(int d) {
   if (d >= CRT_VIGNETTE_PX) return 256;
   return vignette_lut(theme_ground_level(s_active_theme))[d];
-}
-
-int crt_vignette_q8(int x, int y, int w, int h) {
-  return crt_vignette_q8_from_depth(crt_edge_distance(x, y, w, h));
 }
 #endif
 
