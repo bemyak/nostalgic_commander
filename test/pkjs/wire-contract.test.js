@@ -122,6 +122,15 @@ test('the longitude rides its own message key, persisted outside the weather cac
       !weather.WEATHER_FIELDS.some(f => f.key === 'LONGITUDE'), 'it must not expire as weather');
 });
 
+test('the latitude rides its own message key, persisted outside the weather cache', () => {
+  assert.ok(messagingC.includes('MESSAGE_KEY_LATITUDE'), 'messaging.c never reads LATITUDE');
+  assert.ok(messagingC.includes('PERSIST_KEY_LATITUDE'), 'messaging.c never persists it');
+  assert.ok(JSON.parse(readRepoFile('package.json')).pebble.messageKeys.includes('LATITUDE'));
+  assert.match(readRepoFile('src/c/messaging.h'), /^#define PERSIST_KEY_LATITUDE 1039$/m);
+  assert.ok(
+      !weather.WEATHER_FIELDS.some(f => f.key === 'LATITUDE'), 'it must not expire as weather');
+});
+
 test('persist values are unique and every pinned key is defined', () => {
   const header = readRepoFile('src/c/messaging.h');
   const defs = new Map();
@@ -181,6 +190,8 @@ const EXPECTED_SOURCE_LABELS = [
   ['DATA_SOURCE_UV', 'UV Index (window max)'],
   ['DATA_SOURCE_WEEK_NUMBER', 'Week Number'],
   ['DATA_SOURCE_SOLAR_HOUR_ANGLE', 'Solar hour angle'],
+  ['DATA_SOURCE_SOLAR_ELEVATION', 'Solar elevation'],
+  ['DATA_SOURCE_SOLAR_POSITION', 'Solar hour angle & elevation'],
 ];
 
 test('every slot option id Clay offers exists in ComplicationDataSource', () => {

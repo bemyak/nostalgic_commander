@@ -76,6 +76,8 @@ static void reset_all_state(void) {
   s_beats = 0;
   s_longitude = LONGITUDE_NONE;
   s_solar_hour_angle = 0;
+  s_latitude = LATITUDE_NONE;
+  s_solar_elevation = 0;
   s_week_number = 1;
   s_date_display[0] = '\0';
   s_short_date_display[0] = '\0';
@@ -705,7 +707,7 @@ void test_registry_rows_should_be_unique_and_resolve(void) {
   // resolves to a row with a real formatter. EMPTY is the one source allowed
   // to format nothing at all.
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
-  TEST_ASSERT_EQUAL_INT(29, count);  // one row per live enum value
+  TEST_ASSERT_EQUAL_INT(31, count);  // one row per live enum value
   for (int i = 0; i < count; i++) {
     const ComplicationSpec* row = &s_complication_specs[i];
     TEST_ASSERT_NOT_NULL(row->label);
@@ -745,7 +747,9 @@ void test_registry_should_pin_the_weather_backed_set(void) {
                                              DATA_SOURCE_WEATHER_PCP,
                                              DATA_SOURCE_TEMP_HIGH_LOW,
                                              DATA_SOURCE_HUM_PCP,
-                                             DATA_SOURCE_SOLAR_HOUR_ANGLE};
+                                             DATA_SOURCE_SOLAR_HOUR_ANGLE,
+                                             DATA_SOURCE_SOLAR_ELEVATION,
+                                             DATA_SOURCE_SOLAR_POSITION};
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
   int found = 0;
   for (int i = 0; i < count; i++) {
@@ -2114,6 +2118,207 @@ void test_the_longitude_should_outlive_stale_weather(void) {
   char buf[16];
   get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("-16\xC2\xB0", buf);
+}
+
+typedef struct {
+  time_t utc;
+  int latitude;
+  int longitude;
+  int elevation;
+  const char* formatted;  // NULL where the value sits too near a rounding edge
+} SolarReading;
+
+static SolarReading solar_readings(int i) {
+  const SolarReading readings[] = {
+      {utc_at(2026, 10, 18, 9, 0), 6017, 2494, 1936,
+       "\xE2\x86\x91"
+       "19\xC2\xB0"},
+      {utc_at(2026, 6, 21, 10, 20), 6017, 2494, 5328,
+       "\xE2\x86\x91"
+       "53\xC2\xB0"},
+      {utc_at(2026, 12, 21, 10, 20), 6017, 2494, 641,
+       "\xE2\x86\x91"
+       "6\xC2\xB0"},
+      {utc_at(2026, 12, 21, 22, 20), 6017, 2494, -5325,
+       "\xE2\x86\x93"
+       "53\xC2\xB0"},
+      {utc_at(2026, 6, 21, 22, 20), 6017, 2494, -637,
+       "\xE2\x86\x93"
+       "6\xC2\xB0"},
+      {utc_at(2026, 3, 20, 12, 7), 0, 0, 8946, NULL},
+      {utc_at(2026, 10, 18, 15, 0), -3387, 15121, -4275,
+       "\xE2\x86\x93"
+       "43\xC2\xB0"},
+      {utc_at(2026, 10, 18, 20, 0), 4071, -7401, 2203,
+       "\xE2\x86\x91"
+       "22\xC2\xB0"},
+  };
+  return readings[i];
+}
+
+void test_compute_solar_elevation_should_match_the_reference_readings(void) {
+  for (int i = 0; i < 8; i++) {
+    SolarReading r = solar_readings(i);
+    int elevation = compute_solar_elevation(r.utc, r.latitude, r.longitude);
+    TEST_ASSERT_INT_WITHIN_MESSAGE(15, r.elevation, elevation, "reading out of tolerance");
+
+    if (!r.formatted) continue;
+    char buf[16];
+    s_latitude = r.latitude;
+    s_longitude = r.longitude;
+    s_solar_elevation = elevation;
+    get_source_data(DATA_SOURCE_SOLAR_ELEVATION, buf, sizeof(buf), NULL);
+    TEST_ASSERT_EQUAL_STRING(r.formatted, buf);
+  }
+}
+
+void test_compute_solar_elevation_should_stay_within_bounds_all_year(void) {
+  for (int day = 0; day < 366; day += 5) {
+    for (int hour = 0; hour < 24; hour++) {
+      time_t utc = utc_at(2026, 1, 1, hour, 0) + (time_t)day * 86400;
+      const int latitudes[] = {-9000, -3387, 0, 6017, 9000};
+      for (unsigned i = 0; i < sizeof(latitudes) / sizeof(latitudes[0]); i++) {
+        int elevation = compute_solar_elevation(utc, latitudes[i], 2494);
+        TEST_ASSERT_TRUE(elevation >= -9000 && elevation <= 9000);
+      }
+    }
+  }
+}
+
+void test_get_source_data_should_format_the_solar_elevation_sign_by_the_unrounded_value(void) {
+  char buf[16];
+  s_latitude = 6017;
+  s_longitude = 2494;
+
+  s_solar_elevation = -30;
+  get_source_data(DATA_SOURCE_SOLAR_ELEVATION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x93"
+      "0\xC2\xB0",
+      buf);
+  s_solar_elevation = 30;
+  get_source_data(DATA_SOURCE_SOLAR_ELEVATION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x91"
+      "0\xC2\xB0",
+      buf);
+  s_solar_elevation = -9000;
+  get_source_data(DATA_SOURCE_SOLAR_ELEVATION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "\xE2\x86\x93"
+      "90\xC2\xB0",
+      buf);
+  TEST_ASSERT_EQUAL_STRING("SUN", get_source_label(DATA_SOURCE_SOLAR_ELEVATION));
+}
+
+void test_get_source_data_should_format_the_solar_position(void) {
+  char buf[16];
+  s_latitude = 6017;
+  s_longitude = 2494;
+
+  s_solar_hour_angle = -16;
+  s_solar_elevation = 1936;
+  get_source_data(DATA_SOURCE_SOLAR_POSITION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "-16\xC2\xB0 \xE2\x86\x91"
+      "19\xC2\xB0",
+      buf);
+
+  s_solar_hour_angle = 180;
+  s_solar_elevation = -5325;
+  get_source_data(DATA_SOURCE_SOLAR_POSITION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "+180\xC2\xB0 \xE2\x86\x93"
+      "53\xC2\xB0",
+      buf);
+  TEST_ASSERT_EQUAL_INT(10, utf8_cells(buf));
+
+  s_solar_hour_angle = 0;
+  s_solar_elevation = 0;
+  get_source_data(DATA_SOURCE_SOLAR_POSITION, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING(
+      "0\xC2\xB0 \xE2\x86\x91"
+      "0\xC2\xB0",
+      buf);
+  TEST_ASSERT_EQUAL_STRING("SUN", get_source_label(DATA_SOURCE_SOLAR_POSITION));
+}
+
+void test_the_solar_elevation_sources_should_read_no_data_until_both_coordinates_arrived(void) {
+  const ComplicationDataSource sources[] = {DATA_SOURCE_SOLAR_ELEVATION,
+                                            DATA_SOURCE_SOLAR_POSITION};
+  for (unsigned i = 0; i < 2; i++) {
+    char buf[16];
+    s_longitude = 2494;
+    s_latitude = LATITUDE_NONE;
+    get_source_data(sources[i], buf, sizeof(buf), NULL);
+    TEST_ASSERT_EQUAL_STRING("--", buf);
+
+    s_longitude = LONGITUDE_NONE;
+    s_latitude = 6017;
+    get_source_data(sources[i], buf, sizeof(buf), NULL);
+    TEST_ASSERT_EQUAL_STRING("--", buf);
+  }
+}
+
+void test_utf8_cells_should_count_glyphs_not_bytes(void) {
+  TEST_ASSERT_EQUAL_INT(0, utf8_cells(""));
+  TEST_ASSERT_EQUAL_INT(2, utf8_cells("--"));
+  TEST_ASSERT_EQUAL_INT(4, utf8_cells("\xE2\x86\x91"
+                                      "12\xC2\xB0"));
+  TEST_ASSERT_EQUAL_INT(9, utf8_cells("-16\xC2\xB0 \xE2\x86\x91"
+                                      "19\xC2\xB0"));
+}
+
+void test_refresh_state_should_compute_the_solar_elevation(void) {
+  s_latitude = 6017;
+  s_longitude = 2494;
+  refresh_state();
+  TEST_ASSERT_EQUAL_INT(compute_solar_elevation(time(NULL), 6017, 2494), s_solar_elevation);
+}
+
+void test_the_solar_elevation_sources_should_request_weather_to_learn_the_position(void) {
+  set_slots(kSlotsOnlySteps);
+  s_complication_slots[SLOT_IDX_BOTTOM_CENTER].source = DATA_SOURCE_SOLAR_ELEVATION;
+  TEST_ASSERT_TRUE(any_slot_needs_weather());
+  s_complication_slots[SLOT_IDX_BOTTOM_CENTER].source = DATA_SOURCE_STEPS;
+  s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_SOLAR_POSITION;
+  TEST_ASSERT_TRUE(any_slot_needs_weather());
+}
+
+void test_inbox_should_persist_the_latitude_and_load_it_back(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_LATITUDE, -3387);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(-3387, s_latitude);
+  TEST_ASSERT_EQUAL_INT(-3387, persist_read_int(PERSIST_KEY_LATITUDE));
+
+  s_latitude = LATITUDE_NONE;
+  load_latitude();
+  TEST_ASSERT_EQUAL_INT(-3387, s_latitude);
+}
+
+void test_inbox_should_drop_an_impossible_latitude(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_LATITUDE, 9001);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(LATITUDE_NONE, s_latitude);
+}
+
+void test_load_latitude_should_keep_the_sentinel_when_nothing_was_stored(void) {
+  mock_persist_reset();
+  load_latitude();
+  TEST_ASSERT_EQUAL_INT(LATITUDE_NONE, s_latitude);
+}
+
+void test_the_latitude_should_outlive_stale_weather(void) {
+  s_latitude = 6017;
+  s_weather_stamp = (int)(time(NULL) - WEATHER_STALE_AGE_S - 60);
+  weather_expire(time(NULL));
+  TEST_ASSERT_EQUAL_INT(6017, s_latitude);
+  weather_discard();
+  TEST_ASSERT_EQUAL_INT(6017, s_latitude);
 }
 
 void test_get_source_color_should_return_appropriate_colors(void) {
@@ -5329,6 +5534,18 @@ int main(void) {
   RUN_TEST(test_inbox_should_drop_an_impossible_longitude);
   RUN_TEST(test_load_longitude_should_keep_the_sentinel_when_nothing_was_stored);
   RUN_TEST(test_the_longitude_should_outlive_stale_weather);
+  RUN_TEST(test_compute_solar_elevation_should_match_the_reference_readings);
+  RUN_TEST(test_compute_solar_elevation_should_stay_within_bounds_all_year);
+  RUN_TEST(test_get_source_data_should_format_the_solar_elevation_sign_by_the_unrounded_value);
+  RUN_TEST(test_get_source_data_should_format_the_solar_position);
+  RUN_TEST(test_the_solar_elevation_sources_should_read_no_data_until_both_coordinates_arrived);
+  RUN_TEST(test_utf8_cells_should_count_glyphs_not_bytes);
+  RUN_TEST(test_refresh_state_should_compute_the_solar_elevation);
+  RUN_TEST(test_the_solar_elevation_sources_should_request_weather_to_learn_the_position);
+  RUN_TEST(test_inbox_should_persist_the_latitude_and_load_it_back);
+  RUN_TEST(test_inbox_should_drop_an_impossible_latitude);
+  RUN_TEST(test_load_latitude_should_keep_the_sentinel_when_nothing_was_stored);
+  RUN_TEST(test_the_latitude_should_outlive_stale_weather);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);

@@ -180,6 +180,18 @@ void load_longitude(void) {
   }
 }
 
+// North positive, hundredths of a degree.
+static void sanitize_latitude(void) {
+  sanitize_int(&s_latitude, LATITUDE_NONE, -9000, 9000);
+}
+
+void load_latitude(void) {
+  if (persist_exists(PERSIST_KEY_LATITUDE)) {
+    s_latitude = persist_read_int(PERSIST_KEY_LATITUDE);
+    sanitize_latitude();
+  }
+}
+
 static int local_day_key(time_t t) {
   struct tm* local = localtime(&t);
   return local->tm_year * 366 + local->tm_yday;
@@ -334,6 +346,12 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     s_longitude = tuple_get_int(longitude_tuple);
     sanitize_longitude();
     persist_write_int_if_changed(PERSIST_KEY_LONGITUDE, s_longitude);
+  }
+  Tuple* latitude_tuple = dict_find(iterator, MESSAGE_KEY_LATITUDE);
+  if (latitude_tuple) {
+    s_latitude = tuple_get_int(latitude_tuple);
+    sanitize_latitude();
+    persist_write_int_if_changed(PERSIST_KEY_LATITUDE, s_latitude);
   }
 
   // Persist the weather cache only for a real weather payload, so a

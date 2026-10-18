@@ -30,6 +30,8 @@ typedef enum {
   DATA_SOURCE_WIND = 34,
   DATA_SOURCE_HUM_PCP = 35,
   DATA_SOURCE_SOLAR_HOUR_ANGLE = 36,
+  DATA_SOURCE_SOLAR_ELEVATION = 37,
+  DATA_SOURCE_SOLAR_POSITION = 38,
   DATA_SOURCE_WEEK_NUMBER = 33,
   // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES).
   DATA_SOURCE_EMPTY = 20
@@ -122,6 +124,11 @@ extern int s_week_number;
 extern int s_longitude;
 // Meaningful only while s_longitude is known.
 extern int s_solar_hour_angle;
+// Degrees north, in hundredths; kept like s_longitude.
+#define LATITUDE_NONE (-99999)
+extern int s_latitude;
+// Hundredths of a degree; meaningful only while both coordinates are known.
+extern int s_solar_elevation;
 
 // The date as last formatted by refresh_state(); drawn on the canvas so the
 // weekday can carry its own color. The short form drops the year so it fits a
@@ -226,5 +233,6 @@ typedef enum {
 int date_dow_offset(int dow_position, const char* formatted);
 int compute_beats(time_t utc);
 int compute_solar_hour_angle(time_t utc, int longitude_centi);
+int compute_solar_elevation(time_t utc, int latitude_centi, int longitude_centi);
 int iso_week_number(int year, int yday, int wday);
 void to_upper_str(char* str);

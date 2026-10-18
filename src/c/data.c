@@ -45,6 +45,8 @@ int s_date_day = 1;
 int s_beats = 0;
 int s_longitude = LONGITUDE_NONE;
 int s_solar_hour_angle = 0;
+int s_latitude = LATITUDE_NONE;
+int s_solar_elevation = 0;
 int s_week_number = 1;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
@@ -236,26 +238,125 @@ static bool is_leap_year(int year) {
   return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
 }
 
-// The sun's local hour angle in whole degrees, (-180, 180], negative before
-// solar noon. Mean solar time is UTC plus 4 minutes per degree of longitude;
-// the equation of time (the three-term fit, day-of-year of the UTC date)
-// turns that into apparent solar time. Everything is in hundredths of a
-// minute: a degree is 400 of them, a full turn 144000. The date is worked out
-// by hand: gmtime() shares its buffer with localtime(), which callers hold.
-int compute_solar_hour_angle(time_t utc, int longitude_centi) {
+static int utc_year_day(time_t utc) {
   int yday = (int)(utc / 86400);
   for (int year = 1970; yday >= (is_leap_year(year) ? 366 : 365); year++) {
     yday -= is_leap_year(year) ? 366 : 365;
   }
+  return yday;
+}
+
+// sin_lookup only interpolates below ~45°; above it, it returns raw table
+// steps (~0.35°). Up there the sine is derived from the interpolated range.
+static int32_t sin_fine(int32_t angle) {
+  angle = (angle % TRIG_MAX_ANGLE + TRIG_MAX_ANGLE) % TRIG_MAX_ANGLE;
+  int32_t sign = 1;
+  if (angle >= TRIG_MAX_ANGLE / 2) {
+    sign = -1;
+    angle -= TRIG_MAX_ANGLE / 2;
+  }
+  if (angle > TRIG_MAX_ANGLE / 4) angle = TRIG_MAX_ANGLE / 2 - angle;
+  if (angle <= TRIG_MAX_ANGLE / 8 - 64) return sign * sin_lookup(angle);
+  // sin x = 1 - 2 sin²((90° - x) / 2)
+  uint32_t half_sin = sin_lookup((TRIG_MAX_ANGLE / 4 - angle) / 2);
+  return sign * (TRIG_MAX_RATIO -
+                 (int32_t)((2 * half_sin * half_sin + TRIG_MAX_RATIO / 2) / TRIG_MAX_RATIO));
+}
+
+static int32_t cos_fine(int32_t angle) {
+  return sin_fine(angle + TRIG_MAX_ANGLE / 4);
+}
+
+// Apparent solar time past noon, unwrapped. Mean solar time is UTC plus 4
+// minutes per degree of longitude; the equation of time (the three-term fit,
+// day-of-year of the UTC date) turns that into apparent solar time.
+// Everything is in hundredths of a minute: a degree is 400 of them, a full
+// turn 144000.
+static int solar_time_since_noon(time_t utc, int yday, int longitude_centi) {
   int minute_of_day = (int)(utc % 86400) / 60;
   int b = ((yday + 285) % 365) * TRIG_MAX_ANGLE / 365;  // 360° * (N - 81) / 365
   int b2 = (2 * b) % TRIG_MAX_ANGLE;
-  int eot = (987 * sin_lookup(b2) - 753 * cos_lookup(b) - 150 * sin_lookup(b)) / TRIG_MAX_RATIO;
-  int since_noon = minute_of_day * 100 + longitude_centi * 4 + eot - 12 * 60 * 100;
+  int eot = (987 * sin_fine(b2) - 753 * cos_fine(b) - 150 * sin_fine(b)) / TRIG_MAX_RATIO;
+  return minute_of_day * 100 + longitude_centi * 4 + eot - 12 * 60 * 100;
+}
+
+// The sun's local hour angle in whole degrees, (-180, 180], negative before
+// solar noon. The date is worked out by hand: gmtime() shares its buffer with
+// localtime(), which callers hold.
+int compute_solar_hour_angle(time_t utc, int longitude_centi) {
+  int since_noon = solar_time_since_noon(utc, utc_year_day(utc), longitude_centi);
   // Shifting by 179° and a half degree before the modulo rounds to the
   // nearest degree and lands the range on [-179, 180].
   int wrapped = ((since_noon + 200 + 179 * 400) % 144000 + 144000) % 144000;
   return wrapped / 400 - 179;
+}
+
+static int32_t ratio_mul(int32_t a, int32_t b) {
+  return (int32_t)((int64_t)a * b / TRIG_MAX_RATIO);
+}
+
+static uint32_t isqrt_u32(uint32_t n) {
+  uint32_t root = 0;
+  for (uint32_t bit = 1u << 30; bit; bit >>= 2) {
+    if (n >= root + bit) {
+      n -= root + bit;
+      root = (root >> 1) + bit;
+    } else {
+      root >>= 1;
+    }
+  }
+  return root;
+}
+
+// The angle in [0, a quarter turn] whose sine is nearest `ratio`, bisected on
+// sin_fine: the firmware's atan2_lookup is a coarse table (~0.2° steps).
+static int32_t arcsin_fine(int32_t ratio) {
+  int32_t lo = 0;
+  int32_t hi = TRIG_MAX_ANGLE / 4;
+  while (lo < hi) {
+    int32_t mid = (lo + hi + 1) / 2;
+    if (sin_fine(mid) <= ratio) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (lo < TRIG_MAX_ANGLE / 4 && sin_fine(lo + 1) - ratio < ratio - sin_fine(lo)) lo++;
+  return lo;
+}
+
+// The sun's height above the geometric horizon, in hundredths of a degree
+// (negative below), refraction ignored. The declination is Spencer's (1971)
+// Fourier fit at the UTC hour; its coefficients are pre-divided by 2π so the
+// sum lands straight in TRIG_MAX_ANGLE units. sin e is turned back into an
+// angle by arcsin, or by 90° minus the arcsin of cos e near the zenith where
+// the sine is too flat to resolve it.
+int compute_solar_elevation(time_t utc, int latitude_centi, int longitude_centi) {
+  int yday = utc_year_day(utc);
+  int hour = (int)(utc % 86400) / 3600;
+  int g = TRIG_MAX_ANGLE * (yday * 24 + hour - 12) / (365 * 24);
+  int declination =
+      (72 * TRIG_MAX_RATIO - 4171 * cos_fine(g) + 733 * sin_fine(g) - 70 * cos_fine(2 * g) +
+       9 * sin_fine(2 * g) - 28 * cos_fine(3 * g) + 15 * sin_fine(3 * g)) /
+      TRIG_MAX_RATIO;
+  int latitude = latitude_centi * TRIG_MAX_ANGLE / 36000;
+  int hour_angle = solar_time_since_noon(utc, yday, longitude_centi) % 144000 * 512 / 1125;
+
+  int32_t sin_e =
+      ratio_mul(sin_fine(latitude), sin_fine(declination)) +
+      ratio_mul(ratio_mul(cos_fine(latitude), cos_fine(declination)), cos_fine(hour_angle));
+  int32_t abs_sin_e = sin_e < 0 ? -sin_e : sin_e;
+  if (abs_sin_e > TRIG_MAX_RATIO) abs_sin_e = TRIG_MAX_RATIO;
+  int32_t angle;
+  if (abs_sin_e < TRIG_MAX_RATIO * 7 / 10) {
+    angle = arcsin_fine(abs_sin_e);
+  } else {
+    uint32_t cos_e = isqrt_u32((uint32_t)TRIG_MAX_RATIO * TRIG_MAX_RATIO -
+                               (uint32_t)abs_sin_e * (uint32_t)abs_sin_e);
+    angle = TRIG_MAX_ANGLE / 4 - arcsin_fine((int32_t)cos_e);
+  }
+  int centi = (angle * 36000 + TRIG_MAX_ANGLE / 2) / TRIG_MAX_ANGLE;
+  return sin_e < 0 ? -centi : centi;
 }
 
 // 53 when Jan 1 is Thursday — or Wednesday in a leap year — (wday: Sunday = 0).

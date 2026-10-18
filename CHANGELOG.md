@@ -9,6 +9,8 @@ All notable changes to Nostalgic Commander. Format follows
 ### Added
 
 - Solar hour angle complication for the bottom slots.
+- Solar elevation complication for the bottom slots, and a combined solar hour
+  angle and elevation one for the top slots.
 
 ## [1.10.0]
 

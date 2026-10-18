@@ -96,9 +96,9 @@ var FORECAST_DAILY_FIELDS = ['temperature_2m_max', 'temperature_2m_min'];
 // Coordinates go out at ~1 km resolution; the weather doesn't need more.
 function coordinate(value) { return Number(value).toFixed(2); }
 
-// The longitude the watch's solar hour angle needs, in hundredths of a
+// A coordinate as the watch's solar position needs it, in hundredths of a
 // degree: the same two-decimal resolution the coordinates go out at.
-function longitudeCenti(lon) { return Math.round(lon * 100); }
+function coordinateCenti(value) { return Math.round(value * 100); }
 
 function buildForecastUrl(lat, lon, units) {
   return 'https://api.open-meteo.com/v1/forecast?latitude=' + coordinate(lat) +
@@ -295,7 +295,7 @@ module.exports = {
   sentinelPayload : sentinelPayload,
   buildForecastUrl : buildForecastUrl,
   buildAqiUrl : buildAqiUrl,
-  longitudeCenti : longitudeCenti,
+  coordinateCenti : coordinateCenti,
   GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
   needsAqi : needsAqi,
   AQI_SOURCES : AQI_SOURCES,

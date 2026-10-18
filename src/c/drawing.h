@@ -74,8 +74,7 @@ void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSou
 void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_bt_qt_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_beats_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
-void draw_solar_hour_angle_complication(GContext* ctx, GRect box_rect,
-                                        ComplicationDataSource source);
+void draw_solar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_short_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 void draw_full_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source);
 

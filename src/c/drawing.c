@@ -65,6 +65,16 @@ static GRect value_row_rect(GRect box_rect, int x, int w, int cells) {
                cells * VGA16_CHAR_W, VALUE_ROW_H);
 }
 
+// Glyph cells in a UTF-8 string: the degree sign and arrows are several bytes
+// but one cell each.
+static int utf8_cells(const char* text) {
+  int cells = 0;
+  for (; *text; text++) {
+    if ((*text & 0xC0) != 0x80) cells++;
+  }
+  return cells;
+}
+
 // The centred rect a monospace value occupies inside its window: a whole number
 // of glyph cells wide, sitting on the shared value row.
 static GRect vga16_value_rect(GRect box_rect, const char* value) {
@@ -730,16 +740,12 @@ void draw_beats_complication(GContext* ctx, GRect box_rect, ComplicationDataSour
                       s_active_theme->mark);
 }
 
-void draw_solar_hour_angle_complication(GContext* ctx, GRect box_rect,
-                                        ComplicationDataSource source) {
-  (void)source;  // bound to one source; see the registry row
-  char buf[8];
-  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+void draw_solar_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
+  char buf[16];
+  get_source_data(source, buf, sizeof(buf), NULL);
 
-  // The degree sign is two bytes but one glyph cell; centre on cells.
-  int cells = strlen(buf) - (strchr(buf, '\xC2') ? 1 : 0);
-  draw_run(ctx, value_row_rect(box_rect, box_rect.origin.x, box_rect.size.w, cells), 0, buf,
-           strlen(buf), s_active_theme->text_primary);
+  draw_run(ctx, value_row_rect(box_rect, box_rect.origin.x, box_rect.size.w, utf8_cells(buf)), 0,
+           buf, strlen(buf), s_active_theme->text_primary);
 }
 
 void draw_battery_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {

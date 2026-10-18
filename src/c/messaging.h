@@ -50,6 +50,7 @@
 #define PERSIST_KEY_SETTINGS_HOURLY_CHIME 1036
 #define PERSIST_KEY_SETTINGS_CHIME_VOLUME 1037
 #define PERSIST_KEY_LONGITUDE 1038
+#define PERSIST_KEY_LATITUDE 1039
 
 #define WEATHER_CACHE_MAX_AGE_S (30 * 60)
 // Weather older than this reads as no data.
@@ -76,6 +77,7 @@ void save_weather_cache(void);
 bool load_weather_cache(void);
 void load_settings(void);
 void load_longitude(void);
+void load_latitude(void);
 
 // Pure decisions, kept apart from the state they steer.
 WeatherAge weather_age(time_t stamp, time_t now);

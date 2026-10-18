@@ -34,12 +34,16 @@ var OPTION_LABELS = {
   17: 'UV Index (window max)',
   33: 'Week Number',
   36: 'Solar hour angle',
+  37: 'Solar elevation',
+  38: 'Solar hour angle & elevation',
 };
 
-var TOP_VALUES = ['20', '0', '32', '22', '21', '1', '2', '6', '10', '5', '30', '34', '35', '18'];
+var TOP_VALUES =
+    ['20', '0', '32', '22', '21', '1', '2', '6', '10', '5', '30', '34', '35', '18', '38'];
 var CENTER_VALUES = ['23', '27', '24', '25'];
 var BOTTOM_VALUES = [
-  '20', '0', '9', '31', '21', '1', '2', '6', '10', '3', '28', '34', '26', '16', '17', '33', '36'
+  '20', '0', '9', '31', '21', '1', '2', '6', '10', '3', '28', '34', '26', '16', '17', '33', '36',
+  '37'
 ];
 // The narrow bottom slots have no unit-bearing caption stub; wind's units ride
 // its label there.

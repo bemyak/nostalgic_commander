@@ -186,7 +186,8 @@ function getWeather(attempt) {
             return;
           }
           if (wantAqi) forecast.WEATHER_AQI = aqi;
-          forecast.LONGITUDE = weather.longitudeCenti(lon);
+          forecast.LONGITUDE = weather.coordinateCenti(lon);
+          forecast.LATITUDE = weather.coordinateCenti(lat);
           doSendWeatherDict(forecast, 'Weather bundle', 0);
         }
 

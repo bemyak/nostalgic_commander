@@ -215,14 +215,49 @@ static void fmt_beats(char* buf, int len, int* percent) {
   snprintf(buf, len, "@%03d", s_beats);
 }
 
+static void format_hour_angle(char* buf, int len) {
+  if (s_solar_hour_angle == 0) {
+    snprintf(buf, len, "0\xC2\xB0");
+  } else {
+    snprintf(buf, len, "%+d\xC2\xB0", s_solar_hour_angle);
+  }
+}
+
+// The arrow follows the unrounded sign: just below the horizon reads ↓0°.
+static void format_elevation(char* buf, int len) {
+  snprintf(buf, len, "%s%d\xC2\xB0", s_solar_elevation < 0 ? "\xE2\x86\x93" : "\xE2\x86\x91",
+           (abs(s_solar_elevation) + 50) / 100);
+}
+
 static void fmt_solar_hour_angle(char* buf, int len, int* percent) {
   (void)percent;
   if (s_longitude == LONGITUDE_NONE) {
     snprintf(buf, len, "--");
-  } else if (s_solar_hour_angle == 0) {
-    snprintf(buf, len, "0\xC2\xB0");
   } else {
-    snprintf(buf, len, "%+d\xC2\xB0", s_solar_hour_angle);
+    format_hour_angle(buf, len);
+  }
+}
+
+static void fmt_solar_elevation(char* buf, int len, int* percent) {
+  (void)percent;
+  if (s_longitude == LONGITUDE_NONE || s_latitude == LATITUDE_NONE) {
+    snprintf(buf, len, "--");
+  } else {
+    format_elevation(buf, len);
+  }
+}
+
+static void fmt_solar_position(char* buf, int len, int* percent) {
+  (void)percent;
+  if (s_longitude == LONGITUDE_NONE || s_latitude == LATITUDE_NONE) {
+    snprintf(buf, len, "--");
+    return;
+  }
+  format_hour_angle(buf, len);
+  int used = strlen(buf);
+  if (used + 1 < len) {
+    buf[used] = ' ';
+    format_elevation(buf + used + 1, len - used - 1);
   }
 }
 
@@ -421,14 +456,28 @@ static const ComplicationSpec s_complication_specs[] = {
      .draw = draw_hum_pcp_complication,
      .frame = FRAME_HUM_PCP,
      .needs_weather = true},
-    // The phone reports the longitude with each weather reply, so the window
-    // asks for weather — but the reading itself never expires with it.
+    // The phone reports the coordinates with each weather reply, so the
+    // window asks for weather — but the reading itself never expires with it.
     {.source = DATA_SOURCE_SOLAR_HOUR_ANGLE,
      .health_metric = HEALTH_METRIC_NONE,
      .label = "SUN",
      .format = fmt_solar_hour_angle,
      .backs = DATA_SOURCE_SOLAR_HOUR_ANGLE,
-     .draw = draw_solar_hour_angle_complication,
+     .draw = draw_solar_complication,
+     .needs_weather = true},
+    {.source = DATA_SOURCE_SOLAR_ELEVATION,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "SUN",
+     .format = fmt_solar_elevation,
+     .backs = DATA_SOURCE_SOLAR_ELEVATION,
+     .draw = draw_solar_complication,
+     .needs_weather = true},
+    {.source = DATA_SOURCE_SOLAR_POSITION,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "SUN",
+     .format = fmt_solar_position,
+     .backs = DATA_SOURCE_SOLAR_POSITION,
+     .draw = draw_solar_complication,
      .needs_weather = true},
 };
 
