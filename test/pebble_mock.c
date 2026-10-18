@@ -43,6 +43,7 @@ uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME = 137;
 uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME = 138;
 uint32_t MESSAGE_KEY_CHIME_TEST = 139;
 uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT = 140;
+uint32_t MESSAGE_KEY_LONGITUDE = 141;
 
 // Implementations
 void app_event_loop(void) {}
@@ -623,6 +624,29 @@ time_t time_start_of_today(void) {
   time_t now = time(NULL);
   struct tm* lt = localtime(&now);
   return now - (time_t)(lt->tm_hour * 3600 + lt->tm_min * 60 + lt->tm_sec);
+}
+
+// The SDK's trig tables, off a Taylor series (no libm, as on the watch).
+int32_t sin_lookup(int32_t angle) {
+  double turns =
+      (double)(((angle % TRIG_MAX_ANGLE) + TRIG_MAX_ANGLE) % TRIG_MAX_ANGLE) / TRIG_MAX_ANGLE;
+  if (turns > 0.75) {
+    turns -= 1.0;
+  } else if (turns > 0.25) {
+    turns = 0.5 - turns;
+  }
+  double x = turns * 6.283185307179586;
+  double x2 = x * x;
+  double term = x;
+  double sum = x;
+  for (int n = 1; n <= 6; n++) {
+    term *= -x2 / ((2 * n) * (2 * n + 1));
+    sum += term;
+  }
+  return (int32_t)(sum * TRIG_MAX_RATIO + (sum < 0 ? -0.5 : 0.5));
+}
+int32_t cos_lookup(int32_t angle) {
+  return sin_lookup(angle + TRIG_MAX_ANGLE / 4);
 }
 
 int mock_speaker_tone_count = 0;

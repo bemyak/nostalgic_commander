@@ -74,6 +74,8 @@ static void reset_all_state(void) {
   s_wall_hour = 8;  // morning: a neutral phase for tests that don't care
   s_date_day = 1;
   s_beats = 0;
+  s_longitude = LONGITUDE_NONE;
+  s_solar_hour_angle = 0;
   s_week_number = 1;
   s_date_display[0] = '\0';
   s_short_date_display[0] = '\0';
@@ -703,7 +705,7 @@ void test_registry_rows_should_be_unique_and_resolve(void) {
   // resolves to a row with a real formatter. EMPTY is the one source allowed
   // to format nothing at all.
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
-  TEST_ASSERT_EQUAL_INT(28, count);  // one row per live enum value
+  TEST_ASSERT_EQUAL_INT(29, count);  // one row per live enum value
   for (int i = 0; i < count; i++) {
     const ComplicationSpec* row = &s_complication_specs[i];
     TEST_ASSERT_NOT_NULL(row->label);
@@ -742,7 +744,8 @@ void test_registry_should_pin_the_weather_backed_set(void) {
                                              DATA_SOURCE_WEATHER_FULL,
                                              DATA_SOURCE_WEATHER_PCP,
                                              DATA_SOURCE_TEMP_HIGH_LOW,
-                                             DATA_SOURCE_HUM_PCP};
+                                             DATA_SOURCE_HUM_PCP,
+                                             DATA_SOURCE_SOLAR_HOUR_ANGLE};
   const int count = (int)(sizeof(s_complication_specs) / sizeof(s_complication_specs[0]));
   int found = 0;
   for (int i = 0; i < count; i++) {
@@ -1980,6 +1983,137 @@ void test_get_source_data_should_format_beats(void) {
   s_beats = 999;
   get_source_data(DATA_SOURCE_BEATS, buf, sizeof(buf), NULL);
   TEST_ASSERT_EQUAL_STRING("@999", buf);
+}
+
+static time_t utc_at(int year, int month, int day, int hour, int minute) {
+  struct tm t = {.tm_year = year - 1900,
+                 .tm_mon = month - 1,
+                 .tm_mday = day,
+                 .tm_hour = hour,
+                 .tm_min = minute};
+  return timegm(&t);
+}
+
+void test_compute_solar_hour_angle_should_match_the_reference_readings(void) {
+  const int helsinki = 2494;
+  TEST_ASSERT_EQUAL_INT(-16, compute_solar_hour_angle(utc_at(2026, 10, 18, 9, 0), helsinki));
+  TEST_ASSERT_EQUAL_INT(-1, compute_solar_hour_angle(utc_at(2026, 11, 3, 10, 0), helsinki));
+  TEST_ASSERT_EQUAL_INT(-9, compute_solar_hour_angle(utc_at(2026, 2, 11, 10, 0), helsinki));
+  TEST_ASSERT_EQUAL_INT(-7, compute_solar_hour_angle(utc_at(2026, 7, 26, 10, 0), helsinki));
+  TEST_ASSERT_EQUAL_INT(-5, compute_solar_hour_angle(utc_at(2026, 6, 13, 10, 0), helsinki));
+}
+
+void test_compute_solar_hour_angle_should_wrap_into_minus_179_to_180(void) {
+  // Past solar midnight the raw angle exceeds 180 and comes back negative...
+  TEST_ASSERT_EQUAL_INT(-100, compute_solar_hour_angle(utc_at(2026, 6, 13, 18, 0), 17000));
+  // ...and before it, below -180 and comes back positive.
+  TEST_ASSERT_EQUAL_INT(100, compute_solar_hour_angle(utc_at(2026, 6, 13, 6, 0), -17000));
+  // 180 itself stays positive; -360 is a full turn back to noon.
+  TEST_ASSERT_EQUAL_INT(180, compute_solar_hour_angle(utc_at(2026, 6, 13, 12, 0), 18000));
+  TEST_ASSERT_EQUAL_INT(0, compute_solar_hour_angle(utc_at(2026, 6, 13, 0, 0), -18000));
+
+  time_t day = utc_at(2026, 6, 13, 0, 0);
+  const int longitudes[] = {-18000, -7398, 0, 2494, 18000};
+  for (unsigned i = 0; i < sizeof(longitudes) / sizeof(longitudes[0]); i++) {
+    for (int minute = 0; minute < 24 * 60; minute++) {
+      int angle = compute_solar_hour_angle(day + minute * 60, longitudes[i]);
+      TEST_ASSERT_TRUE(angle >= -179 && angle <= 180);
+    }
+  }
+}
+
+void test_compute_solar_hour_angle_should_round_west_longitudes_to_the_nearest_degree(void) {
+  // -73.63 raw: nearest is -74, not the truncated -73.
+  TEST_ASSERT_EQUAL_INT(-74, compute_solar_hour_angle(utc_at(2026, 12, 21, 12, 0), -7398));
+  TEST_ASSERT_EQUAL_INT(-42, compute_solar_hour_angle(utc_at(2026, 1, 15, 17, 30), -12245));
+  TEST_ASSERT_EQUAL_INT(-3, compute_solar_hour_angle(utc_at(2026, 3, 1, 12, 0), 0));
+}
+
+void test_get_source_data_should_format_the_solar_hour_angle(void) {
+  char buf[16];
+  s_longitude = 2494;
+
+  s_solar_hour_angle = 0;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("0\xC2\xB0", buf);
+
+  s_solar_hour_angle = -16;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-16\xC2\xB0", buf);
+
+  s_solar_hour_angle = 52;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+52\xC2\xB0", buf);
+
+  // The widest readings still fit a 63px slot: five cells, the sign and the
+  // degree sign included.
+  s_solar_hour_angle = -179;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-179\xC2\xB0", buf);
+  s_solar_hour_angle = 180;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("+180\xC2\xB0", buf);
+
+  s_longitude = LONGITUDE_NONE;
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("--", buf);
+  TEST_ASSERT_EQUAL_STRING("SUN", get_source_label(DATA_SOURCE_SOLAR_HOUR_ANGLE));
+}
+
+void test_refresh_state_should_compute_the_solar_hour_angle(void) {
+  s_longitude = 2494;
+  refresh_state();
+  TEST_ASSERT_EQUAL_INT(compute_solar_hour_angle(time(NULL), 2494), s_solar_hour_angle);
+}
+
+void test_the_solar_hour_angle_should_request_weather_to_learn_the_longitude(void) {
+  set_slots(kSlotsOnlySteps);
+  TEST_ASSERT_FALSE(any_slot_needs_weather());
+  s_complication_slots[SLOT_IDX_BOTTOM_CENTER].source = DATA_SOURCE_SOLAR_HOUR_ANGLE;
+  TEST_ASSERT_TRUE(any_slot_needs_weather());
+}
+
+void test_inbox_should_persist_the_longitude_and_load_it_back(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_LONGITUDE, -7398);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(-7398, s_longitude);
+  TEST_ASSERT_EQUAL_INT(-7398, persist_read_int(PERSIST_KEY_LONGITUDE));
+
+  s_longitude = LONGITUDE_NONE;
+  load_longitude();
+  TEST_ASSERT_EQUAL_INT(-7398, s_longitude);
+}
+
+void test_inbox_should_drop_an_impossible_longitude(void) {
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_LONGITUDE, 18001);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(LONGITUDE_NONE, s_longitude);
+}
+
+void test_load_longitude_should_keep_the_sentinel_when_nothing_was_stored(void) {
+  mock_persist_reset();
+  load_longitude();
+  TEST_ASSERT_EQUAL_INT(LONGITUDE_NONE, s_longitude);
+}
+
+void test_the_longitude_should_outlive_stale_weather(void) {
+  s_longitude = 2494;
+  s_solar_hour_angle = -16;
+  s_weather_temp = 72;
+  s_weather_stamp = (int)(time(NULL) - WEATHER_STALE_AGE_S - 60);
+  weather_expire(time(NULL));
+  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(2494, s_longitude);
+  weather_discard();
+  TEST_ASSERT_EQUAL_INT(2494, s_longitude);
+
+  char buf[16];
+  get_source_data(DATA_SOURCE_SOLAR_HOUR_ANGLE, buf, sizeof(buf), NULL);
+  TEST_ASSERT_EQUAL_STRING("-16\xC2\xB0", buf);
 }
 
 void test_get_source_color_should_return_appropriate_colors(void) {
@@ -5185,6 +5319,16 @@ int main(void) {
   RUN_TEST(test_iso_week_number_should_be_exact_iso_8601);
   RUN_TEST(test_get_source_data_should_format_the_iso_week);
   RUN_TEST(test_get_source_data_should_format_beats);
+  RUN_TEST(test_compute_solar_hour_angle_should_match_the_reference_readings);
+  RUN_TEST(test_compute_solar_hour_angle_should_wrap_into_minus_179_to_180);
+  RUN_TEST(test_compute_solar_hour_angle_should_round_west_longitudes_to_the_nearest_degree);
+  RUN_TEST(test_get_source_data_should_format_the_solar_hour_angle);
+  RUN_TEST(test_refresh_state_should_compute_the_solar_hour_angle);
+  RUN_TEST(test_the_solar_hour_angle_should_request_weather_to_learn_the_longitude);
+  RUN_TEST(test_inbox_should_persist_the_longitude_and_load_it_back);
+  RUN_TEST(test_inbox_should_drop_an_impossible_longitude);
+  RUN_TEST(test_load_longitude_should_keep_the_sentinel_when_nothing_was_stored);
+  RUN_TEST(test_the_longitude_should_outlive_stale_weather);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);

@@ -62,7 +62,8 @@
       "WEATHER_WIND_DIRECTION",
       "WEATHER_WIND_SPEED",
       "WEATHER_REQUEST",
-      "WEATHER_FETCHED_AT"
+      "WEATHER_FETCHED_AT",
+      "LONGITUDE"
     ],
     "resources": {
       "media": [
@@ -76,7 +77,7 @@
           "type": "font",
           "name": "FONT_VGA_16",
           "file": "fonts/Px437_IBM_VGA_8x16.ttf",
-          "characterRegex": "[\\x20-\\x7E█░♥←↑→↓↖↗↘↙]",
+          "characterRegex": "[\\x20-\\x7E°█░♥←↑→↓↖↗↘↙]",
           "size": 16
         },
         {

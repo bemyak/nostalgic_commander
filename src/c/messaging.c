@@ -168,6 +168,18 @@ static void sanitize_weather_values(void) {
   sanitize_int(&s_lo_hour_tmrw, WEATHER_NONE, 0, 23);
 }
 
+// East positive, hundredths of a degree.
+static void sanitize_longitude(void) {
+  sanitize_int(&s_longitude, LONGITUDE_NONE, -18000, 18000);
+}
+
+void load_longitude(void) {
+  if (persist_exists(PERSIST_KEY_LONGITUDE)) {
+    s_longitude = persist_read_int(PERSIST_KEY_LONGITUDE);
+    sanitize_longitude();
+  }
+}
+
 static int local_day_key(time_t t) {
   struct tm* local = localtime(&t);
   return local->tm_year * 366 + local->tm_yday;
@@ -313,6 +325,15 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     if (tuple) {
       *s_weather_fields[i].target = tuple_get_int(tuple);
     }
+  }
+
+  // The position rides the weather reply but outlives it: it is neither part
+  // of the cache nor cleared by its expiry.
+  Tuple* longitude_tuple = dict_find(iterator, MESSAGE_KEY_LONGITUDE);
+  if (longitude_tuple) {
+    s_longitude = tuple_get_int(longitude_tuple);
+    sanitize_longitude();
+    persist_write_int_if_changed(PERSIST_KEY_LONGITUDE, s_longitude);
   }
 
   // Persist the weather cache only for a real weather payload, so a

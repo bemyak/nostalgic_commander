@@ -43,6 +43,8 @@ int s_weather_stamp = 0;
 int s_wall_hour = 0;
 int s_date_day = 1;
 int s_beats = 0;
+int s_longitude = LONGITUDE_NONE;
+int s_solar_hour_angle = 0;
 int s_week_number = 1;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
@@ -232,6 +234,28 @@ int compute_beats(time_t utc) {
 
 static bool is_leap_year(int year) {
   return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+// The sun's local hour angle in whole degrees, (-180, 180], negative before
+// solar noon. Mean solar time is UTC plus 4 minutes per degree of longitude;
+// the equation of time (the three-term fit, day-of-year of the UTC date)
+// turns that into apparent solar time. Everything is in hundredths of a
+// minute: a degree is 400 of them, a full turn 144000. The date is worked out
+// by hand: gmtime() shares its buffer with localtime(), which callers hold.
+int compute_solar_hour_angle(time_t utc, int longitude_centi) {
+  int yday = (int)(utc / 86400);
+  for (int year = 1970; yday >= (is_leap_year(year) ? 366 : 365); year++) {
+    yday -= is_leap_year(year) ? 366 : 365;
+  }
+  int minute_of_day = (int)(utc % 86400) / 60;
+  int b = ((yday + 285) % 365) * TRIG_MAX_ANGLE / 365;  // 360° * (N - 81) / 365
+  int b2 = (2 * b) % TRIG_MAX_ANGLE;
+  int eot = (987 * sin_lookup(b2) - 753 * cos_lookup(b) - 150 * sin_lookup(b)) / TRIG_MAX_RATIO;
+  int since_noon = minute_of_day * 100 + longitude_centi * 4 + eot - 12 * 60 * 100;
+  // Shifting by 179° and a half degree before the modulo rounds to the
+  // nearest degree and lands the range on [-179, 180].
+  int wrapped = ((since_noon + 200 + 179 * 400) % 144000 + 144000) % 144000;
+  return wrapped / 400 - 179;
 }
 
 // 53 when Jan 1 is Thursday — or Wednesday in a leap year — (wday: Sunday = 0).

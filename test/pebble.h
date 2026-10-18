@@ -263,6 +263,7 @@ extern uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME;
 extern uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME;
 extern uint32_t MESSAGE_KEY_CHIME_TEST;
 extern uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT;
+extern uint32_t MESSAGE_KEY_LONGITUDE;
 
 // Handler typedefs and result types, spelled as the SDK umbrella header has
 // them so prototypes below can match the SDK verbatim.
@@ -523,6 +524,10 @@ void tick_timer_service_unsubscribe(void);
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context);
 void unobstructed_area_service_unsubscribe(void);
 time_t time_start_of_today(void);
+#define TRIG_MAX_ANGLE 0x10000
+#define TRIG_MAX_RATIO 0xffff
+int32_t sin_lookup(int32_t angle);
+int32_t cos_lookup(int32_t angle);
 Window* window_create(void);
 void window_destroy(Window* window);
 Layer* window_get_root_layer(const Window* window);

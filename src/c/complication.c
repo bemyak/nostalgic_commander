@@ -215,6 +215,17 @@ static void fmt_beats(char* buf, int len, int* percent) {
   snprintf(buf, len, "@%03d", s_beats);
 }
 
+static void fmt_solar_hour_angle(char* buf, int len, int* percent) {
+  (void)percent;
+  if (s_longitude == LONGITUDE_NONE) {
+    snprintf(buf, len, "--");
+  } else if (s_solar_hour_angle == 0) {
+    snprintf(buf, len, "0\xC2\xB0");
+  } else {
+    snprintf(buf, len, "%+d\xC2\xB0", s_solar_hour_angle);
+  }
+}
+
 static void fmt_week_number(char* buf, int len, int* percent) {
   (void)percent;
   snprintf(buf, len, "W%02d", s_week_number);
@@ -409,6 +420,15 @@ static const ComplicationSpec s_complication_specs[] = {
      .backs = DATA_SOURCE_HUM_PCP,
      .draw = draw_hum_pcp_complication,
      .frame = FRAME_HUM_PCP,
+     .needs_weather = true},
+    // The phone reports the longitude with each weather reply, so the window
+    // asks for weather — but the reading itself never expires with it.
+    {.source = DATA_SOURCE_SOLAR_HOUR_ANGLE,
+     .health_metric = HEALTH_METRIC_NONE,
+     .label = "SUN",
+     .format = fmt_solar_hour_angle,
+     .backs = DATA_SOURCE_SOLAR_HOUR_ANGLE,
+     .draw = draw_solar_hour_angle_complication,
      .needs_weather = true},
 };
 

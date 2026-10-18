@@ -155,6 +155,7 @@ void refresh_state(void) {
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
   s_beats = compute_beats(temp);
+  s_solar_hour_angle = compute_solar_hour_angle(temp, s_longitude);
   s_week_number =
       iso_week_number(tick_time->tm_year + 1900, tick_time->tm_yday, tick_time->tm_wday);
 
@@ -442,6 +443,7 @@ static void main_window_unload(Window* window) {
 
 static void init(void) {
   load_settings();
+  load_longitude();
 
   s_vga_16 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_16));
   s_vga_64 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_64));

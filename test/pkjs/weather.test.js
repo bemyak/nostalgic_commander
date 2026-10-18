@@ -285,6 +285,14 @@ test('forecast URL rounds coordinates and carries units', () => {
   assert.equal(aqi.searchParams.get('current'), 'us_aqi');
 });
 
+test('longitude goes to the watch in hundredths of a degree, west negative', () => {
+  assert.equal(weather.longitudeCenti(24.9384), 2494);
+  assert.equal(weather.longitudeCenti(-2.294351), -229);
+  assert.equal(weather.longitudeCenti(-73.9856), -7399);
+  assert.equal(weather.longitudeCenti(-179.999), -18000);
+  assert.equal(weather.longitudeCenti(180), 18000);
+});
+
 test('every field parseForecast reads is requested from the API', () => {
   const read = {current: new Set(), hourly: new Set(), daily: new Set()};
   const json = fullResponse();

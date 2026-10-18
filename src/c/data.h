@@ -29,6 +29,7 @@ typedef enum {
   DATA_SOURCE_BT_QT = 32,
   DATA_SOURCE_WIND = 34,
   DATA_SOURCE_HUM_PCP = 35,
+  DATA_SOURCE_SOLAR_HOUR_ANGLE = 36,
   DATA_SOURCE_WEEK_NUMBER = 33,
   // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES).
   DATA_SOURCE_EMPTY = 20
@@ -113,6 +114,14 @@ extern bool s_quick_view_active;
 extern int s_date_day;
 extern int s_beats;
 extern int s_week_number;
+// Where the watch is, in hundredths of a degree east of Greenwich, as the
+// phone last reported it; LONGITUDE_NONE until it has. Not a weather reading:
+// a position doesn't go stale, so it is persisted and kept apart from the
+// weather cache and its expiry.
+#define LONGITUDE_NONE (-99999)
+extern int s_longitude;
+// Meaningful only while s_longitude is known.
+extern int s_solar_hour_angle;
 
 // The date as last formatted by refresh_state(); drawn on the canvas so the
 // weekday can carry its own color. The short form drops the year so it fits a
@@ -216,5 +225,6 @@ typedef enum {
 // is also the signal not to accent it.
 int date_dow_offset(int dow_position, const char* formatted);
 int compute_beats(time_t utc);
+int compute_solar_hour_angle(time_t utc, int longitude_centi);
 int iso_week_number(int year, int yday, int wday);
 void to_upper_str(char* str);
