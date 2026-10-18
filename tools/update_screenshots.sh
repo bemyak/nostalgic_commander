@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate the five store captures under screenshots/ on the emery emulator.
+# Regenerate the store captures under screenshots/ on the emery emulator.
 # Run from the repo root: make screenshots
 #
 # Everything user-visible is injected, nothing needs a phone:
@@ -107,7 +107,8 @@ shoot() {
 
   local settings=(SETTINGS_THEME=$theme SETTINGS_UNITS=$units
     SETTINGS_DATE_FORMAT=$date_fmt SETTINGS_SHORT_DATE_FORMAT=$short_fmt
-    SETTINGS_DOW_POSITION=$dow SETTINGS_WEATHER_WINDOW=$window)
+    SETTINGS_DOW_POSITION=$dow SETTINGS_WEATHER_WINDOW=$window
+    SETTINGS_CRT=0 SETTINGS_CRT_SOUND=0)
   # Slot args are listed in key order 1,2,6,3,4,5 (top row, center, bottom row).
   local order=(1 2 6 3 4 5)
   local i slot
@@ -167,3 +168,4 @@ shoot 02_weather.png 2 0 0 0 0 12 IMPERIAL 62 no 30 18 27 26 34 28
 shoot 03_theme_turbo.png 1 0 2 0 0 12 IMPERIAL 85 no 5 2 23 1 21 0
 shoot 04_theme_dark.png 3 1 0 1 1 12 METRIC 85 no 10 0 24 2 21 33
 shoot 05_theme_navigator.png 4 1 1 1 2 12 METRIC 85 no 5 32 27 1 10 34
+shoot 06_theme_amber.png 6 1 0 0 0 12 METRIC 62 no 30 18 27 2 21 33
