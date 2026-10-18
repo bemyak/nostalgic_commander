@@ -235,12 +235,15 @@ void draw_hi_lo_complication(GContext* ctx, GRect box_rect, ComplicationDataSour
 
 // A date with its weekday picked out. Shared by the DATE window and the
 // year-less slot complication, which order their weekday the same way.
-static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
+static void draw_date_value(GContext* ctx, GRect box_rect, const char* text, int at) {
   if (!text[0]) return;
 
-  int at = date_dow_offset(s_settings_dow_position, text);
   draw_accented_value(ctx, vga16_value_rect(box_rect, text), text, at, DOW_LEN,
                       s_active_theme->text_primary, s_active_theme->mark);
+}
+
+static void draw_date_text(GContext* ctx, GRect box_rect, const char* text) {
+  draw_date_value(ctx, box_rect, text, date_dow_offset(s_settings_dow_position, text));
 }
 
 void draw_full_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
@@ -334,6 +337,14 @@ void draw_battery_bar_complication(GContext* ctx, GRect box_rect, ComplicationDa
 
 void draw_short_date_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   (void)source;  // bound to one source; see the registry row
+  // The narrow bottom slots can't hold the weekday too; the date is the part
+  // worth keeping.
+  if (utf8_cells(s_short_date_display) * VGA16_CHAR_W > box_rect.size.w - 2 * WINDOW_BORDER_PX) {
+    char bare[sizeof(s_short_date_display)];
+    date_strip_dow(s_settings_dow_position, s_short_date_display, bare, sizeof(bare));
+    draw_date_value(ctx, box_rect, bare, -1);
+    return;
+  }
   draw_date_text(ctx, box_rect, s_short_date_display);
 }
 

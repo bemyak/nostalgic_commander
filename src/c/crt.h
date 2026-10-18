@@ -161,13 +161,19 @@ int crt_vignette_q8_from_depth(int d);
 // row-major, `stride` bytes per row, w*h visible). Touch only via these:
 // tests drive it with a mock buffer.
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase);
+// The same pass with its stages chosen: `aberration` is stage 1 (RGB fringing),
+// `curvature` stages 2 and 3 (vignette, warp). With curvature off the sampling
+// is an exact copy. A strike (flash_phase in range) runs the fringing and the
+// row jitter regardless, as the strike always shows both.
+void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
+                                  bool aberration, bool curvature);
 
 void crt_update_proc(Layer* layer, GContext* ctx);
 void crt_backlight_handler(bool on);
 
-// Synthesises the degauss woomp to PCM once, then plays it via the speaker
-// API. Silent when the speaker is muted by system preference (including
-// Quiet Time when the user set it to mute), or while the face is covered by
+// Synthesises the degauss woomp to PCM, plays it via the speaker API and
+// frees the buffer (the service keeps its own copy). Silent when the speaker is muted by system
+// preference (including Quiet Time when the user set it to mute), or while the face is covered by
 // a notification/alarm/modal/quick view — see the crt_app_focus_* handlers.
 void crt_play_strike_sound(void);
 // App Focus service callbacks (subscribed in main.c): track whether
@@ -179,10 +185,10 @@ void crt_app_focus_did_handler(bool in_focus);
 // Seeds the focus state for a subscription taken after launch, when the
 // did_focus that would establish it has already come and gone.
 void crt_set_in_focus(bool in_focus);
-// Re-applies the CRT and CRT-sound settings: with the effect on it only marks
-// the overlay dirty; turning it off repaints — the OFF frame is painted by the
+// Re-applies the effect settings: with any effect on it only marks the overlay
+// dirty; turning the last off repaints — the OFF frame is painted by the
 // canvas/clock underneath once the background re-dirties, the overlay then
-// paints nothing over it. Turning the sound off frees the synthesized strike.
+// paints nothing over it. Turning degauss off ends any strike.
 void crt_apply_setting_change(void);
 
 // Window-unload teardown, called before main.c destroys the overlay layer:

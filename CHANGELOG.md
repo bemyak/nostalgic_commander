@@ -6,6 +6,10 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The CRT effect is split into chromatic aberration, screen curvature and degauss on wake, and the sound settings moved to a new Effects panel with a volume for the degauss and the hourly chime.
+
 ## [1.11.0]
 
 ### Added

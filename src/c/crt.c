@@ -1,4 +1,5 @@
 #include <pebble.h>
+#include "chime.h"
 #include "crt.h"
 #include "drawing.h"
 #include "layout.h"
@@ -308,6 +309,11 @@ static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, c
 }
 
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
+  crt_apply_framebuffer_passes(fb, w, h, stride, flash_phase, true, true);
+}
+
+void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
+                                  bool aberration, bool curvature) {
   static uint8_t row_ca[SCREEN_W];
   static uint16_t s_ca_xq[SCREEN_W];
   // Per-column side-axis vignette depth, and the corner arcs' depth by (ey, ex).
@@ -337,6 +343,10 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
   int ca_boost = (flash_phase >= 0 && flash_phase < CRT_FLASH_PHASES)
                      ? (s_strike_amp_px[flash_phase] + 1) / 2
                      : 0;
+  // A strike always shows its fringing and wobble, whatever the settings say.
+  const bool striking = flash_phase >= 0 && flash_phase < CRT_FLASH_PHASES;
+  const bool do_ca = aberration || striking;
+  if (!do_ca && !curvature) return;
   const int h1sq = (h - 1) * (h - 1);
   // The boxes are laid out for the face's own frame; any other buffer has none.
   const CrtTextBox* boxes = text_boxes();
@@ -409,7 +419,8 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       }
       int next_box = 0;
       int next_box_x = n_row_boxes ? row_boxes[0]->x0 : -1;
-      for (int x = 0; x < w; x++) {
+      if (!do_ca) memcpy(row_ca, row, w);
+      for (int x = 0; do_ca && x < w; x++) {
         if (x == next_box_x) {
           const CrtTextBox* b = row_boxes[next_box++];
           ca_box_span(row_ca, row, rrows[b->sv], brows[b->sv], b, ca_boost);
@@ -479,7 +490,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       // hue held — and CA makes every 1px stroke chromatic, so the CA'd pixel
       // cannot answer that. Classify on the raw pixel, act on the CA'd one.
       const uint8_t* raw_row = s_vraw_ring[y % 3];
-      for (int x = 0; x < w; x++) {
+      for (int x = 0; curvature && x < w; x++) {
         // At f = 256 every rule below is a no-op, so row_ca[x] is already final.
         if (x == s_interior_x0 && ey_depth >= CRT_VIGNETTE_PX) {
           x = w - s_interior_x0 - 1;
@@ -554,6 +565,14 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
       //    measures 7px wide), and keeping their energy as fractional levels
       //    reads as tube edge defocus while letters keep their rhythm.
       //    Rounding (+128) avoids a truncation bias toward dark.
+      //    Without curvature the row is only slid by the strike, exactly.
+      if (!curvature) {
+        for (int x = 0; x < w; x++) {
+          int sx = x + row_off;
+          row[x] = row_ca[sx < 0 ? 0 : (sx >= w ? w - 1 : sx)];
+        }
+        continue;
+      }
       for (int x = 0; x < w; x++) {
         int dx = 2 * x - (w - 1);
         int mul16 = warp_mul16(s_ca_xq[x] + yterm);
@@ -602,17 +621,25 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
   }
 }
 
+static bool crt_enabled(void) {
+  return s_settings_crt_aberration || s_settings_crt_curvature || s_settings_crt_degauss;
+}
+
 void crt_update_proc(Layer* layer, GContext* ctx) {
   (void)layer;
-  if (!s_settings_crt || !ctx) return;
-  // The captured bitmap IS the framebuffer on a native-format platform;
-  // release before returning or the layer never lands.
-  GBitmap* fb = graphics_capture_frame_buffer(ctx);
-  if (!fb) return;
-  GRect bounds = gbitmap_get_bounds(fb);
-  crt_apply_framebuffer(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
-                        gbitmap_get_bytes_per_row(fb), s_flash_phase);
-  graphics_release_frame_buffer(ctx, fb);
+  if (!crt_enabled() || !ctx) return;
+  // A degauss-only face is untouched between strikes: nothing to capture.
+  if (s_settings_crt_aberration || s_settings_crt_curvature || s_flash_phase != CRT_FLASH_IDLE) {
+    // The captured bitmap IS the framebuffer on a native-format platform;
+    // release before returning or the layer never lands.
+    GBitmap* fb = graphics_capture_frame_buffer(ctx);
+    if (!fb) return;
+    GRect bounds = gbitmap_get_bounds(fb);
+    crt_apply_framebuffer_passes(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
+                                 gbitmap_get_bytes_per_row(fb), s_flash_phase,
+                                 s_settings_crt_aberration != 0, s_settings_crt_curvature != 0);
+    graphics_release_frame_buffer(ctx, fb);
+  }
   // Strike trigger lives at the END of the wake frame (not the backlight
   // handler): the sound starts once the ring can survive what follows.
   if (s_strike_pending) {
@@ -658,7 +685,7 @@ void crt_backlight_handler(bool on) {
     if (s_app_in_focus) s_cover_suppresses_strike = false;
     return;
   }
-  if (!s_settings_crt || !s_app_in_focus) return;
+  if (!s_settings_crt_degauss || !s_app_in_focus) return;
   // The dismissal's backlight-on may land after focus returns — it belongs
   // to the cover too: eat the one-shot a cover armed, prime nothing.
   if (s_cover_suppresses_strike) {
@@ -678,17 +705,21 @@ void crt_backlight_handler(bool on) {
 
 // The degauss thunk as synthesized PCM: note-table playback clicks at every
 // note boundary (pitch and velocity step), so the sound is generated instead.
-// Allocated and synthesized on first use, freed when the sound is turned off.
-#define CRT_STRIKE_PCM_MS \
-  110  // <= stock FW's 128ms ring: the sound is a thunk, frames can't starve it
-#define CRT_STRIKE_PCM_RATE 16000
+// Synthesized per strike and freed right after the play call: the speaker
+// service copies the sample into kernel memory, so the app's copy is dead
+// weight once the call returns. The sound lasts as long as the animation.
+// The one limit is the service's per-call sample budget (16 KB).
+#define CRT_STRIKE_PCM_MS (CRT_FLASH_PHASES * CRT_FLASH_TICK_MS)
+#define CRT_STRIKE_PCM_RATE 8000
 #define CRT_STRIKE_PCM_SAMPLES (CRT_STRIKE_PCM_MS * CRT_STRIKE_PCM_RATE / 1000)
+#define CRT_STRIKE_PCM_BUDGET_BYTES (16 * 1024)
+_Static_assert(CRT_STRIKE_PCM_SAMPLES * 2 <= CRT_STRIKE_PCM_BUDGET_BYTES,
+               "strike PCM exceeds the speaker service's per-call sample budget");
 // The envelope fades to zero over the last CRT_STRIKE_FADE_SAMPLES (17.5ms at
-// 16 kHz), ahead of CRT_STRIKE_TAIL_SAMPLES of exact silence, so the codec
+// 8 kHz), ahead of CRT_STRIKE_TAIL_SAMPLES of exact silence, so the codec
 // never cuts a nonzero signal.
-#define CRT_STRIKE_FADE_SAMPLES 280
-#define CRT_STRIKE_TAIL_SAMPLES 16
-static int16_t* s_strike_pcm = NULL;
+#define CRT_STRIKE_FADE_SAMPLES 140
+#define CRT_STRIKE_TAIL_SAMPLES 8
 
 // Q15 sine: |x| in [-1,1] shaped by the cubic smoothstep y = (3x − x³)/2 —
 // within 1.1% of sin(πx/2), no libm: newlib's __ieee754_rem_pio2 hard-faults
@@ -717,67 +748,112 @@ static int strike_fade_q8(int left) {
   return s >> 2;
 }
 
-void crt_strike_synth(int16_t* buf, size_t n) {
-  // Thunk, not a hum. Stock firmware's audio ring holds 128ms and every render
-  // frame blocks the loop ~60ms (the refill callback is droppable under
-  // KernelMain load), so the sound must fit inside one ring: 110ms. It also
-  // wants the band the speaker reproduces, which a sub-300Hz hum is not. The
-  // coil's energisation IS the perceptible event: constant 190 Hz + partials
-  // 380/570/760 at 4:3:2:1, ~5.5ms attack, exponential decay (thermistor
-  // shape), then a smoothstep fade to zero over the last
-  // CRT_STRIKE_FADE_SAMPLES and CRT_STRIKE_TAIL_SAMPLES of silence.
-  const size_t attack = n / 20;
+// One strike voice. Counts are in samples at CRT_STRIKE_PCM_RATE; the tone
+// sweeps exponentially from from_hz to to_hz (time constant sweep_tau) and
+// dies with tone_tau; sub_q8 is the Q8 weight of a copy an octave below; the
+// rumble is white noise through two one-poles of 1/lp_div, at rumble_gain/2^17
+// of full scale, dying with rumble_tau; attack ramps the whole mix in; len ends
+// the envelope early (0 = the full length); out_gain scales the mix to the peak.
+typedef struct {
+  int from_hz, to_hz, sweep_tau, tone_tau, attack, sub_q8, rumble_gain, lp_div, rumble_tau, len,
+      out_gain;
+} CrtStrikeVoice;
+
+// A swell, not a strike: the mix ramps in over 100ms like something being
+// pushed, then falls with the sweep. The octave-down copy is strong. The watch
+// speaker rolls off below ~200-300 Hz, so how much of the low sweep is heard
+// there is for the wrist to judge.
+static const CrtStrikeVoice s_strike_voice = {.from_hz = 260,
+                                              .to_hz = 70,
+                                              .sweep_tau = 1066,
+                                              .tone_tau = 1600,
+                                              .attack = 800,
+                                              .sub_q8 = 192,
+                                              .rumble_gain = 6,
+                                              .lp_div = 10,
+                                              .rumble_tau = 1200,
+                                              .len = 0,
+                                              .out_gain = 15350};
+
+static void crt_strike_synth_voice(int16_t* buf, size_t n, const CrtStrikeVoice* v) {
+  // A whoomp, not a ring: a falling tone with a rumble under it. The tone's
+  // partials are 1:2 at 4:1. The body is broadband: white noise through two
+  // one-pole low-passes, decaying and scaled by
+  // the strike's visual amplitude, interpolated between the per-phase
+  // s_strike_amp_px values so the rumble tracks the wobble. A smoothstep fade
+  // to zero over the last CRT_STRIKE_FADE_SAMPLES and CRT_STRIKE_TAIL_SAMPLES
+  // of silence closes it.
+  const size_t per_phase = n / CRT_FLASH_PHASES;
+  const int end = v->len ? v->len : (int)n;
   uint32_t phase = 0;
-  int env = 32767;  // Q15, thermistor decay: env -= env>>10 per sample
+  uint32_t seed = 1;
+  int fq = v->from_hz * 256;  // Q8 Hz
+  int tone = 32767;           // Q15
+  int rumble = 32767;         // Q15
+  int lp1 = 0, lp2 = 0;
   for (size_t i = 0; i < n; i++) {
-    phase += (uint32_t)((190u * 65536) / CRT_STRIKE_PCM_RATE);
-    int y = (4 * crt_wave_q15(phase) + 3 * crt_wave_q15(phase * 2) + 2 * crt_wave_q15(phase * 3) +
-             crt_wave_q15(phase * 4)) /
-            10;
-    int gain = i < attack ? (int)(i * 256 / attack) : 256;
-    gain = gain * strike_fade_q8((int)n - CRT_STRIKE_TAIL_SAMPLES - (int)i) >> 8;
-    buf[i] = (int16_t)(((int64_t)y * gain * env * 30000) >> 38);
-    if (env && i >= attack) env -= env >> 10;
+    phase += (uint32_t)(((int64_t)fq << 16) / (256 * CRT_STRIKE_PCM_RATE));
+    fq -= (fq - v->to_hz * 256) / v->sweep_tau;
+    int y = (4 * crt_wave_q15(phase) + crt_wave_q15(phase * 2)) / 5;
+    y += (int)(((int64_t)crt_wave_q15(phase >> 1) * v->sub_q8) >> 8);
+    seed = seed * 1664525u + 1013904223u;
+    lp1 += (((int)(seed >> 16) - 32768) - lp1) / v->lp_div;
+    lp2 += (lp1 - lp2) / v->lp_div;
+
+    size_t k = i / per_phase;
+    if (k >= CRT_FLASH_PHASES) k = CRT_FLASH_PHASES - 1;
+    int frac = (int)(i - k * per_phase);
+    int a0 = s_strike_amp_px[k];
+    int a1 = k + 1 < CRT_FLASH_PHASES ? s_strike_amp_px[k + 1] : a0;
+    int body =
+        (a0 * ((int)per_phase - frac) + a1 * frac) * 32767 / (s_strike_amp_px[0] * (int)per_phase);
+    int64_t tonal = (int64_t)y * tone >> 15;
+    int64_t noisy = (int64_t)lp2 * v->rumble_gain * ((int64_t)rumble * body >> 15) >> 17;
+
+    int gain = i < (size_t)v->attack ? (int)(i * 256 / v->attack) : 256;
+    gain = gain * strike_fade_q8(end - CRT_STRIKE_TAIL_SAMPLES - (int)i) >> 8;
+    int64_t out = (tonal + noisy) * gain * v->out_gain >> 23;
+    buf[i] = (int16_t)(out > 32767 ? 32767 : (out < -32767 ? -32767 : out));
+    if (i >= (size_t)v->attack) {
+      tone -= tone / v->tone_tau;
+      rumble -= (rumble + v->rumble_tau - 1) / v->rumble_tau;
+    }
   }
 }
 
-#define CRT_STRIKE_VOLUME 90
-
-static void crt_free_strike_pcm(void) {
-  free(s_strike_pcm);
-  s_strike_pcm = NULL;
+void crt_strike_synth(int16_t* buf, size_t n) {
+  crt_strike_synth_voice(buf, n, &s_strike_voice);
 }
 
 void crt_play_strike_sound(void) {
   // speaker_is_muted covers the system mute preference (including Quiet
   // Time-mutes-speaker when the user set it); s_app_in_focus is the App
   // Focus service state — the strike sound belongs to a tube the user is
-  // looking at. Honor those, and our own toggle.
-  if (!s_settings_crt_sound || !s_app_in_focus || speaker_is_muted()) return;
-  if (!s_strike_pcm) {
-    s_strike_pcm = malloc(CRT_STRIKE_PCM_SAMPLES * sizeof(int16_t));
-    if (!s_strike_pcm) return;
-    crt_strike_synth(s_strike_pcm, CRT_STRIKE_PCM_SAMPLES);
-  }
-  // The driver ring is 128ms and each strike frame blocks the main loop
-  // ~60ms of its ~95ms tick, so a streamed refill loses the race and the
-  // sound gaps; the whole
-  // sample goes in as one track instead. The stream API that would let the
-  // app top the ring itself only exists from FW 4.33.2 — older stock
-  // firmware HARD-FAULTS on the missing syscall (fallback-by-return-false is
-  // impossible), so the track path stays until those builds die out.
+  // looking at. Honor those, and our own volume.
+  int volume = chime_effective_volume(s_settings_degauss_volume);
+  if (!s_settings_crt_degauss || volume == 0 || !s_app_in_focus || speaker_is_muted()) return;
+  int16_t* pcm = malloc(CRT_STRIKE_PCM_SAMPLES * sizeof(int16_t));
+  if (!pcm) return;
+  crt_strike_synth(pcm, CRT_STRIKE_PCM_SAMPLES);
+  // The whole sample goes in as one track: the speaker service copies it into
+  // kernel memory and refills its ring from an interrupt, so playback does not
+  // depend on how long the app's frames block. The stream API only exists
+  // from FW 4.33.2 — older stock firmware HARD-FAULTS on the missing syscall
+  // (fallback-by-return-false is impossible), so the track path stays until
+  // those builds die out.
   // One unshifted note over the whole sample plays it raw: the PCM IS the
   // sound.
   static const SpeakerNote through[1] = {
       {60, SpeakerWaveformSine, CRT_STRIKE_PCM_MS + 30, 127, 0},
   };
-  const SpeakerSample sample = {.data = s_strike_pcm,
+  const SpeakerSample sample = {.data = pcm,
                                 .num_bytes = CRT_STRIKE_PCM_SAMPLES * 2,
-                                .format = SpeakerPcmFormat_16kHz_16bit,
+                                .format = SpeakerPcmFormat_8kHz_16bit,
                                 .base_midi_note = 60,
                                 .loop = false};
   const SpeakerTrack track = {.notes = through, .num_notes = 1, .sample = &sample};
-  speaker_play_tracks(&track, 1, CRT_STRIKE_VOLUME);
+  speaker_play_tracks(&track, 1, volume);
+  free(pcm);
 }
 
 void crt_app_focus_will_handler(bool in_focus) {
@@ -787,7 +863,7 @@ void crt_app_focus_will_handler(bool in_focus) {
   // lose its strike.
   if (!in_focus) {
     s_app_in_focus = false;
-    s_cover_suppresses_strike = s_settings_crt;
+    s_cover_suppresses_strike = s_settings_crt_degauss;
   }
 }
 
@@ -802,19 +878,20 @@ void crt_set_in_focus(bool in_focus) {
 }
 
 void crt_apply_setting_change(void) {
-  if (!s_settings_crt_sound) crt_free_strike_pcm();
-  if (s_settings_crt) {
+  if (!s_settings_crt_degauss) {
+    s_cover_suppresses_strike = false;
+    s_flash_phase = CRT_FLASH_IDLE;
+    s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
+    // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
+    // from IDLE into a full strike nobody asked for.
+    if (s_flash_timer) {
+      app_timer_cancel(s_flash_timer);
+      s_flash_timer = NULL;
+    }
+  }
+  if (crt_enabled()) {
     if (s_crt_layer) layer_mark_dirty(s_crt_layer);
     return;
-  }
-  s_cover_suppresses_strike = false;
-  s_flash_phase = CRT_FLASH_IDLE;
-  s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
-  // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
-  // from IDLE into a full strike nobody asked for.
-  if (s_flash_timer) {
-    app_timer_cancel(s_flash_timer);
-    s_flash_timer = NULL;
   }
   // Off must ERASE, not just stop painting: the shader's pixels live in the
   // shared framebuffer and the next paint of anything underneath only happens
@@ -834,7 +911,6 @@ void crt_deinit(void) {
   s_cover_suppresses_strike = false;
   s_app_in_focus = false;
   s_crt_layer = NULL;
-  crt_free_strike_pcm();
 }
 
 #if defined(__GNUC__) && !defined(__clang__)

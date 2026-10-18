@@ -79,9 +79,10 @@ const EXPECTED_PERSIST = new Map([
   ['SETTINGS_SHORT_DATE_FORMAT', 'PERSIST_KEY_SETTINGS_SHORT_DATE'],
   ['SETTINGS_DOW_POSITION', 'PERSIST_KEY_SETTINGS_DOW'],
   ['SETTINGS_WEATHER_WINDOW', 'PERSIST_KEY_SETTINGS_WEATHER_WINDOW'],
-  ['SETTINGS_CRT', 'PERSIST_KEY_SETTINGS_CRT'],
-  ['SETTINGS_CRT_SOUND', 'PERSIST_KEY_SETTINGS_CRT_SOUND'],
-  ['SETTINGS_HOURLY_CHIME', 'PERSIST_KEY_SETTINGS_HOURLY_CHIME'],
+  ['SETTINGS_CRT_ABERRATION', 'PERSIST_KEY_SETTINGS_CRT_ABERRATION'],
+  ['SETTINGS_CRT_CURVATURE', 'PERSIST_KEY_SETTINGS_CRT_CURVATURE'],
+  ['SETTINGS_CRT_DEGAUSS', 'PERSIST_KEY_SETTINGS_CRT_DEGAUSS'],
+  ['SETTINGS_DEGAUSS_VOLUME', 'PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME'],
   ['SETTINGS_CHIME_VOLUME', 'PERSIST_KEY_SETTINGS_CHIME_VOLUME'],
   ['SLOT_1', 'PERSIST_KEY_SLOT_1'],
   ['SLOT_2', 'PERSIST_KEY_SLOT_2'],
@@ -145,6 +146,19 @@ test('persist values are unique and every pinned key is defined', () => {
   }
 });
 
+test('the retired CRT, sound and chime switch keys stay reserved for the migration', () => {
+  const header = readRepoFile('src/c/messaging.h');
+  assert.match(header, /^#define PERSIST_KEY_LEGACY_CRT 1034$/m);
+  assert.match(header, /^#define PERSIST_KEY_LEGACY_CRT_SOUND 1035$/m);
+  assert.match(header, /^#define PERSIST_KEY_LEGACY_HOURLY_CHIME 1036$/m);
+  const live = new Set(EXPECTED_PERSIST.values());
+  for (const name
+           of ['PERSIST_KEY_LEGACY_CRT', 'PERSIST_KEY_LEGACY_CRT_SOUND',
+               'PERSIST_KEY_LEGACY_HOURLY_CHIME']) {
+    assert.ok(!live.has(name), `${name} is retired and must not back a setting`);
+  }
+});
+
 test('package.json messageKeys are exactly the keys messaging.c speaks', () => {
   const pkg = JSON.parse(readRepoFile('package.json'));
   const declared = pkg.pebble.messageKeys;
@@ -165,30 +179,30 @@ test('package.json messageKeys are exactly the keys messaging.c speaks', () => {
 const EXPECTED_SOURCE_LABELS = [
   ['DATA_SOURCE_EMPTY', 'Empty'],
   ['DATA_SOURCE_BATTERY', 'Battery'],
-  ['DATA_SOURCE_BT_QT', 'Bluetooth + Quiet Time'],
-  ['DATA_SOURCE_SHORT_DATE', 'Short Date (no year)'],
+  ['DATA_SOURCE_BT_QT', 'Bluetooth + quiet time'],
+  ['DATA_SOURCE_SHORT_DATE', 'Short date'],
   ['DATA_SOURCE_BEATS', '.beat time'],
   ['DATA_SOURCE_STEPS', 'Steps'],
   ['DATA_SOURCE_SLEEP', 'Sleep'],
-  ['DATA_SOURCE_HEART_RATE', 'Heart Rate'],
-  ['DATA_SOURCE_ACTIVE_MINUTES', 'Active Minutes'],
+  ['DATA_SOURCE_HEART_RATE', 'Heart rate'],
+  ['DATA_SOURCE_ACTIVE_MINUTES', 'Active minutes'],
   ['DATA_SOURCE_WEATHER', 'Weather'],
-  ['DATA_SOURCE_TEMP_HIGH_LOW', 'Next High / Low temperatures'],
+  ['DATA_SOURCE_TEMP_HIGH_LOW', 'Next high/low'],
   ['DATA_SOURCE_WIND', 'Wind'],
-  ['DATA_SOURCE_HUM_PCP', 'Humidity + Precipitation (PCP window max)'],
-  ['DATA_SOURCE_AQI_UV', 'AQI + UV Index (UV window max)'],
+  ['DATA_SOURCE_HUM_PCP', 'Humidity + precipitation'],
+  ['DATA_SOURCE_AQI_UV', 'AQI + UV index'],
   ['DATA_SOURCE_FULL_DATE', 'Date'],
-  ['DATA_SOURCE_WEATHER_FULL', 'Full Weather'],
-  ['DATA_SOURCE_STEPS_BAR', 'Steps Progress'],
-  ['DATA_SOURCE_BATTERY_BAR', 'Battery Progress'],
-  ['DATA_SOURCE_BLUETOOTH', 'Bluetooth Status'],
-  ['DATA_SOURCE_QUIET_TIME', 'Quiet Time'],
+  ['DATA_SOURCE_WEATHER_FULL', 'Full weather'],
+  ['DATA_SOURCE_STEPS_BAR', 'Steps progress'],
+  ['DATA_SOURCE_BATTERY_BAR', 'Battery progress'],
+  ['DATA_SOURCE_BLUETOOTH', 'Bluetooth status'],
+  ['DATA_SOURCE_QUIET_TIME', 'Quiet time'],
   ['DATA_SOURCE_WEATHER_TEMP', 'Temperature'],
-  ['DATA_SOURCE_WEATHER_PCP', 'Precipitation (window max)'],
+  ['DATA_SOURCE_WEATHER_PCP', 'Precipitation'],
   ['DATA_SOURCE_HUMIDITY', 'Humidity'],
-  ['DATA_SOURCE_AQI', 'Air Quality (AQI)'],
-  ['DATA_SOURCE_UV', 'UV Index (window max)'],
-  ['DATA_SOURCE_WEEK_NUMBER', 'Week Number'],
+  ['DATA_SOURCE_AQI', 'Air quality (AQI)'],
+  ['DATA_SOURCE_UV', 'UV index'],
+  ['DATA_SOURCE_WEEK_NUMBER', 'Week number'],
   ['DATA_SOURCE_SOLAR_HOUR_ANGLE', 'Solar hour angle'],
   ['DATA_SOURCE_SOLAR_ELEVATION', 'Solar elevation'],
   ['DATA_SOURCE_SOLAR_POSITION', 'Solar hour angle & elevation'],
@@ -217,34 +231,32 @@ test('the Clay label ↔ enum name join holds on both sides', () => {
   assert.deepEqual(scrape.clayOptionLabels(), joined);
 });
 
-// The settings selects' value↔label pairs are the second hand-written
+// The settings option groups' value↔label pairs are the second hand-written
 // semantic join: permuting 'Imperial' ↔ 'Metric' (or DOS ↔ ISO) passes every
 // other test while users get swapped behavior, so the pairs are pinned here
-// verbatim. The theme SELECT's values are checked against theme.h's
+// verbatim. The theme radiogroup's values are checked against theme.h's
 // THEME_SETTING_* enum below; which palette each id names stays hand-maintained.
 const EXPECTED_SETTINGS_OPTIONS = {
   SETTINGS_THEME: [
-    ['2', 'Norton (EGA blue)'],
+    ['2', 'Norton (blue)'],
     ['1', 'Turbo Vision (light grey)'],
-    ['3', 'Dark (black)'],
+    ['3', 'Console (black)'],
     ['4', 'Navigator (dark grey)'],
     ['6', 'Amber (maroon)'],
   ],
   SETTINGS_UNITS: [['0', 'Imperial'], ['1', 'Metric']],
   SETTINGS_DATE_FORMAT: [
-    ['0', 'ISO (1970-12-31)'],
-    ['1', 'DOS (31-12-1970)'],
-    ['2', 'Text (DEC 31st, 1970)'],
-    ['3', 'Short (no year)'],
+    ['0', '1970-12-31'],
+    ['1', '31-12-1970'],
+    ['2', 'DEC 31st, 1970'],
+    ['3', 'No year'],
   ],
-  SETTINGS_SHORT_DATE_FORMAT: [['0', 'Month-Day (12-31)'], ['1', 'Day-Month (31-12)']],
+  SETTINGS_SHORT_DATE_FORMAT: [['0', '12-31'], ['1', '31-12']],
   SETTINGS_DOW_POSITION: [
-    ['0', 'Before date (THU 1970-12-31)'],
-    ['1', 'After date (1970-12-31 THU)'],
-    ['2', 'Hidden (1970-12-31)'],
+    ['0', 'THU 1970-12-31'],
+    ['1', '1970-12-31 THU'],
+    ['2', 'Hidden'],
   ],
-  SETTINGS_CRT: [['1', 'On'], ['0', 'Off']],
-  SETTINGS_CRT_SOUND: [['1', 'On'], ['0', 'Off']],
   SETTINGS_WEATHER_WINDOW: [
     ['0', 'Now'],
     ['2', '2 hours'],
@@ -252,26 +264,53 @@ const EXPECTED_SETTINGS_OPTIONS = {
     ['12', '12 hours'],
     ['24', '24 hours'],
   ],
-  SETTINGS_HOURLY_CHIME: [['1', 'On'], ['0', 'Off']],
-  SETTINGS_CHIME_VOLUME:
-      [['5', '5%'], ['10', '10%'], ['25', '25%'], ['50', '50%'], ['75', '75%'], ['100', '100%']],
 };
 
-test('every settings select offers exactly the pinned value ↔ label pairs', () => {
+test('every settings select or radiogroup offers exactly the pinned value ↔ label pairs', () => {
   const actual = {};
   for (const section of config) {
     for (const item of section.items || []) {
-      if (item.type === 'select' && /^SETTINGS_/.test(item.messageKey)) {
-        assert.ok(!actual[item.messageKey], `duplicate select for ${item.messageKey}`);
+      if ((item.type === 'select' || item.type === 'radiogroup') &&
+          /^SETTINGS_/.test(item.messageKey)) {
+        assert.ok(!actual[item.messageKey], `duplicate option group for ${item.messageKey}`);
         actual[item.messageKey] = item.options.map(o => [String(o.value), o.label]);
       }
     }
   }
   assert.deepEqual(
       Object.keys(actual).sort(), Object.keys(EXPECTED_SETTINGS_OPTIONS).sort(),
-      'the eight settings selects drifted');
+      'the eight settings option groups drifted');
   for (const [key, expected] of Object.entries(EXPECTED_SETTINGS_OPTIONS)) {
     assert.deepEqual(actual[key], expected, `option pair drift in ${key}`);
+  }
+});
+
+test('the on/off settings are toggles that default to off', () => {
+  const toggles = [];
+  for (const section of config) {
+    for (const item of section.items || []) {
+      if (item.type === 'toggle') toggles.push(item);
+    }
+  }
+  assert.deepEqual(
+      toggles.map(t => t.messageKey).sort(),
+      ['SETTINGS_CRT_ABERRATION', 'SETTINGS_CRT_CURVATURE', 'SETTINGS_CRT_DEGAUSS']);
+  for (const t of toggles) assert.strictEqual(t.defaultValue, false, t.messageKey);
+});
+
+test('the volume settings are 0-100 sliders with the pinned defaults', () => {
+  const sliders = {};
+  for (const section of config) {
+    for (const item of section.items || []) {
+      if (item.type === 'slider') sliders[item.messageKey] = item;
+    }
+  }
+  assert.deepEqual(
+      Object.keys(sliders).sort(), ['SETTINGS_CHIME_VOLUME', 'SETTINGS_DEGAUSS_VOLUME']);
+  for (const [key, def] of [['SETTINGS_DEGAUSS_VOLUME', 10], ['SETTINGS_CHIME_VOLUME', 0]]) {
+    const {min, max, step, defaultValue} = sliders[key];
+    assert.deepEqual(
+        {min, max, step, defaultValue}, {min: 0, max: 100, step: 1, defaultValue: def}, key);
   }
 });
 
@@ -281,10 +320,10 @@ function findThemeValues() {
       if (item.messageKey === 'SETTINGS_THEME') return item.options.map(o => String(o.value));
     }
   }
-  assert.fail('SETTINGS_THEME select missing');
+  assert.fail('SETTINGS_THEME option group missing');
 }
 
-test('the units select\'s values carry the same semantics as data.h\'s defines', () => {
+test('the units radiogroup\'s values carry the same semantics as data.h\'s defines', () => {
   // The join that actually decides C behavior: the option value labeled
   // 'Metric' must be data.h's UNITS_METRIC, likewise Imperial.
   const dataH = readRepoFile('src/c/data.h');
@@ -298,17 +337,20 @@ test('the units select\'s values carry the same semantics as data.h\'s defines',
   assert.equal(defines.get('UNITS_METRIC'), options.get('Metric'));
 });
 
-test('the theme select\'s values are exactly the THEME_SETTING_* enum values', () => {
+test('the theme radiogroup\'s values are exactly the THEME_SETTING_* enum values', () => {
   const offered = findThemeValues();
   assert.deepEqual([...offered].sort(), [...scrape.themeSettingValues().values()].sort());
 });
 
 test('the C boot defaults equal the Clay shipped defaults', () => {
-  const boots = scrape.cBootDefaults();  // 14 entries; the scraper asserts its own coverage
+  const boots = scrape.cBootDefaults();  // 17 entries; the scraper asserts its own coverage
   const shipped = new Map();
   for (const section of config) {
     for (const item of section.items || []) {
-      if (item.messageKey) shipped.set(item.messageKey, String(item.defaultValue));
+      if (item.messageKey)
+        shipped.set(
+            item.messageKey,
+            String(item.type === 'toggle' ? +item.defaultValue : item.defaultValue));
     }
   }
   // CHIME_TEST is an action flag with no C-side setting to boot from; pinned

@@ -37,14 +37,15 @@ uint32_t MESSAGE_KEY_SETTINGS_WEATHER_WINDOW = 134;
 uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION = 131;
 uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED = 132;
 uint32_t MESSAGE_KEY_WEATHER_REQUEST = 133;
-uint32_t MESSAGE_KEY_SETTINGS_CRT = 135;
-uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND = 136;
-uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME = 137;
+uint32_t MESSAGE_KEY_SETTINGS_CRT_ABERRATION = 135;
+uint32_t MESSAGE_KEY_SETTINGS_CRT_CURVATURE = 136;
+uint32_t MESSAGE_KEY_SETTINGS_CRT_DEGAUSS = 137;
 uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME = 138;
 uint32_t MESSAGE_KEY_CHIME_TEST = 139;
 uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT = 140;
 uint32_t MESSAGE_KEY_LONGITUDE = 141;
 uint32_t MESSAGE_KEY_LATITUDE = 142;
+uint32_t MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME = 143;
 
 // Implementations
 void app_event_loop(void) {}
@@ -543,6 +544,12 @@ status_t persist_write_int(const uint32_t key, const int32_t value) {
     s_mock_persist[slot].key = key;
   }
   s_mock_persist[slot].value = value;
+  return S_SUCCESS;
+}
+status_t persist_delete(const uint32_t key) {
+  int slot = mock_persist_slot(key);
+  if (slot < 0) return E_ERROR;
+  s_mock_persist[slot] = s_mock_persist[--s_mock_persist_count];
   return S_SUCCESS;
 }
 void mock_persist_reset(void) {

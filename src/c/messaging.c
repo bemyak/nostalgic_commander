@@ -108,10 +108,14 @@ static const MessageField s_settings_fields[] = {
     {&MESSAGE_KEY_SETTINGS_DOW_POSITION, PERSIST_KEY_SETTINGS_DOW, &s_settings_dow_position, 0},
     {&MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, PERSIST_KEY_SETTINGS_WEATHER_WINDOW,
      &s_settings_weather_window, 0},
-    {&MESSAGE_KEY_SETTINGS_CRT, PERSIST_KEY_SETTINGS_CRT, &s_settings_crt, 0},
-    {&MESSAGE_KEY_SETTINGS_CRT_SOUND, PERSIST_KEY_SETTINGS_CRT_SOUND, &s_settings_crt_sound, 0},
-    {&MESSAGE_KEY_SETTINGS_HOURLY_CHIME, PERSIST_KEY_SETTINGS_HOURLY_CHIME,
-     &s_settings_hourly_chime, 0},
+    {&MESSAGE_KEY_SETTINGS_CRT_ABERRATION, PERSIST_KEY_SETTINGS_CRT_ABERRATION,
+     &s_settings_crt_aberration, 0},
+    {&MESSAGE_KEY_SETTINGS_CRT_CURVATURE, PERSIST_KEY_SETTINGS_CRT_CURVATURE,
+     &s_settings_crt_curvature, 0},
+    {&MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, PERSIST_KEY_SETTINGS_CRT_DEGAUSS, &s_settings_crt_degauss,
+     0},
+    {&MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME, PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME,
+     &s_settings_degauss_volume, 0},
     {&MESSAGE_KEY_SETTINGS_CHIME_VOLUME, PERSIST_KEY_SETTINGS_CHIME_VOLUME,
      &s_settings_chime_volume, 0},
 };
@@ -282,7 +286,40 @@ static ComplicationDataSource known_source(int id) {
                                                        : DATA_SOURCE_EMPTY;
 }
 
+// The one CRT switch became three effects, and the sound and chime switches
+// folded into their volumes. Old keys carry over once, into the new keys, and
+// are deleted; a new key already stored wins.
+static void migrate_legacy_settings(void) {
+  if (persist_exists(PERSIST_KEY_LEGACY_CRT)) {
+    if (!persist_exists(PERSIST_KEY_SETTINGS_CRT_ABERRATION) &&
+        !persist_exists(PERSIST_KEY_SETTINGS_CRT_CURVATURE) &&
+        !persist_exists(PERSIST_KEY_SETTINGS_CRT_DEGAUSS)) {
+      int on = persist_read_int(PERSIST_KEY_LEGACY_CRT) ? 1 : 0;
+      persist_write_int(PERSIST_KEY_SETTINGS_CRT_ABERRATION, on);
+      persist_write_int(PERSIST_KEY_SETTINGS_CRT_CURVATURE, on);
+      persist_write_int(PERSIST_KEY_SETTINGS_CRT_DEGAUSS, on);
+    }
+    persist_delete(PERSIST_KEY_LEGACY_CRT);
+  }
+  if (persist_exists(PERSIST_KEY_LEGACY_CRT_SOUND)) {
+    // The strike used to play at a fixed 90; sound-on lands on the new default.
+    if (!persist_exists(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME)) {
+      persist_write_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME,
+                        persist_read_int(PERSIST_KEY_LEGACY_CRT_SOUND) ? 10 : 0);
+    }
+    persist_delete(PERSIST_KEY_LEGACY_CRT_SOUND);
+  }
+  if (persist_exists(PERSIST_KEY_LEGACY_HOURLY_CHIME)) {
+    // Off silences the stored volume; on leaves it as chosen.
+    if (!persist_read_int(PERSIST_KEY_LEGACY_HOURLY_CHIME)) {
+      persist_write_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME, 0);
+    }
+    persist_delete(PERSIST_KEY_LEGACY_HOURLY_CHIME);
+  }
+}
+
 void load_settings(void) {
+  migrate_legacy_settings();
   for (unsigned i = 0; i < sizeof(s_settings_fields) / sizeof(s_settings_fields[0]); i++) {
     if (persist_exists(s_settings_fields[i].persist_key)) {
       *s_settings_fields[i].target = persist_read_int(s_settings_fields[i].persist_key);
@@ -387,9 +424,11 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     }
     // The CRT overlay repaints outside the canvas's snapshot gate, so a toggle
     // needs its own dirty-mark (units/window only schedule fetches). The sound
-    // toggle goes through the same hook to release its PCM.
-    if ((s_settings_fields[i].target == &s_settings_crt ||
-         s_settings_fields[i].target == &s_settings_crt_sound) &&
+    // volume goes through the same hook to release its PCM.
+    if ((s_settings_fields[i].target == &s_settings_crt_aberration ||
+         s_settings_fields[i].target == &s_settings_crt_curvature ||
+         s_settings_fields[i].target == &s_settings_crt_degauss ||
+         s_settings_fields[i].target == &s_settings_degauss_volume) &&
         *s_settings_fields[i].target != old) {
       crt_apply_setting_change();
     }

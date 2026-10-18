@@ -62,11 +62,11 @@ int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
 int s_settings_dow_position = 0;       // 0 = Before, 1 = After, 2 = Hidden
 int s_settings_weather_window = 12;    // hours ahead; 0 = in-progress hour only ("Now")
-int s_settings_crt = 0;                // 1 = CRT effect on (default off)
-int s_settings_crt_sound = 0;          // 1 = degauss sound at backlight-on (off by default)
-int s_settings_hourly_chime = 0;       // 1 = POST beep on the hour, 0 = silenced (default)
-int s_settings_chime_volume =
-    5;  // CHIME_DEFAULT_VOLUME; the JS defaults scrape parses this literal
+int s_settings_crt_aberration = 0;     // 1 = RGB fringing on (default off)
+int s_settings_crt_curvature = 0;      // 1 = bent picture and dark corners on (default off)
+int s_settings_crt_degauss = 0;        // 1 = degauss strike at backlight-on (default off)
+int s_settings_degauss_volume = 10;    // 0-100, 0 = silent strike (default 10)
+int s_settings_chime_volume = 0;       // 0-100, 0 = no POST beep on the hour
 
 ComplicationSlot s_complication_slots[NUM_SLOTS] = {
     [SLOT_IDX_TOP_LEFT] = {.box_rect = SLOT_RECT_TOP_LEFT, .source = DATA_SOURCE_WEATHER},
@@ -483,4 +483,17 @@ int date_dow_offset(int dow_position, const char* formatted) {
     return len >= DOW_LEN ? len - DOW_LEN : -1;
   }
   return 0;
+}
+
+void date_strip_dow(int dow_position, const char* formatted, char* out, int out_size) {
+  if (out_size <= 0) return;
+  int at = date_dow_offset(dow_position, formatted);
+  if (at < 0) {
+    snprintf(out, out_size, "%s", formatted);
+    return;
+  }
+  // The weekday and its separating space sit together at one end.
+  int body_len = (int)strlen(formatted) - (DOW_LEN + 1);
+  if (body_len < 0) body_len = 0;
+  snprintf(out, out_size, "%.*s", body_len, formatted + (at == 0 ? DOW_LEN + 1 : 0));
 }

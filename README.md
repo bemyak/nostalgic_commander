@@ -54,9 +54,8 @@ emulator (`tools/update_screenshots.sh`).
 - **Colors only when something needs attention**: temperature runs
   red-hot / blue-cold, AQI and UV go yellow then red past their thresholds,
   battery goes yellow then red as it drains — and green on the charger.
-- **CRT effect** (off by default): a pincushion warp, vignette and chromatic
-  aberration over the whole face, a degauss strike on wake, and an optional
-  degauss sound.
+- **CRT effects** (each off by default): chromatic aberration, a pincushion
+  warp with vignette, and a degauss strike on wake with an optional sound.
 - **Hourly chime** (off by default): the IBM BIOS POST beep on the hour, at a
   volume you pick. It stays silent while the watch is muted or in Quiet Time.
 - **Weather without an API key** — data comes from
@@ -72,15 +71,16 @@ deliberately few:
 |---------|---------|
 | Theme | Norton (default), Turbo Vision, Dark, Navigator, Amber |
 | Units | Imperial, Metric |
-| Weather forecast window | Now, 2, 8, 12 (default), 24 hours |
+| Forecast window | Now, 2, 8, 12 (default), 24 hours |
 | Date format | ISO, DOS, full text, short |
 | Short date format | Month-Day, Day-Month |
 | Day of week | Before date, after date, hidden |
-| CRT effect | On, off (default) |
-| CRT degauss sound | On, off (default) |
-| Hourly chime | On, off (default) |
-| Chime volume | 5% (default), 10%, 25%, 50%, 75%, 100% |
-| Test sound | Button: closes the page and beeps the watch at the saved volume |
+| Chromatic aberration | On, off (default) |
+| Screen curvature | On, off (default) |
+| Degauss on wake | On, off (default) |
+| Degauss volume | 0-100%, 0 = silent (default 10%) |
+| Hourly chime | 0-100%, 0 = off (default) |
+| Speaker test | Button: closes the page and beeps the watch at the saved chime volume |
 | Slots 1–6 | Data source per slot, or Empty |
 
 That's the whole surface. Good defaults over knobs; if a behavior isn't

@@ -45,12 +45,19 @@
 // vibration now; written to some watches already, never reused.
 #define PERSIST_KEY_SETTINGS_DOW 1020
 #define PERSIST_KEY_SETTINGS_WEATHER_WINDOW 1033
-#define PERSIST_KEY_SETTINGS_CRT 1034
-#define PERSIST_KEY_SETTINGS_CRT_SOUND 1035
-#define PERSIST_KEY_SETTINGS_HOURLY_CHIME 1036
+// 1034-1036 are retired (CRT, CRT_SOUND, HOURLY_CHIME) — written to some
+// watches already, never reused. load_settings() reads them once to migrate
+// into the keys below, then deletes them.
+#define PERSIST_KEY_LEGACY_CRT 1034
+#define PERSIST_KEY_LEGACY_CRT_SOUND 1035
+#define PERSIST_KEY_LEGACY_HOURLY_CHIME 1036
 #define PERSIST_KEY_SETTINGS_CHIME_VOLUME 1037
 #define PERSIST_KEY_LONGITUDE 1038
 #define PERSIST_KEY_LATITUDE 1039
+#define PERSIST_KEY_SETTINGS_CRT_ABERRATION 1040
+#define PERSIST_KEY_SETTINGS_CRT_CURVATURE 1041
+#define PERSIST_KEY_SETTINGS_CRT_DEGAUSS 1042
+#define PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME 1043
 
 #define WEATHER_CACHE_MAX_AGE_S (30 * 60)
 // Weather older than this reads as no data.

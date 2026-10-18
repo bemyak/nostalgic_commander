@@ -52,7 +52,7 @@ static int first_lit_depth(int ground) {
 }
 
 static void report(const char* name, const WatchTheme* theme, uint8_t fill) {
-  s_settings_crt = 1;
+  s_settings_crt_curvature = 1;
   s_flash_phase = CRT_FLASH_IDLE;
   s_active_theme = theme;
   memset(mock_framebuffer, fill, sizeof(mock_framebuffer));

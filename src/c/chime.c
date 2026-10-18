@@ -2,8 +2,8 @@
 #include "chime.h"
 #include "data.h"
 
-bool chime_is_due(int minute, int enabled) {
-  return minute == 0 && enabled;
+bool chime_is_due(int minute, int volume) {
+  return minute == 0 && volume > 0;
 }
 
 int chime_effective_volume(int requested) {
@@ -24,7 +24,7 @@ void chime_play(void) {
 static int s_last_chimed_hour = -1;
 
 void chime_on_tick(const struct tm* tick_time) {
-  if (!chime_is_due(tick_time->tm_min, s_settings_hourly_chime)) return;
+  if (!chime_is_due(tick_time->tm_min, s_settings_chime_volume)) return;
   int wall_hour = (tick_time->tm_year * 366 + tick_time->tm_yday) * 24 + tick_time->tm_hour;
   if (wall_hour == s_last_chimed_hour || speaker_is_muted()) return;
   s_last_chimed_hour = wall_hour;

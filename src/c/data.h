@@ -146,16 +146,19 @@ extern int s_settings_units;
 extern int s_settings_date_format;
 extern int s_settings_short_date_format;
 extern int s_settings_dow_position;
-// The CRT overlay (curvature + aberration + warm-up flash); 1 = on. Visual
-// only — it never changes what any slot monitors.
-extern int s_settings_crt;
-// The degauss sound at backlight-on; 1 = on, independent from the visual
-// toggle (s_settings_crt) — sound requires the visual strike to be on too.
-extern int s_settings_crt_sound;
+// The CRT overlay's effects, each its own switch (1 = on); visual only — they
+// never change what any slot monitors. Aberration is the RGB fringing;
+// curvature bends the picture and darkens the corners; degauss is the strike
+// at backlight-on, which always shows its own fringing and wobble.
+extern int s_settings_crt_aberration;
+extern int s_settings_crt_curvature;
+extern int s_settings_crt_degauss;
+// The degauss strike's sound, 0-100; 0 = silent. Needs the strike itself on.
+extern int s_settings_degauss_volume;
 // Persisted like the other settings but read only phone-side: it sizes the
 // reduction window for the UV/PCP maxima, which happens before the wire.
 extern int s_settings_weather_window;
-extern int s_settings_hourly_chime;
+// The hourly POST beep, 0-100; 0 = off.
 extern int s_settings_chime_volume;
 
 // Face geometry (margins, slot rects, TIME window, clock layer) lives in
@@ -231,6 +234,9 @@ typedef enum {
 // Where the weekday sits in a formatted date, or -1 when it is hidden — which
 // is also the signal not to accent it.
 int date_dow_offset(int dow_position, const char* formatted);
+// `formatted` without its weekday and the space beside it, for slots too
+// narrow to carry both.
+void date_strip_dow(int dow_position, const char* formatted, char* out, int out_size);
 int compute_beats(time_t utc);
 int compute_solar_hour_angle(time_t utc, int longitude_centi);
 int compute_solar_elevation(time_t utc, int latitude_centi, int longitude_centi);

@@ -257,14 +257,15 @@ extern uint32_t MESSAGE_KEY_SETTINGS_WEATHER_WINDOW;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_DIRECTION;
 extern uint32_t MESSAGE_KEY_WEATHER_WIND_SPEED;
 extern uint32_t MESSAGE_KEY_WEATHER_REQUEST;
-extern uint32_t MESSAGE_KEY_SETTINGS_CRT;
-extern uint32_t MESSAGE_KEY_SETTINGS_CRT_SOUND;
-extern uint32_t MESSAGE_KEY_SETTINGS_HOURLY_CHIME;
+extern uint32_t MESSAGE_KEY_SETTINGS_CRT_ABERRATION;
+extern uint32_t MESSAGE_KEY_SETTINGS_CRT_CURVATURE;
+extern uint32_t MESSAGE_KEY_SETTINGS_CRT_DEGAUSS;
 extern uint32_t MESSAGE_KEY_SETTINGS_CHIME_VOLUME;
 extern uint32_t MESSAGE_KEY_CHIME_TEST;
 extern uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT;
 extern uint32_t MESSAGE_KEY_LONGITUDE;
 extern uint32_t MESSAGE_KEY_LATITUDE;
+extern uint32_t MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME;
 
 // Handler typedefs and result types, spelled as the SDK umbrella header has
 // them so prototypes below can match the SDK verbatim.
@@ -396,6 +397,7 @@ void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc);
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
 status_t persist_write_int(const uint32_t key, const int32_t value);
+status_t persist_delete(const uint32_t key);
 // Test helpers/knobs below are not part of the real SDK
 void mock_persist_reset(void);
 void mock_reset(void);

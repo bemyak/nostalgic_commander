@@ -325,7 +325,7 @@ static void health_handler(HealthEventType event, void* context) {
 typedef struct {
   bool battery;  // a slot shows the battery
   bool health;   // a slot shows a health metric
-  bool crt;      // the CRT effect's backlight strike and app focus gate
+  bool crt;      // the degauss strike's backlight and app focus gate
 } SubscriptionSet;
 
 static SubscriptionSet s_subscribed;
@@ -333,12 +333,12 @@ static SubscriptionSet s_subscribed;
 static SubscriptionSet wanted_subscriptions(void) {
   return (SubscriptionSet){.battery = any_slot_backed_by(DATA_SOURCE_BATTERY),
                            .health = any_slot_shows_health(),
-                           .crt = s_settings_crt != 0};
+                           .crt = s_settings_crt_degauss != 0};
 }
 
 // Subscribes and unsubscribes only the services whose want changed.
 // `running` is false at launch, where focus still arrives through
-// did_focus; a CRT turned on mid-run has no such event coming, since focus
+// did_focus; a degauss turned on mid-run has no such event coming, since focus
 // is long established.
 static void apply_subscriptions(SubscriptionSet want, bool running) {
   if (want.battery != s_subscribed.battery) {

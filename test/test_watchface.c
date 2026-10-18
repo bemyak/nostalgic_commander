@@ -50,13 +50,11 @@ static void reset_all_state(void) {
   s_settings_short_date_format = 0;
   s_settings_dow_position = 0;
   s_settings_weather_window = 12;
-  s_settings_crt = 0;
-  s_settings_crt_sound = 0;
-  s_settings_hourly_chime = 0;
-  s_settings_chime_volume = CHIME_DEFAULT_VOLUME;
-  // Regenerable content cache: reset so a first-use test doesn't inherit one.
-  free(s_strike_pcm);
-  s_strike_pcm = NULL;
+  s_settings_crt_aberration = 0;
+  s_settings_crt_curvature = 0;
+  s_settings_crt_degauss = 0;
+  s_settings_degauss_volume = 10;
+  s_settings_chime_volume = 0;
 
   s_battery_level = 100;
   s_battery_charging = false;
@@ -2664,6 +2662,45 @@ void test_short_date_should_stay_short_whatever_the_date_format(void) {
   TEST_ASSERT_EQUAL_STRING("31-12", buf);
 }
 
+void test_date_strip_dow_should_drop_the_weekday_and_its_space(void) {
+  char out[16];
+
+  date_strip_dow(DOW_BEFORE, "THU 12-31", out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("12-31", out);
+  date_strip_dow(DOW_AFTER, "12-31 THU", out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("12-31", out);
+  date_strip_dow(DOW_HIDDEN, "12-31", out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("12-31", out);
+
+  // Degenerate input and tiny buffers stay in bounds.
+  date_strip_dow(DOW_BEFORE, "", out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("", out);
+  date_strip_dow(DOW_AFTER, "TH", out, sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("TH", out);
+  char small[4] = "xxx";
+  date_strip_dow(DOW_BEFORE, "THU 12-31", small, sizeof(small));
+  TEST_ASSERT_EQUAL_STRING("12-", small);
+  date_strip_dow(DOW_BEFORE, "THU 12-31", small, 0);
+  TEST_ASSERT_EQUAL_STRING("12-", small);
+}
+
+void test_short_date_should_drop_the_weekday_only_in_a_narrow_slot(void) {
+  test_apply_theme();
+  s_settings_dow_position = DOW_BEFORE;
+  snprintf(s_short_date_display, sizeof(s_short_date_display), "THU 12-31");
+
+  mock_text_runs_reset();
+  draw_short_date_complication(NULL, (GRect)SLOT_RECT_BOTTOM_LEFT, DATA_SOURCE_SHORT_DATE);
+  TEST_ASSERT_EQUAL_INT(1, mock_text_run_count);
+  TEST_ASSERT_EQUAL_STRING("12-31", mock_text_runs[0]);
+
+  mock_text_runs_reset();
+  draw_short_date_complication(NULL, (GRect)SLOT_RECT_TOP_LEFT, DATA_SOURCE_SHORT_DATE);
+  TEST_ASSERT_EQUAL_INT(2, mock_text_run_count);
+  TEST_ASSERT_EQUAL_STRING("THU", mock_text_runs[0]);
+  TEST_ASSERT_EQUAL_STRING(" 12-31", mock_text_runs[1]);
+}
+
 void test_weather_field_table_should_pin_each_global_and_sentinel(void) {
   // The watch side of the contract: 18 int fields, each pointing at its
   // data.c global with the sentinel the JS field table and the formatters'
@@ -3467,23 +3504,114 @@ void test_inbox_should_parse_the_newer_settings_and_centre_slot(void) {
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_STEPS_BAR, s_complication_slots[5].source);
 }
 
-void test_inbox_should_parse_and_persist_hourly_chime_setting(void) {
+void test_inbox_should_parse_and_persist_the_crt_effect_settings(void) {
   mock_persist_reset();
   mock_dict_reset();
-  mock_dict_add_int(MESSAGE_KEY_SETTINGS_HOURLY_CHIME, 1);
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT_ABERRATION, "1");  // Clay sends strings
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT_CURVATURE, "1");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, "1");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME, "25");
   inbox_received_callback(NULL, NULL);
-  TEST_ASSERT_EQUAL_INT(1, s_settings_hourly_chime);
-  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_HOURLY_CHIME));
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_aberration);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_curvature);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_degauss);
+  TEST_ASSERT_EQUAL_INT(25, s_settings_degauss_volume);
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT_ABERRATION));
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT_CURVATURE));
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT_DEGAUSS));
+  TEST_ASSERT_EQUAL_INT(25, persist_read_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME));
 
   mock_dict_reset();
-  mock_dict_add_int(MESSAGE_KEY_SETTINGS_HOURLY_CHIME, 0);
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME, 3);  // a slider sends ints
   inbox_received_callback(NULL, NULL);
-  TEST_ASSERT_EQUAL_INT(0, s_settings_hourly_chime);
-  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_SETTINGS_HOURLY_CHIME));
+  TEST_ASSERT_EQUAL_INT(3, s_settings_degauss_volume);
+  TEST_ASSERT_EQUAL_INT(3, persist_read_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME));
+  s_settings_degauss_volume = 25;
+  persist_write_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME, 25);
 
-  s_settings_hourly_chime = 1;
+  s_settings_crt_aberration = 0;
+  s_settings_crt_curvature = 0;
+  s_settings_crt_degauss = 0;
+  s_settings_degauss_volume = 0;
   load_settings();
-  TEST_ASSERT_EQUAL_INT(0, s_settings_hourly_chime);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_aberration);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_curvature);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_degauss);
+  TEST_ASSERT_EQUAL_INT(25, s_settings_degauss_volume);
+}
+
+void test_load_settings_should_migrate_the_old_crt_switch_to_all_three_effects(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_CRT, 1);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_aberration);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_curvature);
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_degauss);
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT_DEGAUSS));
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT));
+
+  // One-shot: a later launch finds nothing left to migrate.
+  s_settings_crt_aberration = 0;
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_aberration);
+}
+
+void test_load_settings_should_migrate_an_off_crt_switch_as_all_off(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_CRT, 0);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_aberration);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_curvature);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_degauss);
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT));
+}
+
+void test_load_settings_migration_should_not_override_the_new_effect_keys(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_CRT, 1);
+  persist_write_int(PERSIST_KEY_SETTINGS_CRT_CURVATURE, 0);
+  persist_write_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME, 10);
+  persist_write_int(PERSIST_KEY_LEGACY_CRT_SOUND, 1);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_aberration);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_curvature);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_degauss);
+  TEST_ASSERT_EQUAL_INT(10, s_settings_degauss_volume);
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT));
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT_SOUND));
+}
+
+void test_load_settings_should_migrate_the_old_degauss_sound_to_a_volume(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_CRT_SOUND, 1);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(10, s_settings_degauss_volume);
+  TEST_ASSERT_EQUAL_INT(10, persist_read_int(PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME));
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT_SOUND));
+
+  mock_persist_reset();
+  s_settings_degauss_volume = 50;
+  persist_write_int(PERSIST_KEY_LEGACY_CRT_SOUND, 0);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_degauss_volume);
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_CRT_SOUND));
+}
+
+void test_load_settings_should_migrate_the_old_chime_switch_into_the_volume(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_HOURLY_CHIME, 0);
+  persist_write_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME, 25);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_chime_volume);
+  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME));
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_HOURLY_CHIME));
+
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_LEGACY_HOURLY_CHIME, 1);
+  persist_write_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME, 25);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(25, s_settings_chime_volume);
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_LEGACY_HOURLY_CHIME));
 }
 
 void test_inbox_should_parse_and_persist_chime_volume_setting(void) {
@@ -3499,6 +3627,14 @@ void test_inbox_should_parse_and_persist_chime_volume_setting(void) {
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(25, s_settings_chime_volume);
   TEST_ASSERT_EQUAL_INT(25, persist_read_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME));
+
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CHIME_VOLUME, 3);  // a slider sends ints
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(3, s_settings_chime_volume);
+  TEST_ASSERT_EQUAL_INT(3, persist_read_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME));
+  s_settings_chime_volume = 25;
+  persist_write_int(PERSIST_KEY_SETTINGS_CHIME_VOLUME, 25);
 
   s_settings_chime_volume = 100;
   load_settings();
@@ -3605,13 +3741,14 @@ void test_refresh_state_should_keep_date_output_when_nothing_changes(void) {
 }
 
 void test_chime_gate_should_be_due_only_on_the_hour_when_enabled(void) {
-  TEST_ASSERT_TRUE(chime_is_due(0, 1));
+  TEST_ASSERT_TRUE(chime_is_due(0, 5));
   TEST_ASSERT_FALSE(chime_is_due(0, 0));
-  TEST_ASSERT_FALSE(chime_is_due(29, 1));
+  TEST_ASSERT_FALSE(chime_is_due(0, -10));
+  TEST_ASSERT_FALSE(chime_is_due(29, 5));
 }
 
 void test_chime_should_beep_the_post_tone_once_at_the_full_hour(void) {
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
 
   struct tm t = {0};
   tick_handler(&t, MINUTE_UNIT);
@@ -3630,7 +3767,7 @@ void test_chime_should_stay_silent_when_the_setting_is_off(void) {
 }
 
 void test_chime_should_stay_silent_off_the_full_hour(void) {
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
 
   struct tm t = {0};
   t.tm_min = 13;
@@ -3639,7 +3776,7 @@ void test_chime_should_stay_silent_off_the_full_hour(void) {
 }
 
 void test_chime_should_stay_silent_when_the_speaker_is_muted(void) {
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
   mock_speaker_muted = true;
 
   struct tm t = {0};
@@ -3648,7 +3785,6 @@ void test_chime_should_stay_silent_when_the_speaker_is_muted(void) {
 }
 
 void test_chime_should_use_the_configured_volume(void) {
-  s_settings_hourly_chime = 1;
   s_settings_chime_volume = 75;
 
   struct tm t = {0};
@@ -3658,7 +3794,6 @@ void test_chime_should_use_the_configured_volume(void) {
 }
 
 void test_chime_should_clamp_the_configured_volume_to_the_sdk_range(void) {
-  s_settings_hourly_chime = 1;
   struct tm t = {0};
 
   s_settings_chime_volume = 200;  // settings write arbitrary ints
@@ -3706,12 +3841,12 @@ void test_inbox_should_never_beep_on_a_plain_save(void) {
   // JS side stamps the flag back to '0' — CHIME_TEST explicitly '0': neither
   // may sound, or every ordinary Save Settings would beep.
   mock_dict_reset();
-  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_HOURLY_CHIME, "1");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CHIME_VOLUME, "75");
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
 
   mock_dict_reset();
-  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_HOURLY_CHIME, "1");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CHIME_VOLUME, "75");
   mock_dict_add_cstring(MESSAGE_KEY_CHIME_TEST, "0");
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
@@ -3721,6 +3856,7 @@ void test_inbox_chime_test_should_bypass_mute(void) {
   // Owner decision: the test tone ignores speaker_is_muted() — the user asked
   // for the beep explicitly; a silent test reads as broken.
   mock_speaker_muted = true;
+  s_settings_chime_volume = 5;
   mock_dict_reset();
   mock_dict_add_cstring(MESSAGE_KEY_CHIME_TEST, "1");
   inbox_received_callback(NULL, NULL);
@@ -3995,14 +4131,22 @@ void test_init_should_subscribe_only_what_the_default_layout_uses(void) {
   TEST_ASSERT_NULL(mock_app_focus_handlers.did_focus);
 }
 
-void test_init_should_subscribe_the_crt_services_when_the_effect_is_on(void) {
-  s_settings_crt = 1;
+void test_init_should_subscribe_the_crt_services_when_degauss_is_on(void) {
+  s_settings_crt_degauss = 1;
   init();
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
   TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.did_focus);
   TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.will_focus);
   // Launch focus still arrives through did_focus.
   TEST_ASSERT_FALSE(s_app_in_focus);
+}
+
+void test_init_should_not_subscribe_the_crt_services_for_effects_without_a_strike(void) {
+  s_settings_crt_aberration = 1;
+  s_settings_crt_curvature = 1;
+  init();
+  TEST_ASSERT_EQUAL_INT(0, mock_backlight_subscribe_count);
+  TEST_ASSERT_NULL(mock_app_focus_handlers.did_focus);
 }
 
 void test_init_should_subscribe_the_battery_when_a_slot_shows_it(void) {
@@ -4018,7 +4162,7 @@ void test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_stri
   TEST_ASSERT_EQUAL_INT(0, mock_backlight_subscribe_count);
 
   mock_dict_reset();
-  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT, "1");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, "1");
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
   TEST_ASSERT_NOT_NULL(mock_backlight_handler);
@@ -4036,14 +4180,14 @@ void test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_stri
 }
 
 void test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   init();
   mock_app_focus_handlers.did_focus(true);
   mock_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
 
   mock_dict_reset();
-  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT, "0");
+  mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, "0");
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_FALSE(s_strike_pending);
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_unsubscribe_count);
@@ -4105,7 +4249,7 @@ void test_wanted_subscriptions_should_follow_slots_and_settings(void) {
   TEST_ASSERT_FALSE(want.crt);
 
   set_slots(kSlotsAllHealth);
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   s_complication_slots[4].source = DATA_SOURCE_BATTERY;
   want = wanted_subscriptions();
   TEST_ASSERT_TRUE(want.battery);
@@ -4325,7 +4469,7 @@ static char s_fake_ctx_storage;
 static GContext* s_fake_ctx = (GContext*)&s_fake_ctx_storage;
 
 void test_crt_should_not_capture_the_framebuffer_while_disabled(void) {
-  s_settings_crt = 0;
+  s_settings_crt_degauss = 0;
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
@@ -4341,7 +4485,7 @@ void test_crt_text_boxes_should_not_move_with_quick_view(void) {
   memcpy(before, boxes, sizeof(before));
 
   s_quick_view_active = true;
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   s_active_theme = &s_theme_shadow;
   memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
   crt_update_proc(NULL, s_fake_ctx);
@@ -4358,14 +4502,15 @@ void test_crt_text_boxes_should_not_move_with_quick_view(void) {
 }
 
 void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 0;
   crt_app_focus_did_handler(true);
 
-  crt_backlight_handler(true);  // sound toggle off: nothing
+  crt_backlight_handler(true);  // volume Off: nothing
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 
-  s_settings_crt_sound = 1;
+  s_settings_degauss_volume = 90;
   mock_speaker_muted = true;  // system mute / Quiet Time wins
   crt_backlight_handler(true);
   crt_update_proc(NULL, s_fake_ctx);
@@ -4376,12 +4521,12 @@ void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
   TEST_ASSERT_EQUAL_UINT32(1, mock_speaker_last_num_tracks);
-  TEST_ASSERT_EQUAL_UINT8(CRT_STRIKE_VOLUME, mock_speaker_last_volume);
+  TEST_ASSERT_EQUAL_UINT8(90, mock_speaker_last_volume);
 }
 
 void test_crt_strike_should_not_prime_before_the_first_did_focus(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   crt_backlight_handler(true);
   TEST_ASSERT_FALSE(s_strike_pending);
@@ -4393,8 +4538,8 @@ void test_crt_strike_should_not_prime_before_the_first_did_focus(void) {
 }
 
 void test_crt_strike_should_prime_after_the_first_did_focus(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   crt_app_focus_did_handler(true);
   crt_backlight_handler(true);
@@ -4406,8 +4551,8 @@ void test_crt_strike_should_prime_after_the_first_did_focus(void) {
 }
 
 void test_crt_strike_should_ignore_backlight_while_the_face_is_covered(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   // A notification covering the face fires will_focus(false); the cover's
   // backlight flash belongs to the cover: never primed, never started, and
@@ -4425,8 +4570,8 @@ void test_crt_strike_should_ignore_backlight_while_the_face_is_covered(void) {
 }
 
 void test_crt_strike_should_eat_the_dismissals_backlight(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   // Focus-first dismissal order: did_focus(true) lands before the cover's
   // closing backlight-on. That flash belongs to the cover — the one-shot the
@@ -4462,8 +4607,8 @@ static void crt_fire_strike_start(void) {
 }
 
 void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
 
   // Guard against the one-shot latching shut: with the dismissal's flash
@@ -4482,8 +4627,8 @@ void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
 }
 
 void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   // The cover's own edges land while the face is still covered — gated, and
   // they must NOT consume the one-shot: the dismissal's backlight-on can still
@@ -4508,8 +4653,8 @@ void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) 
 }
 
 void test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_view(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
 
   // Dismissed while the cover's light is still on: no on-edge follows, so
   // nothing would consume the one-shot. Going off in view drops it, and the
@@ -4529,38 +4674,25 @@ void test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_vie
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
 }
 
-void test_crt_strike_pcm_should_fit_the_speaker_budget(void) {
-  TEST_ASSERT_TRUE(CRT_STRIKE_PCM_SAMPLES * 2 <= 16 * 1024);
+void test_crt_strike_synth_should_sound_and_end_in_exact_silence(void) {
+  static int16_t pcm[CRT_STRIKE_PCM_SAMPLES];
+  crt_strike_synth(pcm, CRT_STRIKE_PCM_SAMPLES);
+  int peak = 0;
+  for (int i = 0; i < CRT_STRIKE_PCM_SAMPLES; i++) peak = pcm[i] > peak ? pcm[i] : peak;
+  TEST_ASSERT_GREATER_THAN_INT(5000, peak);
+  for (int i = CRT_STRIKE_PCM_SAMPLES - CRT_STRIKE_TAIL_SAMPLES; i < CRT_STRIKE_PCM_SAMPLES; i++) {
+    TEST_ASSERT_EQUAL_INT16(0, pcm[i]);
+  }
 }
 
-void test_crt_strike_pcm_should_exist_only_while_the_sound_is_on(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
-  crt_app_focus_did_handler(true);
-  TEST_ASSERT_NULL(s_strike_pcm);
-
-  crt_backlight_handler(true);
-  crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_NOT_NULL(s_strike_pcm);
-  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
-
-  s_settings_crt_sound = 0;
-  crt_apply_setting_change();
-  TEST_ASSERT_NULL(s_strike_pcm);
-
-  s_settings_crt_sound = 1;  // synthesized afresh on the next strike
-  crt_backlight_handler(true);
-  crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_NOT_NULL(s_strike_pcm);
-  TEST_ASSERT_EQUAL_INT(2, mock_speaker_play_tracks_count);
-
-  crt_deinit();
-  TEST_ASSERT_NULL(s_strike_pcm);
+void test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget(void) {
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES * CRT_FLASH_TICK_MS, CRT_STRIKE_PCM_MS);
+  TEST_ASSERT_TRUE(CRT_STRIKE_PCM_SAMPLES * 2 <= 16 * 1024);
 }
 
 void test_crt_deinit_should_cancel_the_strike_and_drop_the_layer(void) {
   main_window_load(NULL);
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   crt_backlight_handler(true);
   crt_update_proc(NULL, s_fake_ctx);  // strike running: chain armed
@@ -4585,15 +4717,15 @@ void test_crt_deinit_should_cancel_the_strike_and_drop_the_layer(void) {
 }
 
 void test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off(void) {
-  s_settings_crt = 0;
-  s_settings_crt_sound = 1;
+  s_settings_crt_degauss = 0;
+  s_settings_degauss_volume = 90;
 
   crt_app_focus_will_handler(false);
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
   crt_app_focus_did_handler(true);
 
   // The effect comes on later; the first real wake strikes.
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
@@ -4601,12 +4733,12 @@ void test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off(void) {
 }
 
 void test_crt_setting_change_should_disarm_a_pending_cover_suppression(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_app_focus_will_handler(false);
   crt_app_focus_did_handler(true);
   TEST_ASSERT_TRUE(s_cover_suppresses_strike);
 
-  s_settings_crt = 0;
+  s_settings_crt_degauss = 0;
   crt_apply_setting_change();
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
 }
@@ -4644,7 +4776,7 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
   crt_backlight_handler(true);  // toggle off starts nothing
   TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
 
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   crt_backlight_handler(true);
@@ -4670,7 +4802,7 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
 }
 
 void test_crt_strike_should_draw_phase_zero_after_the_wake_frame(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   s_active_theme = &s_theme_shadow;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
@@ -4700,7 +4832,7 @@ void test_crt_strike_should_draw_phase_zero_after_the_wake_frame(void) {
 }
 
 void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
 
@@ -4708,7 +4840,7 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
   crt_backlight_handler(true);
   crt_update_proc(NULL, s_fake_ctx);
   AppTimerCallback start = mock_timer_callback;
-  s_settings_crt = 0;
+  s_settings_crt_degauss = 0;
   crt_apply_setting_change();
   int registered = mock_timer_register_count;
   mock_mark_dirty_count = 0;
@@ -4718,7 +4850,7 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
   TEST_ASSERT_EQUAL_INT(registered, mock_timer_register_count);
 
   // A re-prime between the wake frame and the start timer.
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_backlight_handler(true);
   crt_update_proc(NULL, s_fake_ctx);
   start = mock_timer_callback;
@@ -4734,13 +4866,13 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
 void test_crt_setting_push_should_redraw_the_overlay(void) {
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   mock_dict_reset();
-  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT, 1);
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, 1);
   mock_mark_dirty_count = 0;
 
   inbox_received_callback(NULL, NULL);
 
-  TEST_ASSERT_EQUAL_INT(1, s_settings_crt);
-  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT));
+  TEST_ASSERT_EQUAL_INT(1, s_settings_crt_degauss);
+  TEST_ASSERT_EQUAL_INT(1, persist_read_int(PERSIST_KEY_SETTINGS_CRT_DEGAUSS));
   TEST_ASSERT_TRUE(mock_mark_dirty_count > 0);
 
   // A repeat push with the same value keeps the overlay paint budget flat.
@@ -4749,18 +4881,89 @@ void test_crt_setting_push_should_redraw_the_overlay(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
 }
 
-void test_crt_sound_off_push_should_free_the_strike_pcm(void) {
-  s_settings_crt = 1;
-  s_settings_crt_sound = 1;
-  s_strike_pcm = malloc(16);
-  TEST_ASSERT_NOT_NULL(s_strike_pcm);
-  mock_dict_reset();
-  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT_SOUND, 0);
+void test_crt_sound_should_play_at_the_configured_volume_and_stay_silent_at_zero(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
 
-  inbox_received_callback(NULL, NULL);
+  s_settings_degauss_volume = 25;
+  crt_play_strike_sound();
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+  TEST_ASSERT_EQUAL_UINT8(25, mock_speaker_last_volume);
 
-  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_sound);
-  TEST_ASSERT_NULL(s_strike_pcm);
+  s_settings_degauss_volume = 250;  // settings write arbitrary ints
+  crt_play_strike_sound();
+  TEST_ASSERT_EQUAL_UINT8(100, mock_speaker_last_volume);
+
+  s_settings_degauss_volume = 0;
+  crt_play_strike_sound();
+  TEST_ASSERT_EQUAL_INT(2, mock_speaker_play_tracks_count);
+
+  s_settings_degauss_volume = 50;
+  s_settings_crt_degauss = 0;  // the volume is moot without the strike
+  crt_play_strike_sound();
+  TEST_ASSERT_EQUAL_INT(2, mock_speaker_play_tracks_count);
+}
+
+void test_crt_degauss_off_should_end_a_strike_but_keep_the_other_effects(void) {
+  s_settings_crt_curvature = 1;
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_EQUAL(CRT_FLASH_IDLE, s_flash_phase);
+
+  s_settings_crt_degauss = 0;
+  static char fake_window;
+  s_main_window = (Window*)&fake_window;
+  mock_window_set_bg_count = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_NULL(s_flash_timer);
+  TEST_ASSERT_EQUAL_INT(0, mock_window_set_bg_count);  // curvature still paints
+
+  s_settings_crt_curvature = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_TRUE(mock_window_set_bg_count > 0);  // the last effect off erases
+}
+
+void test_crt_overlay_should_capture_only_while_something_paints(void) {
+  s_active_theme = &s_theme_shadow;
+  crt_app_focus_did_handler(true);
+
+  s_settings_crt_degauss = 1;  // between strikes a degauss-only face is left alone
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
+
+  crt_backlight_handler(true);  // the strike starts after the wake frame...
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  crt_update_proc(NULL, s_fake_ctx);  // ...and every frame of it paints
+  TEST_ASSERT_EQUAL_INT(1, mock_fb_capture_count);
+
+  s_settings_crt_degauss = 0;
+  crt_apply_setting_change();
+  s_settings_crt_aberration = 1;
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(2, mock_fb_capture_count);
+
+  s_settings_crt_aberration = 0;
+  s_settings_crt_curvature = 1;
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(3, mock_fb_capture_count);
+}
+
+void test_crt_backlight_should_strike_only_with_the_degauss_effect(void) {
+  s_settings_crt_aberration = 1;
+  s_settings_crt_curvature = 1;
+  crt_app_focus_did_handler(true);
+  crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_strike_pending);
+
+  s_settings_crt_degauss = 1;
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
 }
 
 void test_crt_toggle_off_should_force_a_full_repaint(void) {
@@ -4771,15 +4974,15 @@ void test_crt_toggle_off_should_force_a_full_repaint(void) {
   // non-null window.
   static char fake_window;
   s_main_window = (Window*)&fake_window;
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   mock_window_set_bg_count = 0;
   crt_apply_setting_change();
   TEST_ASSERT_EQUAL_INT(0, mock_window_set_bg_count);  // on: overlay mark only
 
   mock_dict_reset();
-  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT, 0);
+  mock_dict_add_int(MESSAGE_KEY_SETTINGS_CRT_DEGAUSS, 0);
   inbox_received_callback(NULL, NULL);
-  TEST_ASSERT_EQUAL_INT(0, s_settings_crt);
+  TEST_ASSERT_EQUAL_INT(0, s_settings_crt_degauss);
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
   TEST_ASSERT_TRUE(mock_window_set_bg_count > 0);
 }
@@ -4788,7 +4991,7 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   // Toggle off mid-strike: the pending tick must be cancelled — otherwise the
   // chain re-arms from IDLE (phase −1 → 0) and runs a full 8-tick strike
   // nobody triggered, dirtying the layer each frame.
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   crt_backlight_handler(true);        // primes the strike
@@ -4797,7 +5000,7 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   mock_timer_callback(NULL);  // advance one tick for realism
   int cancel_before = mock_timer_cancel_count;
 
-  s_settings_crt = 0;
+  s_settings_crt_degauss = 0;
   crt_apply_setting_change();
 
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
@@ -5353,20 +5556,19 @@ void test_handle_bluetooth_should_record_the_link_and_redraw(void) {
 void test_chime_should_not_ask_the_speaker_off_the_full_hour_or_when_disabled(void) {
   struct tm t = {0};
   t.tm_min = 13;
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
   chime_on_tick(&t);
   t.tm_min = 0;
-  s_settings_hourly_chime = 0;
+  s_settings_chime_volume = 0;
   chime_on_tick(&t);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_muted_query_count);
 
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
   chime_on_tick(&t);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_muted_query_count);
 }
 
 void test_chime_should_stay_silent_at_volume_zero(void) {
-  s_settings_hourly_chime = 1;
   s_settings_chime_volume = 0;
   struct tm t = {0};
   chime_on_tick(&t);
@@ -5378,7 +5580,7 @@ void test_chime_should_stay_silent_at_volume_zero(void) {
 }
 
 void test_chime_should_not_repeat_in_a_replayed_wall_hour(void) {
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
   struct tm t = {0};
   t.tm_hour = 1;
   chime_on_tick(&t);
@@ -5396,7 +5598,7 @@ void test_chime_should_not_repeat_in_a_replayed_wall_hour(void) {
 }
 
 void test_chime_muted_hour_should_still_chime_if_unmuted_within_the_hour(void) {
-  s_settings_hourly_chime = 1;
+  s_settings_chime_volume = 5;
   struct tm t = {0};
   mock_speaker_muted = true;
   chime_on_tick(&t);
@@ -5438,7 +5640,7 @@ void test_window_unload_should_drop_the_layer_handles_and_the_unobstructed_subsc
 }
 
 void test_deinit_should_release_every_service_init_subscribed(void) {
-  s_settings_crt = 1;
+  s_settings_crt_degauss = 1;
   s_complication_slots[1].source = DATA_SOURCE_BATTERY;
   init();
   TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
@@ -5556,6 +5758,8 @@ int main(void) {
   RUN_TEST(test_theme_ground_level_should_give_level_1_tinted_field);
   RUN_TEST(test_format_date_string_should_render_every_body);
   RUN_TEST(test_every_date_combination_should_fit_its_window);
+  RUN_TEST(test_date_strip_dow_should_drop_the_weekday_and_its_space);
+  RUN_TEST(test_short_date_should_drop_the_weekday_only_in_a_narrow_slot);
   RUN_TEST(test_weekday_position_should_be_independent_of_the_body);
   RUN_TEST(test_short_date_should_stay_short_whatever_the_date_format);
   RUN_TEST(test_weather_field_table_should_pin_each_global_and_sentinel);
@@ -5595,7 +5799,12 @@ int main(void) {
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather_cache);
   RUN_TEST(test_inbox_should_parse_slot_assignments);
   RUN_TEST(test_inbox_should_parse_the_newer_settings_and_centre_slot);
-  RUN_TEST(test_inbox_should_parse_and_persist_hourly_chime_setting);
+  RUN_TEST(test_inbox_should_parse_and_persist_the_crt_effect_settings);
+  RUN_TEST(test_load_settings_should_migrate_the_old_crt_switch_to_all_three_effects);
+  RUN_TEST(test_load_settings_should_migrate_an_off_crt_switch_as_all_off);
+  RUN_TEST(test_load_settings_migration_should_not_override_the_new_effect_keys);
+  RUN_TEST(test_load_settings_should_migrate_the_old_degauss_sound_to_a_volume);
+  RUN_TEST(test_load_settings_should_migrate_the_old_chime_switch_into_the_volume);
   RUN_TEST(test_inbox_should_parse_and_persist_chime_volume_setting);
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_inbox_weather_window_change_should_trigger_weather_refetch);
@@ -5634,7 +5843,8 @@ int main(void) {
   RUN_TEST(test_init_should_not_fetch_without_a_weather_slot);
   RUN_TEST(test_request_weather_should_drop_quietly_when_the_outbox_is_unavailable);
   RUN_TEST(test_init_should_subscribe_only_what_the_default_layout_uses);
-  RUN_TEST(test_init_should_subscribe_the_crt_services_when_the_effect_is_on);
+  RUN_TEST(test_init_should_subscribe_the_crt_services_when_degauss_is_on);
+  RUN_TEST(test_init_should_not_subscribe_the_crt_services_for_effects_without_a_strike);
   RUN_TEST(test_init_should_subscribe_the_battery_when_a_slot_shows_it);
   RUN_TEST(test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_strike);
   RUN_TEST(test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike);
@@ -5667,15 +5877,18 @@ int main(void) {
   RUN_TEST(test_crt_strike_should_fire_on_the_backlight_after_the_dismissal);
   RUN_TEST(test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight);
   RUN_TEST(test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_view);
-  RUN_TEST(test_crt_strike_pcm_should_fit_the_speaker_budget);
-  RUN_TEST(test_crt_strike_pcm_should_exist_only_while_the_sound_is_on);
+  RUN_TEST(test_crt_strike_synth_should_sound_and_end_in_exact_silence);
+  RUN_TEST(test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget);
   RUN_TEST(test_crt_deinit_should_cancel_the_strike_and_drop_the_layer);
   RUN_TEST(test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off);
   RUN_TEST(test_crt_setting_change_should_disarm_a_pending_cover_suppression);
   RUN_TEST(test_crt_pass_should_follow_the_row_stride);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);
   RUN_TEST(test_crt_setting_push_should_redraw_the_overlay);
-  RUN_TEST(test_crt_sound_off_push_should_free_the_strike_pcm);
+  RUN_TEST(test_crt_sound_should_play_at_the_configured_volume_and_stay_silent_at_zero);
+  RUN_TEST(test_crt_degauss_off_should_end_a_strike_but_keep_the_other_effects);
+  RUN_TEST(test_crt_overlay_should_capture_only_while_something_paints);
+  RUN_TEST(test_crt_backlight_should_strike_only_with_the_degauss_effect);
   RUN_TEST(test_crt_toggle_off_should_force_a_full_repaint);
   RUN_TEST(test_crt_toggle_off_mid_strike_should_cancel_the_chain);
   RUN_TEST(test_crt_strike_should_draw_phase_zero_after_the_wake_frame);

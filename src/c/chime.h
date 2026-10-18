@@ -1,20 +1,17 @@
 #pragma once
 #include <pebble.h>
 
-// The POST success beep, on the hour, when the settings select consents (off
-// by default). Numbers are the BIOS beep: 880 Hz (A5) as the PIT quantizes it
+// The POST success beep, on the hour, when the volume select is above Off (the
+// default). Numbers are the BIOS beep: 880 Hz (A5) as the PIT quantizes it
 // (divisor 1331 → ~896 Hz measured on real hardware), for the IBM BIOS's half
 // second, square as the 8253 always was.
 #define CHIME_FREQ_HZ 896
 #define CHIME_DURATION_MS 500
-// The boot default for the "Chime volume" select; at call time the setting's
-// s_settings_chime_volume rules, clamped to the speaker's 0-100 below.
-#define CHIME_DEFAULT_VOLUME 5
 
 // The gate, kept pure so the host suite can assert every combination without
-// a speaker: full-hour minute and consent on. Mute (system mute and Quiet
+// a speaker: full-hour minute and an audible volume. Mute (system mute and Quiet
 // Time) is asked of speaker_is_muted() only once this passes.
-bool chime_is_due(int minute, int enabled);
+bool chime_is_due(int minute, int volume);
 
 // Settings arrive as arbitrary ints; clamp to [0, 100] so an off-wire value
 // never reaches the SDK out of range.
