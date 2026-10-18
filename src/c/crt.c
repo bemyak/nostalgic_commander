@@ -41,6 +41,7 @@ static bool s_app_in_focus = false;
 // next backlight-on after that is a fresh wake.
 static bool s_cover_suppresses_strike = false;
 
+static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
 
 static int isqrt_floor(int v) {
@@ -656,9 +657,18 @@ void crt_update_proc(Layer* layer, GContext* ctx) {
     s_strike_pending = false;
     crt_play_strike_sound();
     s_flash_phase = 0;
-    if (s_crt_layer) layer_mark_dirty(s_crt_layer);
-    s_flash_timer = app_timer_register(CRT_FLASH_TICK_MS, crt_flash_tick, NULL);
+    // A mark made during render is dropped when the render finishes, so
+    // phase 0's repaint is scheduled from a timer.
+    s_flash_timer = app_timer_register(0, crt_flash_start, NULL);
   }
+}
+
+static void crt_flash_start(void* data) {
+  (void)data;
+  // A killed chain (deinit, setting off, re-prime) leaves IDLE behind.
+  if (s_flash_phase == CRT_FLASH_IDLE) return;
+  if (s_crt_layer) layer_mark_dirty(s_crt_layer);
+  s_flash_timer = app_timer_register(CRT_FLASH_TICK_MS, crt_flash_tick, NULL);
 }
 
 static void crt_flash_tick(void* data) {

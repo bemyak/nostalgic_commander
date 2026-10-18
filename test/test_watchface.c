@@ -5362,9 +5362,24 @@ void test_crt_strike_should_eat_the_dismissals_backlight(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 }
 
+// Fires the zero-delay timer the wake frame armed: phase 0 gets its repaint
+// and the tick chain is armed behind it.
+static void crt_fire_strike_start(void) {
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_UINT32(0, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(crt_flash_start, mock_timer_callback);
+  int dirty = mock_mark_dirty_count;
+  mock_timer_callback(NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(dirty + 1, mock_mark_dirty_count);
+  TEST_ASSERT_EQUAL_UINT32(CRT_FLASH_TICK_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(crt_flash_tick, mock_timer_callback);
+}
+
 void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
   s_settings_crt = 1;
   s_settings_crt_sound = 1;
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
 
   // Guard against the one-shot latching shut: with the dismissal's flash
   // eaten, the next backlight-on primes and plays as always.
@@ -5377,8 +5392,7 @@ void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
   crt_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
-  TEST_ASSERT_EQUAL_UINT32(CRT_FLASH_TICK_MS, mock_timer_last_ms);
+  crt_fire_strike_start();
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
 }
 
@@ -5721,9 +5735,9 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
   TEST_ASSERT_TRUE(mock_mark_dirty_count > 0);
   crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
   TEST_ASSERT_EQUAL_INT(1, mock_timer_register_count);
-  TEST_ASSERT_EQUAL_UINT32(CRT_FLASH_TICK_MS, mock_timer_last_ms);
+  crt_fire_strike_start();
+  TEST_ASSERT_EQUAL_INT(2, mock_timer_register_count);
   TEST_ASSERT_NOT_NULL(mock_timer_callback);
 
   // Drive the re-arming tick chain to completion; the chain must stop.
@@ -5734,7 +5748,69 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
     TEST_ASSERT_TRUE(frames <= CRT_FLASH_PHASES);  // no lost idle edge
   }
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES, frames);
-  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES + 1, mock_timer_register_count);
+}
+
+void test_crt_strike_should_draw_phase_zero_after_the_wake_frame(void) {
+  s_settings_crt = 1;
+  s_active_theme = &s_theme_shadow;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+
+  static uint8_t idle_frame[SCREEN_W * SCREEN_H];
+  s_flash_phase = CRT_FLASH_IDLE;
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 106] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+  memcpy(idle_frame, mock_framebuffer, sizeof(idle_frame));
+
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);  // wake frame: strike starts, not yet drawn
+  crt_fire_strike_start();
+
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 106] = 0xFF;
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
+  TEST_ASSERT_TRUE(memcmp(idle_frame, mock_framebuffer, sizeof(idle_frame)) != 0);
+
+  int jittered_rows = 0;
+  for (int y = 0; y < SCREEN_H; y++) {
+    if (crt_strike_offset(y, 0) != 0) jittered_rows++;
+  }
+  TEST_ASSERT_TRUE(jittered_rows > 0);
+}
+
+void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
+  s_settings_crt = 1;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+
+  // Setting off between the wake frame and the start timer.
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);
+  AppTimerCallback start = mock_timer_callback;
+  s_settings_crt = 0;
+  crt_apply_setting_change();
+  int registered = mock_timer_register_count;
+  mock_mark_dirty_count = 0;
+  start(NULL);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
+  TEST_ASSERT_EQUAL_INT(registered, mock_timer_register_count);
+
+  // A re-prime between the wake frame and the start timer.
+  s_settings_crt = 1;
+  crt_backlight_handler(true);
+  crt_update_proc(NULL, s_fake_ctx);
+  start = mock_timer_callback;
+  crt_backlight_handler(true);
+  registered = mock_timer_register_count;
+  mock_mark_dirty_count = 0;
+  start(NULL);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
+  TEST_ASSERT_EQUAL_INT(registered, mock_timer_register_count);
 }
 
 void test_crt_setting_push_should_redraw_the_overlay(void) {
@@ -5799,7 +5875,8 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
   crt_backlight_handler(true);        // primes the strike
   crt_update_proc(NULL, s_fake_ctx);  // wake frame lands → chain armed
-  mock_timer_callback(NULL);          // advance one tick for realism
+  crt_fire_strike_start();
+  mock_timer_callback(NULL);  // advance one tick for realism
   int cancel_before = mock_timer_cancel_count;
 
   s_settings_crt = 0;
@@ -6711,6 +6788,8 @@ int main(void) {
   RUN_TEST(test_crt_sound_off_push_should_free_the_strike_pcm);
   RUN_TEST(test_crt_toggle_off_should_force_a_full_repaint);
   RUN_TEST(test_crt_toggle_off_mid_strike_should_cancel_the_chain);
+  RUN_TEST(test_crt_strike_should_draw_phase_zero_after_the_wake_frame);
+  RUN_TEST(test_crt_strike_start_should_do_nothing_once_the_chain_is_killed);
   RUN_TEST(test_weather_age_should_judge_by_age_and_local_day);
   RUN_TEST(test_weather_stamp_for_should_trust_only_sane_fetch_times);
   RUN_TEST(test_weather_expire_should_keep_everything_while_fresh);
