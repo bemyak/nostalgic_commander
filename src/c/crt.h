@@ -12,7 +12,9 @@
 // which a plain gain quantizes away), 3) curvature — the pincushion warp.
 // Each axis maps its edge distance onto the LUTs' 0..16 domain, so
 // CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
-// own. The degauss strike's row jitter rides the warp's sampling stage. The
+// own. The degauss strike gathers every pixel from the frame as stage 2 left it,
+// pulling its edges in as a pincushion pulse, black beyond the raster, and
+// rotating each pixel's hue into purity stripes. The
 // toggle gates the pass; off means the proc returns before capturing, so the
 // effect costs exactly nothing.
 //
@@ -125,8 +127,10 @@ extern Layer* s_crt_layer;
 #define CRT_CA_R2V_X2Q8 ((CRT_CA_R2V_Q8 * CRT_CA_R2V_Q8 + 255) >> 8)
 
 // The wake-up: a degauss strike. On backlight-on, FRAMES 90ms ticks of
-// per-row horizontal jitter with decaying amplitude plus amplified channel
-// separation — the CRT's shadow-mask demagnetization wobble.
+// the raster's edges pulled in and pushed out in curves with the mains, black
+// where it leaves the glass, and the picture striped in hues that thin to
+// nothing as the amplitude decays, plus amplified channel separation — the
+// CRT's shadow-mask demagnetization.
 #define CRT_FLASH_TICK_MS 90
 #define CRT_FLASH_PHASES 8
 #define CRT_FLASH_IDLE (-1)
@@ -144,14 +148,15 @@ typedef struct {
 
 // Pure pieces, unit-tested (all integer, fixed point):
 
-// Row x-offset during strike frame `flash_phase`: 0 when idle. Amplitude
-// decays to 0 across phases; deterministic per (y, phase).
-int crt_strike_offset(int y, int flash_phase);
-
 #ifdef TEST_ENV
 // The text box table of the face, left to right within each row band; returns
 // its length.
 int crt_text_boxes(const CrtTextBox** boxes);
+// The strike gather's displacement at dest (x, y) in frame `phase`, px: the
+// source sits at (x + dx, y + dy) before the curvature warp's own position.
+void crt_strike_field(int x, int y, int phase, int* dx, int* dy);
+// The hue band (0..5, sixths of a turn) the gather rotates dest (x, y) by.
+int crt_strike_band(int x, int y, int phase);
 // Q8 brightness factor at falloff depth `d` for the active theme's ground;
 // 256 = untouched. The vignette ramp tool reads it.
 int crt_vignette_q8_from_depth(int d);
@@ -164,7 +169,7 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
 // The same pass with its stages chosen: `aberration` is stage 1 (RGB fringing),
 // `curvature` stages 2 and 3 (vignette, warp). With curvature off the sampling
 // is an exact copy. A strike (flash_phase in range) runs the fringing and the
-// row jitter regardless, as the strike always shows both.
+// pulse and stripes regardless, as the strike always shows both.
 void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
                                   bool aberration, bool curvature);
 

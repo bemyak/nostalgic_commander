@@ -206,19 +206,90 @@ int crt_vignette_q8_from_depth(int d) {
 }
 #endif
 
-// Strike amplitude per frame, px. Decays to zero; the strike reads as a
-// wobble that settles, never a sequence of bands.
-static const int s_strike_amp_px[CRT_FLASH_PHASES] = {6, 5, 4, 3, 2, 2, 1, 1};
+// Strike amplitude per frame: sudden, then decaying to nothing. The pulse
+// scales with it; at the first frame's 6 a corner moves CRT_STRIKE_REACH_PX
+// rows, the most any pixel moves vertically, which sizes the gather's row
+// ring.
+static const int s_strike_amp_px[CRT_FLASH_PHASES] = {6, 4, 3, 2, 1, 1, 0, 0};
+#define CRT_STRIKE_REACH_PX 20
 
-// Per-row jitter: keyed hashing, deterministic, adjacent rows uncorrelated.
-int crt_strike_offset(int y, int flash_phase) {
-  if (flash_phase < 0 || flash_phase >= CRT_FLASH_PHASES) return 0;
-  int amp = s_strike_amp_px[flash_phase];
-  // Knuth multiplicative, cheap avalanche for row index × phase.
-  uint32_t noise = (uint32_t)(y + 1) * 2654435761u + (uint32_t)flash_phase * 40503u;
-  noise ^= noise >> 13;
-  return (int)(noise % (uint32_t)(2 * amp + 1)) - amp;
+static int16_t crt_wave_q15(uint32_t phase_q16);
+
+// The coil's field pulls the raster's edges in, in curves: a pincushion pulse
+// that is nothing in the middle and climbs, per axis, with the squared
+// distance from that axis's centre line (the warp's xq across, yq down, 256 at
+// the rim), so a whole edge bows, flipping between pulled in and pushed out with
+// the mains every frame and dying with the amplitude. The pull is not even
+// along an edge: each axis's is modulated by lobes, one cycle per edge, the
+// pull running from ~0.2x to ~1.8x of its base (CRT_STRIKE_LOBE_Q8 of 256
+// either way), and the lobes drift a different fraction of a turn per frame on
+// each axis, so the raster bows in curves that change every frame. Q16 per
+// amplitude px, before the weight and the lobes, per axis: at amplitude 6 the
+// pull reaches 20px sideways and CRT_STRIKE_REACH_PX (20) rows vertically,
+// never more, in any frame.
+#define CRT_STRIKE_PULSE_X_Q16 2500
+#define CRT_STRIKE_PULSE_Y_Q16 2138
+#define CRT_STRIKE_LOBE_Q8 200
+// Turns per frame, Q16: the sideways pull's lobes run down the rows, the
+// vertical pull's along the columns.
+#define CRT_STRIKE_LOBE_STEP_X 16384
+#define CRT_STRIKE_LOBE_STEP_Y 9830
+
+static void crt_strike_pulse(int phase, int* zx, int* zy) {
+  int amp = (phase & 1 ? -1 : 1) * s_strike_amp_px[phase];
+  *zx = amp * CRT_STRIKE_PULSE_X_Q16;
+  *zy = amp * CRT_STRIKE_PULSE_Y_Q16;
 }
+
+// The Q8 factor of the lobes at position `pos` of `extent` along an edge.
+static inline int strike_lobe_q8(int pos, int extent, int phase, int step) {
+  uint32_t turn = (uint32_t)pos * 65536 / extent + (uint32_t)phase * step;
+  return 256 + ((CRT_STRIKE_LOBE_Q8 * crt_wave_q15(turn)) >> 15);
+}
+
+// A Q17 displacement weighted by an axis's rim term (Q8, 256 at the rim), to
+// whole px, nearest. Two bits are dropped first: the lobed displacement
+// reaches ~21M, which times 256 would not fit.
+static inline int strike_pulse_px(int lin_q17, int rq) {
+  return (((lin_q17 >> 2) * rq) + (1 << 23)) >> 24;
+}
+
+// The mask demagnetising shows as purity stripes: every pixel's hue is rotated
+// by an angle that is nothing in the middle and grows toward the rim (a field
+// of 3 * yq + xq, 1024 in a corner), so the stripes are its iso-lines. The
+// angle runs in sixths of a turn, `band` of them: the even bands are the
+// channel permutations R->G->B->R and R->B->G->R (band 0 is the picture as it
+// is), the odd ones the average of their neighbours, which is what makes the
+// stripes soft. The count falls with the square of the amplitude: dozens of
+// bands at amplitude 6, a fraction of one cycle on the last frames. Q13.
+#define CRT_STRIKE_STRIPES_Q13 11
+
+#ifdef TEST_ENV
+// The displacement the gather applies at dest (x, y), from the same pulse
+// terms, doubled-coordinate Q17 sums, lobes and weight.
+void crt_strike_field(int x, int y, int phase, int* dx, int* dy) {
+  int zx, zy;
+  crt_strike_pulse(phase, &zx, &zy);
+  int tdx = 2 * x - (SCREEN_W - 1);
+  int tdy = 2 * y - (SCREEN_H - 1);
+  int xq = tdx * tdx * 256 / ((SCREEN_W - 1) * (SCREEN_W - 1));
+  int yq = tdy * tdy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1));
+  int mod_y = strike_lobe_q8(y, SCREEN_H, phase, CRT_STRIKE_LOBE_STEP_X);
+  int mod_x = strike_lobe_q8(x, SCREEN_W, phase, CRT_STRIKE_LOBE_STEP_Y);
+  *dx = strike_pulse_px(((zx * tdx >> 4) * mod_y) >> 4, xq);
+  *dy = strike_pulse_px(((zy * tdy >> 4) * mod_x) >> 4, yq);
+}
+
+// The hue band at dest (x, y) in frame `phase`.
+int crt_strike_band(int x, int y, int phase) {
+  int tdx = 2 * x - (SCREEN_W - 1);
+  int tdy = 2 * y - (SCREEN_H - 1);
+  int field = 3 * (tdy * tdy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1))) +
+              tdx * tdx * 256 / ((SCREEN_W - 1) * (SCREEN_W - 1));
+  int amp = s_strike_amp_px[phase];
+  return ((field * (amp * amp * CRT_STRIKE_STRIPES_Q13)) >> 13) % 6;
+}
+#endif
 
 // Quantize a Q4 channel level to the panel's four steps, the pixel's Bayer
 // threshold breaking the rounding direction.
@@ -308,6 +379,91 @@ static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, c
   }
 }
 
+// The pixel with its channels cycled by `band` (1..5), alpha kept: even bands
+// take the channels rotated by band / 2 places, odd ones average that with one
+// place further.
+static uint8_t strike_hue(uint8_t v, int band) {
+  const int c[6] = {(v >> 4) & 3, (v >> 2) & 3, v & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3};
+  const int k = 3 - (band >> 1);
+  int o[3];
+  for (int i = 0; i < 3; i++) o[i] = (band & 1) ? (c[i + k] + c[i + k - 1] + 1) >> 1 : c[i + k];
+  return GCOLOR8_ALPHA | (uint8_t)((o[0] << 4) | (o[1] << 2) | o[2]);
+}
+
+// A strike frame's last stage: every dest pixel gathered from the frame as
+// stages 1 and 2 left it. The source is the curvature warp's position (the
+// plain column without curvature) displaced by the strike's pincushion pulse;
+// beyond the raster it is black. The nearest row, and the warp's column pair
+// blend, as stage 3 below, then the purity stripes. The pulse's linear part
+// advances along a row by one add in Q17 (the doubled coordinates make the
+// centre exact); its lobes are one factor per row for the sideways pull and a
+// table per column for the vertical.
+//
+// Dest rows are written top to bottom in place. A source row below the dest
+// row is still untouched in the frame; one above it has been overwritten, but
+// the ring holds each row as it was before its write, and the pulse reaches at
+// most CRT_STRIKE_REACH_PX rows up.
+static void crt_strike_gather(uint8_t* fb, int w, int h, int stride, int phase, bool curvature,
+                              const uint16_t* xq) {
+  static uint8_t ring[CRT_STRIKE_REACH_PX + 1][SCREEN_W];
+  static int16_t mod_x[SCREEN_W];
+  int zx, zy;
+  crt_strike_pulse(phase, &zx, &zy);
+  const int amp = s_strike_amp_px[phase];
+  const int stripes = amp * amp * CRT_STRIKE_STRIPES_Q13;
+  const int h1sq = (h - 1) * (h - 1);
+  for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
+  for (int y = 0; y < h; y++) {
+    uint8_t* row = fb + (size_t)y * stride;
+    memcpy(ring[y % (CRT_STRIKE_REACH_PX + 1)], row, w);
+    const int tdy = 2 * y - (h - 1);
+    const int yterm = tdy * tdy * 256 / h1sq;
+    const int stripe_y = 3 * yterm;
+    const int lin_y = zy * tdy;
+    const int mod_y = strike_lobe_q8(y, h, phase, CRT_STRIKE_LOBE_STEP_X);
+    int lin_x = -zx * (w - 1);
+    for (int x = 0; x < w; x++) {
+      const int rq = xq[x] + yterm;
+      int sy = y + strike_pulse_px(((lin_y >> 4) * mod_x[x]) >> 4, yterm);
+      int sx = x + strike_pulse_px(((lin_x >> 4) * mod_y) >> 4, xq[x]);
+      lin_x += 2 * zx;
+      int fr = 0;
+      if (curvature) {
+        int mul16 = warp_mul16(rq);
+        int S = (w - 1) * 65536 + (2 * x - (w - 1)) * mul16;
+        sx += (S >> 17) - x;
+        fr = (S >> 9) & 0xFF;
+      }
+      if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+        row[x] = GCOLOR8_ALPHA;
+        continue;
+      }
+      if (sx >= w - 1) fr = 0;  // w-1, not w: kill the fraction symmetrically
+      const uint8_t* srow =
+          sy > y ? fb + (size_t)sy * stride : ring[sy % (CRT_STRIKE_REACH_PX + 1)];
+      uint8_t p0 = srow[sx], p1 = srow[fr ? sx + 1 : sx];
+      uint8_t v = p0;
+      if (p0 != p1) {
+        int r = ((256 - fr) * ((p0 >> 4) & 3) + fr * ((p1 >> 4) & 3) + 128) >> 8;
+        int g = ((256 - fr) * ((p0 >> 2) & 3) + fr * ((p1 >> 2) & 3) + 128) >> 8;
+        int b = ((256 - fr) * (p0 & 3) + fr * (p1 & 3) + 128) >> 8;
+        if (!is_grey(p0)) {
+          int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
+          int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
+          int sb = max2(p0 & 3, p1 & 3);
+          int r0 = r, g0 = g, b0 = b;
+          r = hold_hue(r0, sr, g0, b0);
+          g = hold_hue(g0, sg, r0, b0);
+          b = hold_hue(b0, sb, r0, g0);
+        }
+        v = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
+      }
+      const int band = (((stripe_y + xq[x]) * stripes) >> 13) % 6;
+      row[x] = band && !is_grey(v) ? strike_hue(v, band) : v;
+    }
+  }
+}
+
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
   crt_apply_framebuffer_passes(fb, w, h, stride, flash_phase, true, true);
 }
@@ -339,7 +495,7 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
     s_tables_w = w;
   }
   // CA boost during the strike: the separation balloons while the mask
-  // degausses. Phase-indexed through the same decay table as the row jitter.
+  // degausses. Phase-indexed through the same decay table as the row offset.
   int ca_boost = (flash_phase >= 0 && flash_phase < CRT_FLASH_PHASES)
                      ? (s_strike_amp_px[flash_phase] + 1) / 2
                      : 0;
@@ -371,7 +527,6 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       uint8_t* row = fb + (size_t)y * stride;
       int dy = 2 * y - (h - 1);
       int yterm = dy * dy * 256 / h1sq;
-      int row_off = crt_strike_offset(y, flash_phase);
 
       // Capture this row while it is still raw, and (if not done on this row)
       // one step ahead in traversal direction — the CA stage reads ±1 rows on
@@ -551,10 +706,12 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
         row_ca[x] = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
       }
 
-      // 3) Curvature (+ strike jitter): dest (x,y) samples source column
+      // 3) Curvature: dest (x,y) samples source column
       //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of warp_mul16 —
-      //    recomposed here from the CA stage's cached terms — then the strike
-      //    slides the whole row sideways. M grows with x too, so integer
+      //    recomposed here from the CA stage's cached terms. A strike frame
+      //    stops at the row write and takes this from crt_strike_gather
+      //    instead.
+      //    M grows with x too, so integer
       //    quantization boundaries curve instead of aligning into seams.
       //    floor(S) + fraction IS the warp position, no rounding. Rim
       //    symmetry survives without rounding:
@@ -565,20 +722,17 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       //    measures 7px wide), and keeping their energy as fractional levels
       //    reads as tube edge defocus while letters keep their rhythm.
       //    Rounding (+128) avoids a truncation bias toward dark.
-      //    Without curvature the row is only slid by the strike, exactly.
-      if (!curvature) {
-        for (int x = 0; x < w; x++) {
-          int sx = x + row_off;
-          row[x] = row_ca[sx < 0 ? 0 : (sx >= w ? w - 1 : sx)];
-        }
+      //    Without curvature the row is an exact copy.
+      if (striking || !curvature) {
+        memcpy(row, row_ca, w);
         continue;
       }
       for (int x = 0; x < w; x++) {
         int dx = 2 * x - (w - 1);
         int mul16 = warp_mul16(s_ca_xq[x] + yterm);
         int S = (w - 1) * 65536 + dx * mul16;  // exact warp position, Q17
-        int sx = (S >> 17) + row_off;          // strike stays whole-pixel
-        int fr = (S >> 9) & 0xFF;              // 0..255, weight toward sx+1
+        int sx = S >> 17;
+        int fr = (S >> 9) & 0xFF;  // 0..255, weight toward sx+1
         // Out-of-range replicates the nearest column WITHOUT the inward
         // blend: clamping sx alone would leave fr live, so the left rim would
         // blend the edge column with the (still dithered) column 1 while the
@@ -619,6 +773,7 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       }
     }
   }
+  if (striking) crt_strike_gather(fb, w, h, stride, flash_phase, curvature, s_ca_xq);
 }
 
 static bool crt_enabled(void) {
@@ -710,16 +865,16 @@ void crt_backlight_handler(bool on) {
 // weight once the call returns. The sound lasts as long as the animation.
 // The one limit is the service's per-call sample budget (16 KB).
 #define CRT_STRIKE_PCM_MS (CRT_FLASH_PHASES * CRT_FLASH_TICK_MS)
-#define CRT_STRIKE_PCM_RATE 8000
+#define CRT_STRIKE_PCM_RATE 16000
 #define CRT_STRIKE_PCM_SAMPLES (CRT_STRIKE_PCM_MS * CRT_STRIKE_PCM_RATE / 1000)
 #define CRT_STRIKE_PCM_BUDGET_BYTES (16 * 1024)
-_Static_assert(CRT_STRIKE_PCM_SAMPLES * 2 <= CRT_STRIKE_PCM_BUDGET_BYTES,
+_Static_assert(CRT_STRIKE_PCM_SAMPLES <= CRT_STRIKE_PCM_BUDGET_BYTES,
                "strike PCM exceeds the speaker service's per-call sample budget");
-// The envelope fades to zero over the last CRT_STRIKE_FADE_SAMPLES (17.5ms at
-// 8 kHz), ahead of CRT_STRIKE_TAIL_SAMPLES of exact silence, so the codec
+// The envelope eases to zero over the last CRT_STRIKE_FADE_SAMPLES (250ms at
+// 16 kHz), ahead of CRT_STRIKE_TAIL_SAMPLES of exact silence, so the codec
 // never cuts a nonzero signal.
-#define CRT_STRIKE_FADE_SAMPLES 140
-#define CRT_STRIKE_TAIL_SAMPLES 8
+#define CRT_STRIKE_FADE_SAMPLES 4000
+#define CRT_STRIKE_TAIL_SAMPLES 16
 
 // Q15 sine: |x| in [-1,1] shaped by the cubic smoothstep y = (3x − x³)/2 —
 // within 1.1% of sin(πx/2), no libm: newlib's __ieee754_rem_pio2 hard-faults
@@ -753,31 +908,39 @@ static int strike_fade_q8(int left) {
 // dies with tone_tau; sub_q8 is the Q8 weight of a copy an octave below; the
 // rumble is white noise through two one-poles of 1/lp_div, at rumble_gain/2^17
 // of full scale, dying with rumble_tau; attack ramps the whole mix in; len ends
-// the envelope early (0 = the full length); out_gain scales the mix to the peak.
+// the envelope early (0 = the full length); sync_hz (0 = free-running)
+// restarts the tone's phase at that rate and rings each restart down with
+// ring_tau, so the tone is heard as the colour of a sync_hz buzz rather than
+// as a note; out_gain scales the mix to the peak.
 typedef struct {
   int from_hz, to_hz, sweep_tau, tone_tau, attack, sub_q8, rumble_gain, lp_div, rumble_tau, len,
-      out_gain;
+      sync_hz, ring_tau, out_gain;
 } CrtStrikeVoice;
 
-// A swell, not a strike: the mix ramps in over 100ms like something being
-// pushed, then falls with the sweep. The octave-down copy is strong. The watch
-// speaker rolls off below ~200-300 Hz, so how much of the low sweep is heard
-// there is for the wrist to judge.
-static const CrtStrikeVoice s_strike_voice = {.from_hz = 260,
-                                              .to_hz = 70,
-                                              .sweep_tau = 1066,
-                                              .tone_tau = 1600,
-                                              .attack = 800,
-                                              .sub_q8 = 192,
-                                              .rumble_gain = 6,
-                                              .lp_div = 10,
-                                              .rumble_tau = 1200,
+// A thud, then the coil's mains buzz. The watch speaker reproduces almost
+// nothing below ~500 Hz and gains towards 2 kHz, so there is no note to hear:
+// the tone restarts 100 times a second and rings down inside each period, a
+// buzz whose colour falls from 1.6 kHz to 600 Hz over the first 60 ms and
+// dies over ~300 ms. The rumble is a 50 ms noise thud under the onset. Judged
+// on the wrist against recordings; the speaker turns broadband noise into
+// hiss, so the buzz carries the body.
+static const CrtStrikeVoice s_strike_voice = {.from_hz = 1600,
+                                              .to_hz = 600,
+                                              .sweep_tau = 960,
+                                              .tone_tau = 5000,
+                                              .attack = 120,
+                                              .sub_q8 = 0,
+                                              .rumble_gain = 60,
+                                              .lp_div = 6,
+                                              .rumble_tau = 800,
                                               .len = 0,
-                                              .out_gain = 15350};
+                                              .sync_hz = 100,
+                                              .ring_tau = 60,
+                                              .out_gain = 9102};
 
-static void crt_strike_synth_voice(int16_t* buf, size_t n, const CrtStrikeVoice* v) {
-  // A whoomp, not a ring: a falling tone with a rumble under it. The tone's
-  // partials are 1:2 at 4:1. The body is broadband: white noise through two
+static void crt_strike_synth_voice(int8_t* buf, size_t n, const CrtStrikeVoice* v) {
+  // A buzz with a falling colour and a rumble under it. The tone's partials
+  // are 1:2 at 4:1. The body is broadband: white noise through two
   // one-pole low-passes, decaying and scaled by
   // the strike's visual amplitude, interpolated between the per-phase
   // s_strike_amp_px values so the rumble tracks the wobble. A smoothstep fade
@@ -786,16 +949,27 @@ static void crt_strike_synth_voice(int16_t* buf, size_t n, const CrtStrikeVoice*
   const size_t per_phase = n / CRT_FLASH_PHASES;
   const int end = v->len ? v->len : (int)n;
   uint32_t phase = 0;
+  int ring = 32767;
+  int sync_left = 0;
   uint32_t seed = 1;
   int fq = v->from_hz * 256;  // Q8 Hz
   int tone = 32767;           // Q15
   int rumble = 32767;         // Q15
   int lp1 = 0, lp2 = 0;
   for (size_t i = 0; i < n; i++) {
+    if (v->sync_hz && sync_left-- == 0) {
+      phase = 0;
+      ring = 32767;
+      sync_left = CRT_STRIKE_PCM_RATE / v->sync_hz - 1;
+    }
     phase += (uint32_t)(((int64_t)fq << 16) / (256 * CRT_STRIKE_PCM_RATE));
     fq -= (fq - v->to_hz * 256) / v->sweep_tau;
     int y = (4 * crt_wave_q15(phase) + crt_wave_q15(phase * 2)) / 5;
     y += (int)(((int64_t)crt_wave_q15(phase >> 1) * v->sub_q8) >> 8);
+    if (v->sync_hz) {
+      y = (int)(((int64_t)y * ring) >> 15);
+      ring -= ring / v->ring_tau;
+    }
     seed = seed * 1664525u + 1013904223u;
     lp1 += (((int)(seed >> 16) - 32768) - lp1) / v->lp_div;
     lp2 += (lp1 - lp2) / v->lp_div;
@@ -813,7 +987,7 @@ static void crt_strike_synth_voice(int16_t* buf, size_t n, const CrtStrikeVoice*
     int gain = i < (size_t)v->attack ? (int)(i * 256 / v->attack) : 256;
     gain = gain * strike_fade_q8(end - CRT_STRIKE_TAIL_SAMPLES - (int)i) >> 8;
     int64_t out = (tonal + noisy) * gain * v->out_gain >> 23;
-    buf[i] = (int16_t)(out > 32767 ? 32767 : (out < -32767 ? -32767 : out));
+    buf[i] = (int8_t)((out > 32767 ? 32767 : (out < -32767 ? -32767 : out)) >> 8);
     if (i >= (size_t)v->attack) {
       tone -= tone / v->tone_tau;
       rumble -= (rumble + v->rumble_tau - 1) / v->rumble_tau;
@@ -821,7 +995,7 @@ static void crt_strike_synth_voice(int16_t* buf, size_t n, const CrtStrikeVoice*
   }
 }
 
-void crt_strike_synth(int16_t* buf, size_t n) {
+void crt_strike_synth(int8_t* buf, size_t n) {
   crt_strike_synth_voice(buf, n, &s_strike_voice);
 }
 
@@ -832,7 +1006,7 @@ void crt_play_strike_sound(void) {
   // looking at. Honor those, and our own volume.
   int volume = chime_effective_volume(s_settings_degauss_volume);
   if (!s_settings_crt_degauss || volume == 0 || !s_app_in_focus || speaker_is_muted()) return;
-  int16_t* pcm = malloc(CRT_STRIKE_PCM_SAMPLES * sizeof(int16_t));
+  int8_t* pcm = malloc(CRT_STRIKE_PCM_SAMPLES);
   if (!pcm) return;
   crt_strike_synth(pcm, CRT_STRIKE_PCM_SAMPLES);
   // The whole sample goes in as one track: the speaker service copies it into
@@ -847,8 +1021,8 @@ void crt_play_strike_sound(void) {
       {60, SpeakerWaveformSine, CRT_STRIKE_PCM_MS + 30, 127, 0},
   };
   const SpeakerSample sample = {.data = pcm,
-                                .num_bytes = CRT_STRIKE_PCM_SAMPLES * 2,
-                                .format = SpeakerPcmFormat_8kHz_16bit,
+                                .num_bytes = CRT_STRIKE_PCM_SAMPLES,
+                                .format = SpeakerPcmFormat_16kHz_8bit,
                                 .base_midi_note = 60,
                                 .loop = false};
   const SpeakerTrack track = {.notes = through, .num_notes = 1, .sample = &sample};
