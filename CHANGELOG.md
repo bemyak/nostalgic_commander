@@ -4,11 +4,24 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
-## [Unreleased]
+## [1.12.0] - 2026-10-25
 
 ### Changed
 
-- The CRT effect is split into chromatic aberration, screen curvature and degauss on wake, and the sound settings moved to a new Effects panel with a volume for the degauss and the hourly chime.
+- The CRT effect is split into chromatic aberration, screen curvature and
+  degauss on wake, and the sound settings moved to a new Effects panel with a
+  volume for the degauss and the hourly chime.
+- The settings page is a Norton Commander window.
+- Degauss animation redone from footage of a real tube: the raster bows in
+  at the edges in curves that change every frame, black beyond the glass,
+  with purity stripes that thin out as the field dies.
+- Degauss sound redone: a thud, then the coil's mains buzz, tuned on the
+  wrist against recordings.
+
+### Fixed
+
+- The degauss volume slider has an audible effect. The old sound sat below
+  what the speaker can play.
 
 ## [1.11.0]
 
