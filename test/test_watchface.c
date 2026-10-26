@@ -4989,6 +4989,11 @@ static void strike_gather_frame(int phase, bool curvature) {
   crt_strike_gather(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, phase, curvature, xq);
 }
 
+// White as the strike leaves it at (x, y): tinted by that pixel's band.
+static uint8_t strike_white(int x, int y) {
+  return s_strike_grey_tint[3][crt_strike_band(x, y, 0)];
+}
+
 void test_crt_strike_field_should_stay_within_the_reach_in_every_frame(void) {
   for (int phase = 0; phase < CRT_FLASH_PHASES; phase++) {
     for (int y = 0; y < SCREEN_H; y++) {
@@ -5090,10 +5095,10 @@ void test_crt_strike_should_gather_pixels_where_the_field_says(void) {
     for (int x = 0; x < SCREEN_W; x++) {
       crt_strike_field(x, y, 0, &dx, &dy);
       bool lands = x + dx == src_x && y + dy == src_y;
-      TEST_ASSERT_EQUAL_HEX8(lands ? 0xFF : 0xC0, mock_framebuffer[y * SCREEN_W + x]);
+      TEST_ASSERT_EQUAL_HEX8(lands ? strike_white(x, y) : 0xC0, mock_framebuffer[y * SCREEN_W + x]);
     }
   }
-  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[dst_y * SCREEN_W + dst_x]);
+  TEST_ASSERT_EQUAL_HEX8(strike_white(dst_x, dst_y), mock_framebuffer[dst_y * SCREEN_W + dst_x]);
 }
 
 void test_crt_strike_should_leave_the_centre_pixel_where_it_is(void) {
@@ -5104,7 +5109,8 @@ void test_crt_strike_should_leave_the_centre_pixel_where_it_is(void) {
 
   for (int y = 0; y < SCREEN_H; y++) {
     for (int x = 0; x < SCREEN_W; x++) {
-      TEST_ASSERT_EQUAL_HEX8(x == cx && y == cy ? 0xFF : 0xC0, mock_framebuffer[y * SCREEN_W + x]);
+      TEST_ASSERT_EQUAL_HEX8(x == cx && y == cy ? strike_white(x, y) : 0xC0,
+                             mock_framebuffer[y * SCREEN_W + x]);
     }
   }
 }
@@ -5128,23 +5134,24 @@ void test_crt_strike_should_read_rows_above_as_they_were_before_the_warp(void) {
     for (int x = 0; x < SCREEN_W; x++) {
       crt_strike_field(x, y, 0, &dx, &dy);
       bool lands = x + dx == src_x && y + dy == src_y;
-      TEST_ASSERT_EQUAL_HEX8(lands ? 0xFF : 0xC0, mock_framebuffer[y * SCREEN_W + x]);
+      TEST_ASSERT_EQUAL_HEX8(lands ? strike_white(x, y) : 0xC0, mock_framebuffer[y * SCREEN_W + x]);
     }
   }
-  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[dst_y * SCREEN_W + dst_x]);
+  TEST_ASSERT_EQUAL_HEX8(strike_white(dst_x, dst_y), mock_framebuffer[dst_y * SCREEN_W + dst_x]);
 }
 
 void test_crt_strike_should_be_black_beyond_the_raster(void) {
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
   strike_gather_frame(0, false);
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[0]);                     // source left of the frame
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[99]);                    // source above it
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * SCREEN_W + 99]);   // source below it
-  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 100]);  // the picture stays
-  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 60]);
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[0]);                    // source left of the frame
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[99]);                   // source above it
+  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * SCREEN_W + 99]);  // source below it
+  TEST_ASSERT_EQUAL_HEX8(strike_white(100, 113),
+                         mock_framebuffer[113 * SCREEN_W + 100]);  // the picture stays
+  TEST_ASSERT_EQUAL_HEX8(strike_white(60, 113), mock_framebuffer[113 * SCREEN_W + 60]);
 }
 
-void test_crt_strike_should_stripe_colour_with_hue_and_leave_grey_alone(void) {
+void test_crt_strike_should_stripe_colour_with_hue_and_tint_grey(void) {
   memset(mock_framebuffer, 0xC3, sizeof(mock_framebuffer));  // pure blue
   strike_gather_frame(0, false);
   bool seen[256] = {false};
@@ -5160,13 +5167,30 @@ void test_crt_strike_should_stripe_colour_with_hue_and_leave_grey_alone(void) {
   TEST_ASSERT_TRUE(seen[0xF0]);  // R->G->B->R: red
   TEST_ASSERT_TRUE(seen[0xCC]);  // R->B->G->R: green
 
-  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
-  strike_gather_frame(0, false);
-  for (int x = SCREEN_W / 2; x < 180; x++) {
-    int dx, dy;
-    crt_strike_field(x, 113, 0, &dx, &dy);
-    if (x + dx >= SCREEN_W) break;
-    TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + x]);
+  for (int level = 0; level < 4; level++) {
+    const uint8_t grey = (uint8_t)(GCOLOR8_ALPHA | (level << 4) | (level << 2) | level);
+    memset(mock_framebuffer, grey, sizeof(mock_framebuffer));
+    strike_gather_frame(0, false);
+    bool tints[256] = {false};
+    for (int x = SCREEN_W / 2; x < 180; x++) {
+      int dx, dy;
+      crt_strike_field(x, 113, 0, &dx, &dy);
+      if (x + dx >= SCREEN_W) break;
+      uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
+      int band = crt_strike_band(x, 113, 0);
+      if (!band || level == 0) {
+        TEST_ASSERT_EQUAL_HEX8(grey, v);
+        continue;
+      }
+      TEST_ASSERT_FALSE(is_grey(v));
+      TEST_ASSERT_TRUE(abs(((v >> 4) & 3) - level) <= 2);
+      TEST_ASSERT_TRUE(abs(((v >> 2) & 3) - level) <= 2);
+      TEST_ASSERT_TRUE(abs((v & 3) - level) <= 2);
+      tints[v] = true;
+    }
+    int distinct = 0;
+    for (int i = 0; i < 256; i++) distinct += tints[i];
+    if (level == 2) TEST_ASSERT_TRUE(distinct >= 3);
   }
 }
 
@@ -6287,7 +6311,7 @@ int main(void) {
   RUN_TEST(test_crt_strike_should_leave_the_centre_pixel_where_it_is);
   RUN_TEST(test_crt_strike_should_read_rows_above_as_they_were_before_the_warp);
   RUN_TEST(test_crt_strike_should_be_black_beyond_the_raster);
-  RUN_TEST(test_crt_strike_should_stripe_colour_with_hue_and_leave_grey_alone);
+  RUN_TEST(test_crt_strike_should_stripe_colour_with_hue_and_tint_grey);
   RUN_TEST(test_crt_strike_should_thin_the_stripes_as_the_amplitude_dies);
   RUN_TEST(test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude);
   RUN_TEST(test_crt_strike_start_should_do_nothing_once_the_chain_is_killed);

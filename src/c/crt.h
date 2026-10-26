@@ -14,9 +14,9 @@
 // CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
 // own. The degauss strike gathers every pixel from the frame as stage 2 left it,
 // pulling its edges in as a pincushion pulse, black beyond the raster, and
-// rotating each pixel's hue into purity stripes. The
-// toggle gates the pass; off means the proc returns before capturing, so the
-// effect costs exactly nothing.
+// rotating each pixel's hue into purity stripes, greys tinted a step, black
+// left alone. The toggle gates the pass; off means the proc returns before
+// capturing, so the effect costs exactly nothing.
 //
 // main.c owns the layer's lifecycle (create/stack/destroy), like the canvas;
 // the handle is mirrored here the way drawing.h mirrors s_canvas_layer.
@@ -128,9 +128,9 @@ extern Layer* s_crt_layer;
 
 // The wake-up: a degauss strike. On backlight-on, FRAMES 90ms ticks of
 // the raster's edges pulled in and pushed out in curves with the mains, black
-// where it leaves the glass, and the picture striped in hues that thin to
-// nothing as the amplitude decays, plus amplified channel separation — the
-// CRT's shadow-mask demagnetization.
+// where it leaves the glass, and the picture striped in hues (greys tinted,
+// black untouched) that thin to nothing as the amplitude decays, plus
+// amplified channel separation — the CRT's shadow-mask demagnetization.
 #define CRT_FLASH_TICK_MS 90
 #define CRT_FLASH_PHASES 8
 #define CRT_FLASH_IDLE (-1)

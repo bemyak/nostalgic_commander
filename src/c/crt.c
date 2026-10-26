@@ -278,7 +278,9 @@ static inline int strike_pulse_px(int lin_q17, int rq) {
 // channel permutations R->G->B->R and R->B->G->R (band 0 is the picture as it
 // is), the odd ones the average of their neighbours, which is what makes the
 // stripes soft. The count falls with the square of the amplitude: dozens of
-// bands at amplitude 6, a fraction of one cycle on the last frames. Q13.
+// bands at amplitude 6, a fraction of one cycle on the last frames. A grey has
+// no hue to rotate and takes a one-step tint of the band's hue instead; black
+// stays black. Q13.
 #define CRT_STRIKE_STRIPES_Q13 11
 
 #ifdef TEST_ENV
@@ -407,6 +409,24 @@ static uint8_t strike_hue(uint8_t v, int band) {
   return GCOLOR8_ALPHA | (uint8_t)((o[0] << 4) | (o[1] << 2) | o[2]);
 }
 
+#define STRIKE_TINT(r, g, b) ((uint8_t)(GCOLOR8_ALPHA | ((r) << 4) | ((g) << 2) | (b)))
+
+// A grey's stripes by level and band: tinted toward the band's hue (yellow,
+// green, cyan, blue, magenta) by raising its channels a step and lowering the
+// complementary ones a step, so the stripe reads as colour, not as a lighter
+// grey; white has no room to rise and lowers the complement two. Black is lit
+// by nothing, so it stays black; band 0 is the grey as it is.
+static const uint8_t s_strike_grey_tint[4][6] = {
+    {STRIKE_TINT(0, 0, 0), STRIKE_TINT(0, 0, 0), STRIKE_TINT(0, 0, 0), STRIKE_TINT(0, 0, 0),
+     STRIKE_TINT(0, 0, 0), STRIKE_TINT(0, 0, 0)},
+    {STRIKE_TINT(1, 1, 1), STRIKE_TINT(2, 2, 0), STRIKE_TINT(0, 2, 0), STRIKE_TINT(0, 2, 2),
+     STRIKE_TINT(0, 0, 2), STRIKE_TINT(2, 0, 2)},
+    {STRIKE_TINT(2, 2, 2), STRIKE_TINT(3, 3, 1), STRIKE_TINT(1, 3, 1), STRIKE_TINT(1, 3, 3),
+     STRIKE_TINT(1, 1, 3), STRIKE_TINT(3, 1, 3)},
+    {STRIKE_TINT(3, 3, 3), STRIKE_TINT(3, 3, 1), STRIKE_TINT(1, 3, 1), STRIKE_TINT(1, 3, 3),
+     STRIKE_TINT(1, 1, 3), STRIKE_TINT(3, 1, 3)},
+};
+
 // A strike frame's last stage: every dest pixel gathered from the frame as
 // stages 1 and 2 left it. The source is the curvature warp's position (the
 // plain column without curvature) displaced by the strike's pincushion pulse;
@@ -476,7 +496,7 @@ static void crt_strike_gather(uint8_t* fb, int w, int h, int stride, int phase, 
         v = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
       }
       const int band = (((stripe_y + xq[x]) * stripes) >> 13) % 6;
-      row[x] = band && !is_grey(v) ? strike_hue(v, band) : v;
+      row[x] = is_grey(v) ? s_strike_grey_tint[v & 3][band] : band ? strike_hue(v, band) : v;
     }
   }
 }
