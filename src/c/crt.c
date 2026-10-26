@@ -30,7 +30,8 @@ static AppTimer* s_flash_timer = NULL;  // latest tick arm — cancelled on retr
 // Delaying sound+chain past that frame keeps the ring fed.
 static bool s_strike_pending = false;
 // Updated by the App Focus service (subscribed in main.c): a notification,
-// alarm, modal, quick view or a launched app covering the face drops it. The
+// alarm, modal or a launched app covering the face drops it (Quick View does
+// not; the backlight handler gates it on s_quick_view_active). The
 // face counts as covered until the compositor's first did_focus(true) after
 // launch. Gates the strike sound and the backlight handler's priming — a
 // covered tube starts nothing and stays silent.
@@ -39,11 +40,27 @@ static bool s_app_in_focus = false;
 // focus returning; that flash belongs to the cover. Armed when the cover
 // appears over an enabled effect, eaten by the next in-focus backlight-on.
 // The service reports edges only, so a backlight-off in view drops it: the
-// next backlight-on after that is a fresh wake.
+// next backlight-on after that is a fresh wake. A cover can also close with no
+// backlight edge at all, so once focus returns the grace timer expires it.
 static bool s_cover_suppresses_strike = false;
+static AppTimer* s_cover_grace_timer = NULL;
 
 static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
+
+static void crt_cover_grace_cancel(void) {
+  if (s_cover_grace_timer) {
+    app_timer_cancel(s_cover_grace_timer);
+    s_cover_grace_timer = NULL;
+  }
+}
+
+static void crt_cover_grace_expire(void* data) {
+  (void)data;
+  // One-shot timers free themselves on firing.
+  s_cover_grace_timer = NULL;
+  s_cover_suppresses_strike = false;
+}
 
 static int isqrt_floor(int v) {
   if (v <= 0) return 0;
@@ -840,11 +857,14 @@ void crt_backlight_handler(bool on) {
     if (s_app_in_focus) s_cover_suppresses_strike = false;
     return;
   }
-  if (!s_settings_crt_degauss || !s_app_in_focus) return;
+  // Quick View takes no focus, so its Back-dismissal backlight-on arrives in
+  // focus: it primes nothing and leaves the one-shot alone.
+  if (!s_settings_crt_degauss || !s_app_in_focus || s_quick_view_active) return;
   // The dismissal's backlight-on may land after focus returns — it belongs
   // to the cover too: eat the one-shot a cover armed, prime nothing.
   if (s_cover_suppresses_strike) {
     s_cover_suppresses_strike = false;
+    crt_cover_grace_cancel();
     return;
   }
   // Prime, don't strike: the overlay proc starts sound + chain after the wake
@@ -1036,6 +1056,7 @@ void crt_app_focus_will_handler(bool in_focus) {
   // backlight-on; with it off nothing eats it, or the next real wake would
   // lose its strike.
   if (!in_focus) {
+    crt_cover_grace_cancel();
     s_app_in_focus = false;
     s_cover_suppresses_strike = s_settings_crt_degauss;
   }
@@ -1044,7 +1065,13 @@ void crt_app_focus_will_handler(bool in_focus) {
 void crt_app_focus_did_handler(bool in_focus) {
   // Focus reported while the cover closes is too early; enable only on the
   // completed transition.
-  if (in_focus) s_app_in_focus = true;
+  if (!in_focus) return;
+  s_app_in_focus = true;
+  // The dismissal's backlight-on, if any, follows within the grace window.
+  if (s_cover_suppresses_strike) {
+    crt_cover_grace_cancel();
+    s_cover_grace_timer = app_timer_register(CRT_COVER_GRACE_MS, crt_cover_grace_expire, NULL);
+  }
 }
 
 void crt_set_in_focus(bool in_focus) {
@@ -1054,6 +1081,7 @@ void crt_set_in_focus(bool in_focus) {
 void crt_apply_setting_change(void) {
   if (!s_settings_crt_degauss) {
     s_cover_suppresses_strike = false;
+    crt_cover_grace_cancel();
     s_flash_phase = CRT_FLASH_IDLE;
     s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
     // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
@@ -1083,6 +1111,7 @@ void crt_deinit(void) {
   s_flash_phase = CRT_FLASH_IDLE;
   s_strike_pending = false;
   s_cover_suppresses_strike = false;
+  crt_cover_grace_cancel();
   s_app_in_focus = false;
   s_crt_layer = NULL;
 }

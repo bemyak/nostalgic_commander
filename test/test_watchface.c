@@ -102,6 +102,7 @@ static void reset_all_state(void) {
   s_flash_phase = CRT_FLASH_IDLE;
   s_flash_timer = NULL;
   s_cover_suppresses_strike = false;
+  s_cover_grace_timer = NULL;
   s_strike_pending = false;
   s_app_in_focus = false;
   s_crt_layer = NULL;
@@ -4580,15 +4581,19 @@ void test_crt_strike_should_eat_the_dismissals_backlight(void) {
   crt_app_focus_did_handler(true);
   TEST_ASSERT_TRUE(s_app_in_focus);
   TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+  TEST_ASSERT_NOT_NULL(s_cover_grace_timer);
 
+  // Consuming the one-shot retires its grace timer; only that one was armed.
   crt_backlight_handler(true);
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  TEST_ASSERT_NULL(s_cover_grace_timer);
+  TEST_ASSERT_EQUAL_INT(1, mock_timer_cancel_count);
   TEST_ASSERT_FALSE(s_strike_pending);
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
 
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
-  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_timer_register_count);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 }
 
@@ -4674,6 +4679,77 @@ void test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_vie
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
 }
 
+void test_crt_strike_should_ignore_backlight_while_quick_view_is_up(void) {
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
+  crt_app_focus_did_handler(true);
+
+  // Quick View takes no focus, so Back's dismissal backlight-on arrives in
+  // focus while the peek is still up: it primes nothing and plays nothing.
+  s_quick_view_active = true;
+  crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+
+  s_quick_view_active = false;
+  crt_backlight_handler(false);
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_not_spend_the_one_shot_on_a_quick_view_backlight(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+
+  s_quick_view_active = true;
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+  s_quick_view_active = false;
+}
+
+void test_crt_strike_should_expire_the_one_shot_after_the_grace_window(void) {
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
+
+  // A cover that closes with no backlight edge never consumes the one-shot;
+  // the grace timer armed when focus returned expires it, so the next real
+  // wake strikes.
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+  TEST_ASSERT_EQUAL_INT(1, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_UINT32(CRT_COVER_GRACE_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(crt_cover_grace_expire, mock_timer_callback);
+
+  mock_timer_callback(NULL);
+  TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  TEST_ASSERT_NULL(s_cover_grace_timer);
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_strike_should_cancel_a_pending_grace_when_a_new_cover_arrives(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_will_handler(false);
+  crt_app_focus_did_handler(true);
+  TEST_ASSERT_NOT_NULL(s_cover_grace_timer);
+
+  // The old cover's timer must not expire the new cover's one-shot.
+  int cancelled = mock_timer_cancel_count;
+  crt_app_focus_will_handler(false);
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_cover_grace_timer);
+  TEST_ASSERT_TRUE(s_cover_suppresses_strike);
+}
+
 void test_crt_strike_synth_should_sound_and_end_in_exact_silence(void) {
   static int8_t pcm[CRT_STRIKE_PCM_SAMPLES];
   crt_strike_synth(pcm, CRT_STRIKE_PCM_SAMPLES);
@@ -4741,6 +4817,7 @@ void test_crt_setting_change_should_disarm_a_pending_cover_suppression(void) {
   s_settings_crt_degauss = 0;
   crt_apply_setting_change();
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
+  TEST_ASSERT_NULL(s_cover_grace_timer);
 }
 
 void test_crt_pass_should_follow_the_row_stride(void) {
@@ -6086,6 +6163,10 @@ int main(void) {
   RUN_TEST(test_crt_strike_should_fire_on_the_backlight_after_the_dismissal);
   RUN_TEST(test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight);
   RUN_TEST(test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_view);
+  RUN_TEST(test_crt_strike_should_ignore_backlight_while_quick_view_is_up);
+  RUN_TEST(test_crt_strike_should_not_spend_the_one_shot_on_a_quick_view_backlight);
+  RUN_TEST(test_crt_strike_should_expire_the_one_shot_after_the_grace_window);
+  RUN_TEST(test_crt_strike_should_cancel_a_pending_grace_when_a_new_cover_arrives);
   RUN_TEST(test_crt_strike_synth_should_sound_and_end_in_exact_silence);
   RUN_TEST(test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget);
   RUN_TEST(test_crt_deinit_should_cancel_the_strike_and_drop_the_layer);

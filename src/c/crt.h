@@ -134,6 +134,9 @@ extern Layer* s_crt_layer;
 #define CRT_FLASH_TICK_MS 90
 #define CRT_FLASH_PHASES 8
 #define CRT_FLASH_IDLE (-1)
+// How long after focus returns a cover's one-shot can still eat the
+// dismissal's backlight-on before it expires.
+#define CRT_COVER_GRACE_MS 1000
 
 // One text box: columns x0..x1-1 and rows y0..y1-1 of the face, taking a
 // constant CA of `sh` px across and `sv` rows down (before the strike's boost,
@@ -179,12 +182,14 @@ void crt_backlight_handler(bool on);
 // Synthesises the degauss woomp to PCM, plays it via the speaker API and
 // frees the buffer (the service keeps its own copy). Silent when the speaker is muted by system
 // preference (including Quiet Time when the user set it to mute), or while the face is covered by
-// a notification/alarm/modal/quick view — see the crt_app_focus_* handlers.
+// a notification/alarm/modal — see the crt_app_focus_* handlers.
 void crt_play_strike_sound(void);
 // App Focus service callbacks (subscribed in main.c): track whether
 // anything covers the face. While covered, the backlight handler primes no
 // strike and the sound gate stays shut; a cover arms a one-shot that eats
-// the next in-focus backlight-on, so the dismissal's flash cannot strike.
+// the next in-focus backlight-on, so the dismissal's flash cannot strike; the
+// one-shot expires CRT_COVER_GRACE_MS after focus returns. Quick View takes no
+// focus: the backlight handler gates it on s_quick_view_active instead.
 void crt_app_focus_will_handler(bool in_focus);
 void crt_app_focus_did_handler(bool in_focus);
 // Seeds the focus state for a subscription taken after launch, when the
