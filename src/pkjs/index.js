@@ -6,15 +6,19 @@ var vgaFont = require('./vga_font.json');
 
 // Injected into the config page via toString (self-contained bodies only;
 // `this` is the in-page ClayConfig): apply the skin, hide the CHIME_TEST flag
-// input, grey the degauss volume while the strike is off, wire the buttons (the test button raises
-// the flag and submits, so the ordinary webviewclosed path carries it to the watch), and mark the
-// panel in view as active.
+// input, keep the page palette on the selected theme, grey the degauss volume while the strike is
+// off, wire the buttons (the test button raises the flag and submits, so the ordinary webviewclosed
+// path carries it to the watch), and mark the panel in view as active.
 function customFn(minified) {
   var clayConfig = this;
   var style = document.createElement('style');
   style.textContent = clayConfig.meta.userData.css;
   document.head.appendChild(style);
   clayConfig.on(clayConfig.EVENTS.AFTER_BUILD, function() {
+    var theme = clayConfig.getItemByMessageKey('SETTINGS_THEME');
+    function syncTheme() { document.body.dataset.theme = theme.get(); }
+    theme.on('change', syncTheme);
+    syncTheme();
     clayConfig.getItemByMessageKey('CHIME_TEST').hide();
     var degauss = clayConfig.getItemByMessageKey('SETTINGS_CRT_DEGAUSS');
     var degaussVolume = clayConfig.getItemByMessageKey('SETTINGS_DEGAUSS_VOLUME');
