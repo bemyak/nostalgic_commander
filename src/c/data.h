@@ -129,6 +129,7 @@ extern int s_solar_hour_angle;
 extern int s_latitude;
 // Hundredths of a degree; meaningful only while both coordinates are known.
 extern int s_solar_elevation;
+bool location_known(void);
 
 // The date as last formatted by refresh_state(); drawn on the canvas so the
 // weekday can carry its own color. The short form drops the year so it fits a
@@ -142,6 +143,7 @@ extern char s_short_date_display[16];
 #define UNITS_METRIC 1
 
 extern int s_settings_theme;
+extern int s_settings_night_theme;  // 0 = off, else a theme setting value
 extern int s_settings_units;
 extern int s_settings_date_format;
 extern int s_settings_short_date_format;

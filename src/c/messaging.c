@@ -100,6 +100,8 @@ static const MessageField s_weather_fields[] = {
 // persist keys, so the two halves of the settings format meet in one table.
 static const MessageField s_settings_fields[] = {
     {&MESSAGE_KEY_SETTINGS_THEME, PERSIST_KEY_SETTINGS_THEME, &s_settings_theme, 0},
+    {&MESSAGE_KEY_SETTINGS_NIGHT_THEME, PERSIST_KEY_SETTINGS_NIGHT_THEME, &s_settings_night_theme,
+     0},
     {&MESSAGE_KEY_SETTINGS_UNITS, PERSIST_KEY_SETTINGS_UNITS, &s_settings_units, 0},
     {&MESSAGE_KEY_SETTINGS_DATE_FORMAT, PERSIST_KEY_SETTINGS_DATE_FORMAT, &s_settings_date_format,
      0},

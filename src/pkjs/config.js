@@ -124,6 +124,11 @@ module.exports = [
                   ['2', 'Norton (blue)'], ['1', 'Turbo Vision (light grey)'],
                   ['3', 'Console (black)'], ['4', 'Navigator (dark grey)'], ['6', 'Amber (maroon)']
                 ])),
+            select(
+                'SETTINGS_NIGHT_THEME', 'Night theme', '0', labeledOptions([
+                  ['0', 'Off'], ['2', 'Norton (blue)'], ['1', 'Turbo Vision (light grey)'],
+                  ['3', 'Console (black)'], ['4', 'Navigator (dark grey)'], ['6', 'Amber (maroon)']
+                ])),
             radiogroup(
                 'SETTINGS_UNITS', 'Units', '0',
                 labeledOptions([['0', 'Imperial'], ['1', 'Metric']])),

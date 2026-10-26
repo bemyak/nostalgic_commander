@@ -51,6 +51,14 @@ enum {
   THEME_SETTING_AMBER = 6,
 };
 const WatchTheme* determine_theme(int theme_setting);
+
+// Below this solar elevation (hundredths of a degree, -0.833: the geometric
+// horizon plus refraction and the sun's radius) it is night.
+#define SUNSET_ELEVATION (-83)
+
+// The theme setting to show: the night one (0 = off) from sunset to sunrise at
+// a known location, the day one otherwise.
+int pick_theme_setting(int day_setting, int night_setting, bool located, int elevation);
 void apply_theme(void);
 
 // Which reading earns which status color lives over in status.c/h.

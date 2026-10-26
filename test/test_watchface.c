@@ -45,6 +45,7 @@ static void reset_all_state(void) {
   mock_reset();
 
   s_settings_theme = 2;  // Norton: apply_theme() stays palette-deterministic
+  s_settings_night_theme = 0;
   s_settings_units = 0;
   s_settings_date_format = 0;
   s_settings_short_date_format = 0;
@@ -1332,6 +1333,66 @@ void test_determine_theme_should_handle_all_configurations(void) {
   TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(0));
   TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(99));
   TEST_ASSERT_EQUAL_PTR(&s_theme_panel, determine_theme(-1));
+}
+
+void test_pick_theme_setting_should_go_night_only_below_the_horizon(void) {
+  TEST_ASSERT_EQUAL_INT(3, pick_theme_setting(2, 3, true, -84));
+  TEST_ASSERT_EQUAL_INT(3, pick_theme_setting(2, 3, true, -5000));
+  // -0.833 degrees exactly is still day; the sun has to be below it.
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 3, true, -83));
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 3, true, 0));
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 3, true, 4500));
+}
+
+void test_pick_theme_setting_should_stay_day_without_a_location_or_a_night_theme(void) {
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 3, false, -5000));
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 0, true, -5000));
+  // A night theme equal to the day one changes nothing.
+  TEST_ASSERT_EQUAL_INT(2, pick_theme_setting(2, 2, true, -5000));
+}
+
+void test_apply_theme_should_follow_the_elevation_and_the_known_location(void) {
+  s_settings_theme = 2;
+  s_settings_night_theme = 3;
+  s_latitude = 6017;
+  s_longitude = 2494;
+  s_solar_elevation = -2000;
+  apply_theme();
+  TEST_ASSERT_EQUAL_PTR(&s_theme_shadow, s_active_theme);
+  s_solar_elevation = 2000;
+  apply_theme();
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, s_active_theme);
+  s_solar_elevation = -2000;
+  s_latitude = LATITUDE_NONE;
+  apply_theme();
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, s_active_theme);
+  s_latitude = 6017;
+  s_longitude = LONGITUDE_NONE;
+  apply_theme();
+  TEST_ASSERT_EQUAL_PTR(&s_theme_panel, s_active_theme);
+}
+
+void test_refresh_state_should_pick_the_theme_from_the_elevation_it_just_computed(void) {
+  s_settings_theme = 2;
+  s_settings_night_theme = 3;
+  s_latitude = 6017;
+  s_longitude = 2494;
+  time_t now = time(NULL);
+  // Stale in the opposite direction from the real one: the theme must not
+  // trail the elevation by a refresh.
+  s_solar_elevation = compute_solar_elevation(now, 6017, 2494) < SUNSET_ELEVATION ? 2000 : -2000;
+  refresh_state();
+  bool night = compute_solar_elevation(now, 6017, 2494) < SUNSET_ELEVATION;
+  TEST_ASSERT_EQUAL_PTR(night ? &s_theme_shadow : &s_theme_panel, s_active_theme);
+}
+
+void test_refresh_state_should_not_compute_the_elevation_without_a_location(void) {
+  s_solar_elevation = 1234;
+  refresh_state();
+  TEST_ASSERT_EQUAL_INT(1234, s_solar_elevation);
+  s_latitude = 6017;  // half a position is still none
+  refresh_state();
+  TEST_ASSERT_EQUAL_INT(1234, s_solar_elevation);
 }
 
 void test_themes_should_keep_text_readable_on_their_ground(void) {
@@ -2908,6 +2969,22 @@ void test_settings_should_round_trip_through_persistence(void) {
   TEST_ASSERT_EQUAL_INT(2, s_settings_date_format);
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_AQI, s_complication_slots[0].source);
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_UV, s_complication_slots[4].source);
+}
+
+void test_night_theme_should_round_trip_through_persistence_and_default_off(void) {
+  mock_persist_reset();
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(0, s_settings_night_theme);
+
+  persist_write_int(PERSIST_KEY_SETTINGS_NIGHT_THEME, 3);
+  s_settings_night_theme = 0;
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(3, s_settings_night_theme);
+
+  // Decoy under the message-key id: load_settings must ignore it.
+  persist_write_int(MESSAGE_KEY_SETTINGS_NIGHT_THEME, 99);
+  load_settings();
+  TEST_ASSERT_EQUAL_INT(3, s_settings_night_theme);
 }
 
 void test_settings_persistence_is_decoupled_from_message_key_ids(void) {
@@ -5803,6 +5880,19 @@ void test_init_should_log_when_app_message_open_fails(void) {
   TEST_ASSERT_NOT_NULL(strstr(mock_last_log, want));
 }
 
+void test_init_should_open_on_the_theme_the_sun_calls_for(void) {
+  mock_persist_reset();
+  persist_write_int(PERSIST_KEY_SETTINGS_THEME, 2);
+  persist_write_int(PERSIST_KEY_SETTINGS_NIGHT_THEME, 3);
+  persist_write_int(PERSIST_KEY_LATITUDE, 6017);
+  persist_write_int(PERSIST_KEY_LONGITUDE, 2494);
+  bool night = compute_solar_elevation(time(NULL), 6017, 2494) < SUNSET_ELEVATION;
+  init();
+  // The very first background paint already wears the right palette.
+  const WatchTheme* want = night ? &s_theme_shadow : &s_theme_panel;
+  TEST_ASSERT_EQUAL_UINT8(want->center_bg, mock_window_first_bg);
+}
+
 void test_inbox_dropped_should_log_the_reason(void) {
   inbox_dropped_callback(APP_MSG_BUFFER_OVERFLOW, NULL);
   TEST_ASSERT_EQUAL_INT(1, mock_log_count);
@@ -6036,6 +6126,11 @@ int main(void) {
   RUN_TEST(test_the_latitude_should_outlive_stale_weather);
   RUN_TEST(test_get_source_color_should_return_appropriate_colors);
   RUN_TEST(test_determine_theme_should_handle_all_configurations);
+  RUN_TEST(test_pick_theme_setting_should_go_night_only_below_the_horizon);
+  RUN_TEST(test_pick_theme_setting_should_stay_day_without_a_location_or_a_night_theme);
+  RUN_TEST(test_apply_theme_should_follow_the_elevation_and_the_known_location);
+  RUN_TEST(test_refresh_state_should_pick_the_theme_from_the_elevation_it_just_computed);
+  RUN_TEST(test_refresh_state_should_not_compute_the_elevation_without_a_location);
   RUN_TEST(test_themes_should_keep_text_readable_on_their_ground);
   RUN_TEST(test_status_ink_should_clear_every_fill_it_is_drawn_on);
   RUN_TEST(test_every_theme_should_only_use_dos_palette_colors);
@@ -6055,6 +6150,7 @@ int main(void) {
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);
   RUN_TEST(test_weather_cache_without_cond_code_should_degrade_to_dashes);
   RUN_TEST(test_settings_should_round_trip_through_persistence);
+  RUN_TEST(test_night_theme_should_round_trip_through_persistence_and_default_off);
   RUN_TEST(test_settings_persistence_is_decoupled_from_message_key_ids);
   RUN_TEST(test_health_read_table_should_pin_each_metric_mode_and_sentinel);
   RUN_TEST(test_update_health_info_should_read_heart_rate);
@@ -6225,6 +6321,7 @@ int main(void) {
   RUN_TEST(test_full_weather_and_settings_dicts_should_fit_the_inbox);
   RUN_TEST(test_init_should_open_app_message_with_the_named_sizes);
   RUN_TEST(test_init_should_log_when_app_message_open_fails);
+  RUN_TEST(test_init_should_open_on_the_theme_the_sun_calls_for);
   RUN_TEST(test_inbox_dropped_should_log_the_reason);
   RUN_TEST(test_tuple_get_int_should_read_a_four_byte_unsigned);
   RUN_TEST(test_handle_bluetooth_should_record_the_link_and_redraw);

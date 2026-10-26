@@ -74,6 +74,7 @@ const EXPECTED_PERSIST = new Map([
   ['WEATHER_LO_HOUR_TOMORROW', 'PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW'],
   ['WEATHER_FETCHED_AT', 'PERSIST_KEY_WEATHER_TIMESTAMP'],
   ['SETTINGS_THEME', 'PERSIST_KEY_SETTINGS_THEME'],
+  ['SETTINGS_NIGHT_THEME', 'PERSIST_KEY_SETTINGS_NIGHT_THEME'],
   ['SETTINGS_UNITS', 'PERSIST_KEY_SETTINGS_UNITS'],
   ['SETTINGS_DATE_FORMAT', 'PERSIST_KEY_SETTINGS_DATE_FORMAT'],
   ['SETTINGS_SHORT_DATE_FORMAT', 'PERSIST_KEY_SETTINGS_SHORT_DATE'],
@@ -244,6 +245,14 @@ const EXPECTED_SETTINGS_OPTIONS = {
     ['4', 'Navigator (dark grey)'],
     ['6', 'Amber (maroon)'],
   ],
+  SETTINGS_NIGHT_THEME: [
+    ['0', 'Off'],
+    ['2', 'Norton (blue)'],
+    ['1', 'Turbo Vision (light grey)'],
+    ['3', 'Console (black)'],
+    ['4', 'Navigator (dark grey)'],
+    ['6', 'Amber (maroon)'],
+  ],
   SETTINGS_UNITS: [['0', 'Imperial'], ['1', 'Metric']],
   SETTINGS_DATE_FORMAT: [
     ['0', '1970-12-31'],
@@ -340,6 +349,12 @@ test('the units radiogroup\'s values carry the same semantics as data.h\'s defin
 test('the theme radiogroup\'s values are exactly the THEME_SETTING_* enum values', () => {
   const offered = findThemeValues();
   assert.deepEqual([...offered].sort(), [...scrape.themeSettingValues().values()].sort());
+});
+
+test('the night theme select offers Off plus exactly the theme values', () => {
+  const night = EXPECTED_SETTINGS_OPTIONS.SETTINGS_NIGHT_THEME.map(([v]) => v);
+  assert.equal(night[0], '0');
+  assert.deepEqual(night.slice(1).sort(), [...scrape.themeSettingValues().values()].sort());
 });
 
 test('the C boot defaults equal the Clay shipped defaults', () => {

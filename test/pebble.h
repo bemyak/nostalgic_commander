@@ -230,6 +230,7 @@ typedef struct {
 extern uint32_t MESSAGE_KEY_WEATHER_TEMP;
 extern uint32_t MESSAGE_KEY_WEATHER_COND;
 extern uint32_t MESSAGE_KEY_SETTINGS_THEME;
+extern uint32_t MESSAGE_KEY_SETTINGS_NIGHT_THEME;
 extern uint32_t MESSAGE_KEY_SETTINGS_UNITS;
 extern uint32_t MESSAGE_KEY_SETTINGS_DATE_FORMAT;
 extern uint32_t MESSAGE_KEY_WEATHER_HIGH;
@@ -477,6 +478,7 @@ extern uint8_t mock_framebuffer[200 * 228];
 extern int mock_fb_capture_count;
 extern int mock_fb_release_count;
 extern int mock_window_set_bg_count;
+extern GColor mock_window_first_bg;
 extern bool mock_speaker_muted;
 extern int mock_speaker_play_tracks_count;
 extern uint32_t mock_speaker_last_num_tracks;

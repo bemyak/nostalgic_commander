@@ -10,6 +10,7 @@
 uint32_t MESSAGE_KEY_WEATHER_TEMP = 100;
 uint32_t MESSAGE_KEY_WEATHER_COND = 101;
 uint32_t MESSAGE_KEY_SETTINGS_THEME = 102;
+uint32_t MESSAGE_KEY_SETTINGS_NIGHT_THEME = 144;
 uint32_t MESSAGE_KEY_SETTINGS_UNITS = 103;
 uint32_t MESSAGE_KEY_SETTINGS_DATE_FORMAT = 104;
 uint32_t MESSAGE_KEY_WEATHER_HIGH = 107;
@@ -683,9 +684,10 @@ Layer* window_get_root_layer(const Window* window) {
   return NULL;
 }
 int mock_window_set_bg_count = 0;
+GColor mock_window_first_bg;
 void window_set_background_color(Window* window, GColor background_color) {
   (void)window;
-  (void)background_color;
+  if (mock_window_set_bg_count == 0) mock_window_first_bg = background_color;
   mock_window_set_bg_count++;
 }
 void window_set_window_handlers(Window* window, WindowHandlers handlers) {

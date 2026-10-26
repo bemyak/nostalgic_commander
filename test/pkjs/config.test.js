@@ -25,7 +25,7 @@ test('config has three sections, inline save, submit, defaults, and quit in orde
     assert.equal(config[i].type, 'button');
     assert.equal(config[i].messageKey, undefined);
   }
-  assert.equal(config[0].items.length, 7);  // heading + six settings
+  assert.equal(config[0].items.length, 8);  // heading + seven settings
   assert.equal(config[1].items.length, 8);  // heading + five effect settings + test-sound pair
   assert.equal(config[2].items.length, 7);  // heading + six slot selects
 });
@@ -46,7 +46,7 @@ test('every messageKey appears exactly once and every default is valid', () => {
       }
     }
   }
-  assert.equal(seen.size, 18);
+  assert.equal(seen.size, 19);
 });
 
 test('shipped defaults match the C-side boots', () => {
@@ -88,6 +88,19 @@ test('the theme radiogroup offers values 1-4 and 6, Norton first, Norton by defa
   assert.equal(String(theme.options[0].value), '2');
   assert.equal(theme.options[0].label, 'Norton (blue)');
   assert.equal(String(theme.defaultValue), '2');
+});
+
+test('the night theme select sits below Theme, off by default', () => {
+  const night = findItem('SETTINGS_NIGHT_THEME');
+  const theme = findItem('SETTINGS_THEME');
+  assert.equal(night.type, 'select');
+  assert.equal(night.description, undefined);
+  assert.deepEqual(
+      night.options.map(o => String(o.value)), ['0', ...theme.options.map(o => String(o.value))]);
+  assert.equal(night.options[0].label, 'Off');
+  assert.equal(String(night.defaultValue), '0');
+  const general = config[0].items.map(item => item.messageKey);
+  assert.equal(general.indexOf('SETTINGS_NIGHT_THEME'), general.indexOf('SETTINGS_THEME') + 1);
 });
 
 test('the test-sound row is an action pair: hidden CHIME_TEST input + keyless button', () => {
@@ -138,8 +151,8 @@ test('the effects panel is headed Effects and holds the CRT effects and both vol
 test('General no longer carries the CRT, sound or chime settings', () => {
   const general = config[0].items.map(item => item.messageKey).filter(Boolean);
   assert.deepEqual(general, [
-    'SETTINGS_THEME', 'SETTINGS_UNITS', 'SETTINGS_WEATHER_WINDOW', 'SETTINGS_DATE_FORMAT',
-    'SETTINGS_SHORT_DATE_FORMAT', 'SETTINGS_DOW_POSITION'
+    'SETTINGS_THEME', 'SETTINGS_NIGHT_THEME', 'SETTINGS_UNITS', 'SETTINGS_WEATHER_WINDOW',
+    'SETTINGS_DATE_FORMAT', 'SETTINGS_SHORT_DATE_FORMAT', 'SETTINGS_DOW_POSITION'
   ]);
 });
 

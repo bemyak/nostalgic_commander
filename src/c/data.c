@@ -57,6 +57,7 @@ bool s_quick_view_active = false;
 // Settings — persisted under messaging.h's PERSIST_KEY_SETTINGS_*.
 int s_settings_theme =
     2;  // 1 = Turbo Vision, 2 = Norton, 3 = Dark, 4 = Navigator; default is Norton; 0 was Auto
+int s_settings_night_theme = 0;        // 0 = off: the day theme all day
 int s_settings_units = 0;              // UNITS_IMPERIAL; the JS defaults scrape parses this literal
 int s_settings_date_format = 0;        // DateFormat: 0 = ISO, 1 = DOS, 2 = Text, 3 = Short
 int s_settings_short_date_format = 0;  // 0 = Month-Day, 1 = Day-Month
@@ -323,6 +324,10 @@ static int32_t arcsin_fine(int32_t ratio) {
   }
   if (lo < TRIG_MAX_ANGLE / 4 && sin_fine(lo + 1) - ratio < ratio - sin_fine(lo)) lo++;
   return lo;
+}
+
+bool location_known(void) {
+  return s_latitude != LATITUDE_NONE && s_longitude != LONGITUDE_NONE;
 }
 
 // The sun's height above the geometric horizon, in hundredths of a degree

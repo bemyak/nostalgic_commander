@@ -140,12 +140,17 @@ static void update_health_info(void) {
   update_health_metrics(HEALTH_REFRESH_ALL);
 }
 
+static void update_solar_elevation(time_t now) {
+  if (location_known()) s_solar_elevation = compute_solar_elevation(now, s_latitude, s_longitude);
+}
+
 void refresh_state(void) {
   time_t temp = time(NULL);
   struct tm* tick_time = localtime(&temp);
 
   s_wall_hour = tick_time->tm_hour;
 
+  update_solar_elevation(temp);
   apply_theme();
 
   // A settings push can change the theme while the face is open; the window
@@ -156,7 +161,6 @@ void refresh_state(void) {
 
   s_beats = compute_beats(temp);
   s_solar_hour_angle = compute_solar_hour_angle(temp, s_longitude);
-  s_solar_elevation = compute_solar_elevation(temp, s_latitude, s_longitude);
   s_week_number =
       iso_week_number(tick_time->tm_year + 1900, tick_time->tm_yday, tick_time->tm_wday);
 
@@ -451,6 +455,7 @@ static void init(void) {
   s_vga_64 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_VGA_64));
 
   s_main_window = window_create();
+  update_solar_elevation(time(NULL));
   apply_theme();
   window_set_background_color(s_main_window, s_active_theme->center_bg);
   window_set_window_handlers(s_main_window, (WindowHandlers){

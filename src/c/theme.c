@@ -107,8 +107,14 @@ const WatchTheme* determine_theme(int theme_setting) {
   }
 }
 
+int pick_theme_setting(int day_setting, int night_setting, bool located, int elevation) {
+  if (night_setting != 0 && located && elevation < SUNSET_ELEVATION) return night_setting;
+  return day_setting;
+}
+
 // Palette selection only — main.c repaints the window background itself;
 // a theme module has no business touching the window.
 void apply_theme(void) {
-  s_active_theme = determine_theme(s_settings_theme);
+  s_active_theme = determine_theme(pick_theme_setting(s_settings_theme, s_settings_night_theme,
+                                                      location_known(), s_solar_elevation));
 }
