@@ -85,7 +85,7 @@ function customFn(minified) {
       function setFromPointer(e) {
         var rect = bar.getBoundingClientRect();
         var cell = Math.ceil((e.clientX - rect.left) / (rect.width / CELLS));
-        setValue(min + Math.max(1, Math.min(CELLS, cell)) * unit);
+        setValue(min + Math.max(0, Math.min(CELLS, cell)) * unit);
       }
       var pressed = false;
       bar.addEventListener('pointerdown', function(e) {
