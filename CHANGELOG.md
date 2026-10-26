@@ -4,6 +4,26 @@ All notable changes to Nostalgic Commander. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Night theme: a second theme shown from sunset to sunrise at the weather
+  location.
+
+### Changed
+
+- The settings page takes the colours of the selected theme.
+- Degauss colour stripes show on grey and white: on the Turbo Vision,
+  Console and Navigator themes the strike was a bare warp. Black stays black.
+
+### Fixed
+
+- Dismissing Quick View with Back no longer degausses.
+- A notification or reminder that closed by itself no longer swallows the
+  degauss on the next wake.
+- Dragging a volume slider past its left end turns it off; it stopped at 10%.
+
 ## [1.12.0] - 2026-10-25
 
 ### Changed
