@@ -126,7 +126,7 @@ static int isqrt_floor(int v) {
 }
 
 // Parallel 4x4 ordered-dither threshold grid — the only way a 4-level
-// channel ramps smoothly: the pass quantizes c*f/256 with this threshold, so
+// channel ramps smoothly: the pane quantizes c*f/256 with this threshold, so
 // the vignette falloff shows as dither pattern, not banded steps.
 static const uint8_t s_bayer4[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
 
@@ -142,10 +142,10 @@ static inline int warp_mul16(int xq_plus_yq) {
 
 // Edge distance per axis, on the LUTs' 0..CRT_VIGNETTE_PX domain: each axis is
 // scaled by its own band constant, so the curves stay fixed while the rims
-// resize. The two bands are not in the same units: the falloff sits in content
-// space, ahead of the warp, so the side band is measured before the warp's
-// ~1.09x rim compression while the top/bottom band — which the warp never
-// touches — is measured on the glass.
+// resize. The two bands are not in the same units: the falloff is defined in
+// content space and the pane pushes it through the warp, so the side band is
+// measured before the warp's ~1.09x rim compression while the top/bottom band —
+// which the warp never touches — is measured on the glass.
 static inline int edge_depth_x(int edge_px) {
   return edge_px * CRT_VIGNETTE_PX / CRT_VIGNETTE_SIDE_PX;
 }
@@ -385,42 +385,13 @@ static int gain_q4(int c, int f_q8) {
 }
 
 // One channel through the falloff: gain, then ordered-dither into the panel's
-// four steps. The channels are dithered out of phase (stage 2), so on a lit
+// four steps. The channels are dithered out of phase (the pane), so on a lit
 // field the three rarely reach 0 on the same pixel and pure black stays a small
 // share of the band instead of a scatter.
 static int vignette_level(int c, int f_q8, int t) {
   return dither_q4(gain_q4(c, f_q8), t);
 }
 
-// The span the FIELD's dither covers at this gain: (q4 + t) >> 4 over the
-// Bayer t of 0..15, floored the same way vignette_level floors it.
-static void ground_span(int bg_level, int f_q8, int* lo, int* hi) {
-  int q4 = gain_q4(bg_level, f_q8);
-  *lo = q4 >> 4;
-  *hi = (q4 + 15) >> 4;
-}
-
-// Push a rendered level clear of EVERY level the field can take at this depth,
-// on the source's side of it. A gain is the right curve for the field itself
-// and for bright chrome, but on a 4-level panel it leaves ink and field
-// sharing a level: at depth 6 Navigator's caption dithers {1,2} over a field
-// dithering {0,1}, so a 1px stroke landing on a low Bayer phase renders the
-// exact level its neighbouring field pixels do and the stroke breaks up.
-// Matching the field pixel-for-pixel is not enough — a stroke is thinner than
-// the 4x4 dither tile, so the phases it misses are the ones beside it.
-// Disjoint spans are the guarantee that survives that, and they come out of a
-// per-depth bound rather than a per-pixel compare, so ink renders solid where
-// it used to speckle. A tube's luminance is continuous and never merges two
-// distinct inputs; the merge is our quantization, not the optics.
-// A channel the source had may not quantize to 0 while another channel of the
-// same pixel survives — that renders one palette color as a different one.
-// Dialog's yellow is brown (2,1,0), CGA having no dark yellow, and its red and
-// green take different Q4 values under the one Bayer threshold: the phases
-// that zero the green render (r,0,0), which is that theme's own alarm red, on
-// the low-battery band. Holding the channel at 1 keeps a fill inside its hue
-// family until the whole pixel reaches black, which it still does — every
-// channel zeroes together at the rim. Light fields only; the dark themes' rim
-// was tuned on hardware with the per-channel decay in place.
 static int max2(int a, int b) {
   return a > b ? a : b;
 }
@@ -429,19 +400,37 @@ static bool is_grey(uint8_t c) {
   return ((c >> 4) & 3) == ((c >> 2) & 3) && ((c >> 2) & 3) == (c & 3);
 }
 
+// A channel the source had may not blend to 0 while another channel of the
+// same pixel survives — that renders one palette color as a different one.
+// Dialog's yellow is brown (2,1,0), CGA having no dark yellow, and its red and
+// green take different values under the blend: the weights that zero the green
+// render (r,0,0), which is that theme's own alarm red. Holding the channel at 1
+// keeps a fill inside its hue family until the whole pixel reaches black.
 static int hold_hue(int v, int src, int other1, int other2) {
   return (src > 0 && v == 0 && (other1 > 0 || other2 > 0)) ? 1 : v;
 }
 
-static int clear_of_ground(int v, int src, int gnd_lo, int gnd_hi, int bg_level) {
-  // Where the field's span already reaches the end of the range there is no
-  // step left on that side, and the pixel is left alone rather than shoved
-  // onto a level the field itself renders. That is not rare: a level-1 field
-  // has gnd_lo == 0 at every depth below its plateau, so returning 0 here
-  // would crush all of its darker ink to black for no separation at all.
-  if (src < bg_level && v >= gnd_lo) return gnd_lo > 0 ? gnd_lo - 1 : v;
-  if (src > bg_level && v <= gnd_hi) return gnd_hi < 3 ? gnd_hi + 1 : v;
-  return v;
+// Where each channel of a one-level blend turns on, as coverage of the
+// brighter tap in 1/256: the channels step in thirds of a level instead of all
+// at one half, so a one-level edge (a dark-grey frame on black) moves in
+// sub-pixel steps rather than whole-pixel jumps. B leads and R lags, as in the
+// vignette's phases, so the thin edge decays cool.
+static const uint8_t s_blend_on[3] = {213, 128, 43};  // R, G, B: 5/6, 1/2, 1/6
+
+// The blend of two taps `fr` of 256 of the way across, per channel level.
+static void blend_levels(uint8_t p0, uint8_t p1, int fr, int* r, int* g, int* b) {
+  int* const out[3] = {r, g, b};
+  int c0[3] = {(p0 >> 4) & 3, (p0 >> 2) & 3, p0 & 3};
+  int c1[3] = {(p1 >> 4) & 3, (p1 >> 2) & 3, p1 & 3};
+  const bool thirds = abs(c0[0] - c1[0]) <= 1 && abs(c0[1] - c1[1]) <= 1 && abs(c0[2] - c1[2]) <= 1;
+  for (int i = 0; i < 3; i++) {
+    if (thirds) {
+      const int cover = c1[i] > c0[i] ? fr : 256 - fr;
+      *out[i] = (c0[i] < c1[i] ? c0[i] : c1[i]) + (c0[i] != c1[i] && cover >= s_blend_on[i]);
+    } else {
+      *out[i] = ((256 - fr) * c0[i] + fr * c1[i] + 128) >> 8;
+    }
+  }
 }
 
 // Vertical CA samples neighbour rows; the row the pass writes into must stay
@@ -536,16 +525,15 @@ static inline uint8_t strike_ca_pixel(const uint8_t* srow, int x, int dr, int w)
   return GCOLOR8_ALPHA | (srow[rx] & 0x30) | (srow[x] & 0x0C) | (srow[bx] & 0x03);
 }
 
-// The pixel at column `sx` of a source row as stage 3 would blend it: the
+// The pixel at column `sx` of a source row as stage 2 would blend it: the
 // fringed pixel and its right neighbour, `fr` of 256 of the way across.
 static inline uint8_t strike_blend(const uint8_t* srow, int sx, int dr, int w, int fr) {
   uint8_t p0 = strike_ca_pixel(srow, sx, dr, w);
   uint8_t p1 = fr ? strike_ca_pixel(srow, sx + 1, dr, w) : p0;
   uint8_t v = p0;
   if (p0 != p1) {
-    int r = ((256 - fr) * ((p0 >> 4) & 3) + fr * ((p1 >> 4) & 3) + 128) >> 8;
-    int g = ((256 - fr) * ((p0 >> 2) & 3) + fr * ((p1 >> 2) & 3) + 128) >> 8;
-    int b = ((256 - fr) * (p0 & 3) + fr * (p1 & 3) + 128) >> 8;
+    int r, g, b;
+    blend_levels(p0, p1, fr, &r, &g, &b);
     if (!is_grey(srow[sx])) {
       int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
       int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
@@ -563,7 +551,7 @@ static inline uint8_t strike_blend(const uint8_t* srow, int sx, int dr, int w, i
 // A strike frame's gather: every dest pixel taken from the source frame. The
 // source is the curvature warp's position (the plain column without curvature)
 // displaced by the strike's pincushion pulse; beyond the raster it is black.
-// The nearest row, and the warp's column pair blend, as stage 3 below, then the
+// The nearest row, and the warp's column pair blend, as stage 2 below, then the
 // purity stripes. A captured frame has the warp baked in (crt_strike_capture),
 // so its gathers run with `curvature` off. The pulse's linear part advances along a row by one add
 // in Q17 (the doubled coordinates make the centre exact); its lobes are one factor per row for the
@@ -573,7 +561,7 @@ static inline uint8_t strike_blend(const uint8_t* srow, int sx, int dr, int w, i
 // horizontal fringing: R and B come from whole px either side of the warped
 // column, the separation the ramp's rung (as a text box rounds it) plus the
 // strike's boost, signed by the dest's half like stage 1. There is no vertical
-// fringe and no text box exemption, and the vignette follows as its own pass.
+// fringe and no text box exemption, and the vignette pane follows as its own pass.
 // Without it the frame is the passes' output, gathered in place: a source row
 // below the dest row is still untouched in it; one above it has been
 // overwritten, but the ring holds each row as it was before its write, and the
@@ -852,14 +840,12 @@ static void crt_strike_gather(uint8_t* fb, const uint8_t* src, int w, int h, int
 }
 
 // Per-width tables, rebuilt when the width changes: the squared Q8 column
-// offsets the CA zones and the strike share, and the vignette's side depths.
+// offsets the CA zones and the strike share, and the pane's side depths.
 typedef struct {
   uint16_t ca_xq[SCREEN_W];
   // Per-column side-axis vignette depth, and the corner arcs' depth by (ey, ex).
   uint16_t col_depth[SCREEN_W];
   uint8_t corner_d[CRT_CORNER_RADIUS][CRT_CORNER_RADIUS];
-  // First column whose side depth reaches CRT_VIGNETTE_PX, or w if none.
-  int interior_x0;
   int w;
 } CrtTables;
 
@@ -871,8 +857,6 @@ static const CrtTables* crt_tables(int w) {
       t.ca_xq[x] = (uint16_t)((dx * dx * 256) / ((w - 1) * (w - 1)));
       t.col_depth[x] = (uint16_t)edge_depth_x(x < w - 1 - x ? x : w - 1 - x);
     }
-    t.interior_x0 = 0;
-    while (t.interior_x0 < w && t.col_depth[t.interior_x0] < CRT_VIGNETTE_PX) t.interior_x0++;
     for (int ey = 0; ey < CRT_CORNER_RADIUS; ey++) {
       for (int ex = 0; ex < CRT_CORNER_RADIUS; ex++) {
         t.corner_d[ey][ex] = (uint8_t)corner_depth(ex, ey);
@@ -883,93 +867,280 @@ static const CrtTables* crt_tables(int w) {
   return &t;
 }
 
-// Stage 2 on one row, in place: vignette + dither. `raw_row` is the row's
-// content as it classifies, which may be the row itself: grey and coloured
-// content take different light-field rules (grey ink wants separating from its
-// field, a colored fill wants its hue held), and CA makes every 1px stroke
-// chromatic, so the pixel being darkened cannot always answer that. The normal
-// pass classifies on the row as drawn, before stage 1; the strike's final pass,
-// which has no such row left, on the pixel it is darkening.
-static void vignette_row(const CrtTables* tb, uint8_t* row_ca, const uint8_t* raw_row, int y, int h,
-                         int vig_ground, const uint16_t* vig_lut) {
-  const int w = tb->w;
-  const int edge_px = y < h - 1 - y ? y : h - 1 - y;
-  const int ey_depth = edge_depth_y(edge_px);
-  const uint8_t* corner_row = ey_depth < CRT_CORNER_RADIUS ? tb->corner_d[ey_depth] : NULL;
-  const uint8_t* bayer_row = &s_bayer4[(edge_px & 3) * 4];
-  for (int x = 0; x < w; x++) {
-    // At f = 256 every rule below is a no-op, so row_ca[x] is already final.
-    if (x == tb->interior_x0 && ey_depth >= CRT_VIGNETTE_PX) {
-      x = w - tb->interior_x0 - 1;
-      continue;
-    }
-    int ex = x < w - 1 - x ? x : w - 1 - x;
-    int ex_depth = tb->col_depth[x];
-    int d = (corner_row && ex_depth < CRT_CORNER_RADIUS)
-                ? corner_row[ex_depth]
-                : (ex_depth < ey_depth ? ex_depth : ey_depth);
-    int f = d >= CRT_VIGNETTE_PX ? 256 : vig_lut[d];
-    uint8_t p = row_ca[x];
-    int t = bayer_row[ex & 3];
-    int rs = (p >> 4) & 3, gs = (p >> 2) & 3, bs = p & 3;
-    // Ordered dither, one third of a cycle apart per channel. A grey run
-    // dithered in lockstep can only be black, DarkGray, LightGray or white
-    // — three stops from field to rim on a level-2 field, which is a sharp
-    // step however wide the band is, and no amount of band tuning adds a
-    // fifth grey to a 2-bit panel. Splitting the phase lets the channels
-    // cross their quantization boundaries at different pixels, so the run
-    // passes through (2,2,1), (2,1,1), (1,1,0) and so on: the same falloff
-    // rendered in thirds of a level instead of whole ones. It costs a
-    // colour cast at the rim, which is the CRT's own failure mode — the CA
-    // stage already models the beam landing worst there.
-    //
-    // Only the falloff band sees it. At full gain q4 is an exact multiple
-    // of 16, so every phase quantizes to the same level and the interior
-    // is untouched. B leads and R lags, which decays cool.
-    int r = vignette_level(rs, f, t);
-    int g = vignette_level(gs, f, (t + 5) & 15);
-    int b = vignette_level(bs, f, (t + 10) & 15);
-    bool grey_src = is_grey(raw_row[x]);
-    if (vig_ground > 0 && grey_src) {
-      // Keep ink clear of the field's whole dither span — but only where
-      // content is meant to be read. Below READ_Q8 the falloff IS the
-      // bezel ring (light LUT depths 0-4), and separating ink there would
-      // hold frames off the black the rim exists to render.
-      if (f >= CRT_VIGNETTE_READ_Q8) {
-        int gnd_lo, gnd_hi;
-        ground_span(vig_ground, f, &gnd_lo, &gnd_hi);
-        r = clear_of_ground(r, rs, gnd_lo, gnd_hi, vig_ground);
-        g = clear_of_ground(g, gs, gnd_lo, gnd_hi, vig_ground);
-        b = clear_of_ground(b, bs, gnd_lo, gnd_hi, vig_ground);
+// The vertical frame strokes, each WINDOW_BORDER_PX wide from column x, over
+// rows y0..y1-1: the sides of every window draw_ascii_window frames, where
+// draw_frame_sides puts them. Neighbours share their divider, so a stroke is
+// listed once; left to right, which the zone table relies on.
+typedef struct {
+  int x, y0, y1;
+} CrtStroke;
+#define CRT_STROKES 12
+
+static const CrtStroke* frame_strokes(int* n) {
+  static CrtStroke strokes[CRT_STROKES];
+  static int count = 0;
+  if (!count) {
+    const GRect windows[] = {SLOT_RECT_TOP_LEFT,    SLOT_RECT_TOP_RIGHT,     SLOT_RECT_CENTER,
+                             SLOT_RECT_BOTTOM_LEFT, SLOT_RECT_BOTTOM_CENTER, SLOT_RECT_BOTTOM_RIGHT,
+                             TIME_WINDOW_RECT};
+    for (size_t i = 0; i < sizeof(windows) / sizeof(windows[0]); i++) {
+      const int xs[2] = {windows[i].origin.x,
+                         windows[i].origin.x + windows[i].size.w - WINDOW_BORDER_PX};
+      for (int side = 0; side < 2; side++) {
+        const CrtStroke s = {xs[side], windows[i].origin.y + TITLE_BORDER_DROP,
+                             windows[i].origin.y + windows[i].size.h};
+        int at = 0;
+        while (at < count &&
+               (strokes[at].x < s.x || (strokes[at].x == s.x && strokes[at].y0 < s.y0))) {
+          at++;
+        }
+        if (at < count && strokes[at].x == s.x && strokes[at].y0 == s.y0) continue;
+        if (count == CRT_STROKES) continue;
+        memmove(&strokes[at + 1], &strokes[at], (count - at) * sizeof(strokes[0]));
+        strokes[at] = s;
+        count++;
       }
-    } else if (!grey_src) {
-      // Colored content: hold the hue's channels together instead. Read
-      // the pre-hold values so the three lifts don't feed each other.
-      // NOT gated on vig_ground: whether a fill may decay into another
-      // palette colour has nothing to do with whether the FIELD is grey,
-      // and gating it there left the dark themes unprotected — panel's
-      // SunsetOrange status fill shed its green near the rim and rendered
-      // as flat red, on the one chip that means "worst reading".
-      int r0 = r, g0 = g, b0 = b;
-      r = hold_hue(r0, rs, g0, b0);
-      g = hold_hue(g0, gs, r0, b0);
-      b = hold_hue(b0, bs, r0, g0);
     }
-    row_ca[x] = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
+  }
+  *n = count;
+  return strokes;
+}
+
+// The curvature warp compresses content by up to ~9% toward the rim, so a 2px
+// stroke is ~1.8px there and its two edges cross column boundaries on different
+// rows. A light stroke blends through in-between levels and reads as soft
+// edges, but on a level-1 line the blend can only round to 1 or 0: the line
+// drops to 1px for several rows at each crossing, a bend the tube does not
+// have. So in the rows of a stroke the glass pixels around it (its footprint
+// and one pixel either side, so its blended edge is covered) sample by a pure
+// translation, the warp's sub-pixel offset at the stroke's centre, and still
+// blend by the fraction: the stroke keeps its width and moves smoothly. What
+// the neighbouring pixels sample differs by a few tenths of a px from the true
+// warp, where the content is the gap the layout leaves around a frame.
+//
+// One zone per stroke per row, built once for the face's size: the offset is
+// Q8 px, so a zone's position is x * 256 + d, the unit the fraction is cut from.
+typedef struct {
+  uint8_t xa, xb;  // glass columns, inclusive
+  int16_t d;
+} CrtRigidZone;
+#define CRT_RIGID_ZONES 480
+
+static const CrtRigidZone* rigid_zones(int w, int h, int y, int* n) {
+  static CrtRigidZone zones[CRT_RIGID_ZONES];
+  static uint16_t first[SCREEN_H + 1];
+  static bool built = false;
+  *n = 0;
+  if (w != SCREEN_W || h != SCREEN_H) return NULL;
+  if (!built) {
+    int ns;
+    const CrtStroke* strokes = frame_strokes(&ns);
+    const int h1sq = (h - 1) * (h - 1);
+    int count = 0;
+    for (int row = 0; row < h; row++) {
+      first[row] = (uint16_t)count;
+      const int dy = 2 * row - (h - 1);
+      const int yterm = dy * dy * 256 / h1sq;
+      for (int i = 0; i < ns && count < CRT_RIGID_ZONES; i++) {
+        if (row < strokes[i].y0 || row >= strokes[i].y1) continue;
+        // The glass column the stroke's centre lands on, Q8 in the doubled
+        // coordinates of the warp: the fixed point of its own inverse.
+        const int64_t dcc_q8 = (int64_t)(2 * strokes[i].x + WINDOW_BORDER_PX - w) * 256;
+        int64_t dx_q8 = dcc_q8;
+        for (int it = 0; it < 4; it++) {
+          const int xq = (int)(dx_q8 * dx_q8 / (256LL * (w - 1) * (w - 1)));
+          dx_q8 = dcc_q8 * 65536 / warp_mul16(xq + yterm);
+        }
+        // Footprint 3 content px (the stroke and the taps either side) over the
+        // warp's >= 1x scale, so at most 1.5 px each way, plus the margin pixel.
+        const int centre_q8 = (int)(((w - 1) * 256 + dx_q8) / 2);
+        int xa = (centre_q8 - 640 + 255) >> 8;
+        int xb = (centre_q8 + 640) >> 8;
+        zones[count].xa = (uint8_t)(xa < 0 ? 0 : xa);
+        zones[count].xb = (uint8_t)(xb > w - 1 ? w - 1 : xb);
+        zones[count].d = (int16_t)((dcc_q8 - dx_q8) / 2);
+        count++;
+      }
+    }
+    first[h] = (uint16_t)count;
+    built = true;
+  }
+  *n = first[y + 1] - first[y];
+  return zones + first[y];
+}
+
+static inline const CrtRigidZone* rigid_at(const CrtRigidZone* z, int n, int x) {
+  for (int i = 0; i < n; i++) {
+    if (x >= z[i].xa && x <= z[i].xb) return &z[i];
+  }
+  return NULL;
+}
+
+// The vignette is a pane in front of the glass, not a stage of the picture: how
+// much a glass pixel is darkened depends on where it is and on the theme's
+// curve, never on what it shows, and it is the last thing applied to a frame.
+// Its shape is the falloff of the content space (edge depths, corner arcs)
+// pushed through the curvature warp: the pane at a glass pixel is the falloff at
+// the content position the warp shows there, so the rim bends with the tube. The
+// dither is the pane's own, on the glass's grid rather than the content's.
+//
+// Computed per rim pixel from the warp's own terms, not tabulated: a table of
+// the rim band would take ~16 KB of a heap the scene cache already crowds, and
+// the content column is one multiply away.
+typedef struct {
+  const CrtTables* tb;
+  const uint16_t* lut;
+  const uint8_t* corner_row;  // the arcs' depths for this row, or NULL outside the corner square
+  const uint8_t* bayer_row;
+  const CrtRigidZone* rz;  // this row's rigid frame zones: the pane follows the stroke
+  int nrz;
+  int w, yterm, ey_depth;
+} PaneRow;
+
+// The content column stage 3 samples for glass column x, floored, replicating
+// the edge column where the warp runs off the raster, and the warp's fraction
+// toward the next column (0..255, the curve's own blend weight).
+static inline int pane_column(const PaneRow* r, int x, int* fr) {
+  int S = (r->w - 1) * 65536 + (2 * x - (r->w - 1)) * warp_mul16(r->tb->ca_xq[x] + r->yterm);
+  int sx = S >> 17;
+  *fr = (S >> 9) & 0xFF;
+  const CrtRigidZone* z = rigid_at(r->rz, r->nrz, x);
+  if (z) {
+    sx = (x * 256 + z->d) >> 8;
+    *fr = (x * 256 + z->d) & 0xFF;
+  }
+  if (sx < 0) sx = *fr = 0;
+  if (sx >= r->w - 1) {
+    sx = r->w - 1;
+    *fr = 0;
+  }
+  return sx;
+}
+
+// The falloff at content column sx of this row, Q8.
+static inline int pane_falloff(const PaneRow* r, int sx) {
+  const int ex_depth = r->tb->col_depth[sx];
+  const int d = (r->corner_row && ex_depth < CRT_CORNER_RADIUS)
+                    ? r->corner_row[ex_depth]
+                    : (ex_depth < r->ey_depth ? ex_depth : r->ey_depth);
+  return d >= CRT_VIGNETTE_PX ? 256 : r->lut[d];
+}
+
+// Whether the falloff is flat at both columns the warp blends: from here inward
+// the pane has nothing to do on a row whose own depth is past the rim.
+static inline bool pane_interior(const PaneRow* r, int sx) {
+  return r->tb->col_depth[sx] >= CRT_VIGNETTE_PX &&
+         r->tb->col_depth[sx < r->w - 1 ? sx + 1 : sx] >= CRT_VIGNETTE_PX;
+}
+
+// The falloff at the content position (sx + fr/256) the warp shows at a glass
+// pixel. The warp's scale changes row by row, so that position jumps along a
+// vertical stroke; blending the two columns it lies between keeps the darkening
+// from stepping with it.
+static inline int pane_gain(const PaneRow* r, int sx, int fr) {
+  return (pane_falloff(r, sx) * (256 - fr) + pane_falloff(r, sx < r->w - 1 ? sx + 1 : sx) * fr) >>
+         8;
+}
+
+static inline void pane_pixel(const PaneRow* r, uint8_t* row, int x, int sx, int fr) {
+  const int f = pane_gain(r, sx, fr);
+  const uint8_t p = row[x];
+  const int t = r->bayer_row[(x < r->w - 1 - x ? x : r->w - 1 - x) & 3];
+  // Ordered dither, one third of a cycle apart per channel. A grey run
+  // dithered in lockstep can only be black, DarkGray, LightGray or white
+  // — three stops from field to rim on a level-2 field, which is a sharp
+  // step however wide the band is, and no amount of band tuning adds a
+  // fifth grey to a 2-bit panel. Splitting the phase lets the channels
+  // cross their quantization boundaries at different pixels, so the run
+  // passes through (2,2,1), (2,1,1), (1,1,0) and so on: the same falloff
+  // rendered in thirds of a level instead of whole ones. It costs a
+  // colour cast at the rim, which is the CRT's own failure mode — the CA
+  // stage already models the beam landing worst there.
+  //
+  // Only the falloff band sees it. At full gain q4 is an exact multiple
+  // of 16, so every phase quantizes to the same level and the interior
+  // is untouched. B leads and R lags, which decays cool.
+  const int r_lv = vignette_level((p >> 4) & 3, f, t);
+  const int g_lv = vignette_level((p >> 2) & 3, f, (t + 5) & 15);
+  const int b_lv = vignette_level(p & 3, f, (t + 10) & 15);
+  row[x] = GCOLOR8_ALPHA | (uint8_t)((r_lv << 4) | (g_lv << 2) | b_lv);
+}
+
+// One glass row of the pane. Past the rim the content column stays in the
+// interior as long as the row's own depth does, and the warp is monotone along
+// the row, so each half is walked in from its edge until it gets there.
+static void vignette_pane_row(const PaneRow* r, uint8_t* row) {
+  const int w = r->w;
+  const bool sides_only = r->ey_depth >= CRT_VIGNETTE_PX;
+  int xl = w;
+  for (int x = 0; x < w; x++) {
+    int fr;
+    const int sx = pane_column(r, x, &fr);
+    if (sides_only && pane_interior(r, sx)) {
+      xl = x;
+      break;
+    }
+    pane_pixel(r, row, x, sx, fr);
+  }
+  for (int x = w - 1; x >= xl; x--) {
+    int fr;
+    const int sx = pane_column(r, x, &fr);
+    if (pane_interior(r, sx)) break;
+    pane_pixel(r, row, x, sx, fr);
   }
 }
 
-// Stage 3 on one row: `row` takes the warp of `src`, the row as stage 1 and 2
-// left it, with `raw_row` the row as drawn (what the hue rule classifies on).
-// `src` and `row` must not overlap.
+// The pane over a whole frame, in place, on what the other passes left. The
+// strike's frames and the idle ones share it, so a strike's last frame and the
+// frame after it cannot disagree at the rim.
+static void vignette_pane(uint8_t* fb, int w, int h, int stride) {
+#ifndef TEST_ENV
+  time_t v0s, v1s;
+  uint16_t v0ms, v1ms;
+  time_ms(&v0s, &v0ms);
+#endif
+  const CrtTables* tb = crt_tables(w);
+  // The curve the theme's field selects, chosen once per frame: the pane runs
+  // over thousands of pixels and walks the LUT directly.
+  const uint16_t* lut = vignette_lut(theme_ground_level(s_active_theme));
+  const int h1sq = (h - 1) * (h - 1);
+  for (int y = 0; y < h; y++) {
+    const int edge_px = y < h - 1 - y ? y : h - 1 - y;
+    const int dy = 2 * y - (h - 1);
+    PaneRow r = {.tb = tb,
+                 .lut = lut,
+                 .bayer_row = &s_bayer4[(edge_px & 3) * 4],
+                 .w = w,
+                 .yterm = dy * dy * 256 / h1sq,
+                 .ey_depth = edge_depth_y(edge_px)};
+    r.corner_row = r.ey_depth < CRT_CORNER_RADIUS ? tb->corner_d[r.ey_depth] : NULL;
+    r.rz = rigid_zones(w, h, y, &r.nrz);
+    vignette_pane_row(&r, fb + (size_t)y * stride);
+  }
+#ifndef TEST_ENV
+  time_ms(&v1s, &v1ms);
+  timing_vig_ms = (int)((v1s - v0s) * 1000 + v1ms - v0ms);
+#endif
+}
+
+// Stage 2 on one row: `row` takes the warp of `src`, the row as stage 1 left
+// it, with `raw_row` the row as drawn (what the hue rule classifies on).
+// `src` and `row` must not overlap. `rz` are the row's rigid frame zones,
+// left to right: inside one the position is the stroke's translation, not the warp.
 static void crt_curve_row(uint8_t* row, const uint8_t* src, const uint8_t* raw_row, int w,
-                          int yterm, const uint16_t* ca_xq) {
+                          int yterm, const uint16_t* ca_xq, const CrtRigidZone* rz, int nrz) {
+  const CrtRigidZone* const rz_end = rz + nrz;
   for (int x = 0; x < w; x++) {
     int dx = 2 * x - (w - 1);
     int mul16 = warp_mul16(ca_xq[x] + yterm);
     int S = (w - 1) * 65536 + dx * mul16;  // exact warp position, Q17
     int sx = S >> 17;
     int fr = (S >> 9) & 0xFF;  // 0..255, weight toward sx+1
+    while (rz < rz_end && x > rz->xb) rz++;
+    if (rz < rz_end && x >= rz->xa) {
+      sx = (x * 256 + rz->d) >> 8;
+      fr = (x * 256 + rz->d) & 0xFF;
+    }
     // Out-of-range replicates the nearest column WITHOUT the inward
     // blend: clamping sx alone would leave fr live, so the left rim would
     // blend the edge column with the (still dithered) column 1 while the
@@ -989,14 +1160,12 @@ static void crt_curve_row(uint8_t* row, const uint8_t* src, const uint8_t* raw_r
       row[x] = p0;
       continue;
     }
-    int r = ((256 - fr) * ((p0 >> 4) & 3) + fr * ((p1 >> 4) & 3) + 128) >> 8;
-    int g = ((256 - fr) * ((p0 >> 2) & 3) + fr * ((p1 >> 2) & 3) + 128) >> 8;
-    int b = ((256 - fr) * (p0 & 3) + fr * (p1 & 3) + 128) >> 8;
+    int r, g, b;
+    blend_levels(p0, p1, fr, &r, &g, &b);
     // The blend zeroes channels independently too: a black rim column
     // against a colored fill lands on (1,0,0) at some fractions — the
-    // alarm red stage 2's hold_hue exists to prevent. Keyed on the LOWER
-    // tap's content (usually the dominant one) so grey ink keeps the
-    // separation stage 2 gave it instead of having a channel lifted back.
+    // alarm red hold_hue exists to prevent. Keyed on the LOWER tap's content
+    // (usually the dominant one) so grey ink is not given a channel back.
     if (!is_grey(raw_row[sx])) {
       int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
       int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
@@ -1035,41 +1204,22 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
   // The boxes are laid out for the face's own frame; any other buffer has none.
   const CrtTextBox* boxes = text_boxes();
   const int n_boxes = (w == SCREEN_W && h == SCREEN_H) ? CRT_TEXT_BOXES : 0;
-  // The field's own grey level, or 0 for a theme without one. Stage 2 keys
-  // both of its content rules off it: ink/field separation runs only when
-  // there is a grey field to separate against, and it is the reference that
-  // separation measures from.
-  const int vig_ground = theme_ground_level(s_active_theme);
-  // The falloff curve it selects, chosen once per frame: stage 2 runs 45k
-  // times a frame and walks the LUT directly.
-  const uint16_t* vig_lut = vignette_lut(vig_ground);
 
   // A strike with its frame captured never runs the passes: the gather takes
-  // the capture, already curved, fringing included, and the vignette follows
-  // on the glass.
+  // the capture, already curved, fringing included, and the pane follows on
+  // the glass.
   if (striking && s_strike_src && w == SCREEN_W && h == SCREEN_H) {
 #ifndef TEST_ENV
-    time_t g0s, g1s, v0s, v1s;
-    uint16_t g0ms, g1ms, v0ms, v1ms;
+    time_t g0s, g1s;
+    uint16_t g0ms, g1ms;
     time_ms(&g0s, &g0ms);
 #endif
     crt_strike_gather(fb, s_strike_src, w, h, stride, flash_phase, false, ca_xq);
 #ifndef TEST_ENV
     time_ms(&g1s, &g1ms);
     timing_gather_ms = (int)((g1s - g0s) * 1000 + g1ms - g0ms);
-    time_ms(&v0s, &v0ms);
 #endif
-    // Grey or coloured is the content's, not the strike's: the fringe and the
-    // stripes tint a grey, and a tinted rim takes hold_hue and never reaches
-    // black. The capture is the content, as unmoved as the last frames are.
-    for (int y = 0; curvature && y < h; y++) {
-      uint8_t* row = fb + (size_t)y * stride;
-      vignette_row(tb, row, s_strike_src + (size_t)y * w, y, h, vig_ground, vig_lut);
-    }
-#ifndef TEST_ENV
-    time_ms(&v1s, &v1ms);
-    timing_vig_ms = (int)((v1s - v0s) * 1000 + v1ms - v0ms);
-#endif
+    if (curvature) vignette_pane(fb, w, h, stride);
     return;
   }
 
@@ -1186,18 +1336,11 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
         row_ca[x] = GCOLOR8_ALPHA | (uint8_t)(r << 4) | (row[x] & 0x0C) | (uint8_t)b;
       }
 
-      // 2) Vignette + dither on the CA'd row — dimming in content space, so
-      //    the curvature pass below bends the already-darkened rim with the
-      //    image. The two axes are sized independently — see crt.h's
-      //    CRT_VIGNETTE_SIDE_PX and _BAND_PX — because the warp resamples
-      //    columns and leaves rows alone. Mirror-symmetric Bayer thresholds
-      //    keep both rims identical.
-      // Classified on the row as drawn, before stage 1 scattered R and B across
-      // columns; curvature's blend keys on it too.
+      // The row as drawn, before stage 1 scattered R and B across columns:
+      // curvature's blend classifies on it.
       const uint8_t* raw_row = s_vraw_ring[y % 3];
-      if (curvature) vignette_row(tb, row_ca, raw_row, y, h, vig_ground, vig_lut);
 
-      // 3) Curvature: dest (x,y) samples source column
+      // 2) Curvature: dest (x,y) samples source column
       //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of warp_mul16 —
       //    recomposed here from the CA stage's cached terms. A strike frame
       //    stops at the row write; a captured one has had this baked into
@@ -1207,7 +1350,7 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       //    floor(S) + fraction IS the warp position, no rounding. Rim
       //    symmetry survives without rounding:
       //    floor+frac is pointwise symmetric in dx (the floor(−a) vs floor(a)
-      //    ±1 phases sit under the vignette's black rim). The fraction blends
+      //    ±1 phases sit under the pane's black rim). The fraction blends
       //    the column pair instead of picking one: magnification decimates
       //    source columns under nearest-neighbour (a damaged 8px letter cell
       //    measures 7px wide), and keeping their energy as fractional levels
@@ -1218,7 +1361,9 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
         memcpy(row, row_ca, w);
         continue;
       }
-      crt_curve_row(row, row_ca, raw_row, w, yterm, ca_xq);
+      int nrz;
+      const CrtRigidZone* rz = rigid_zones(w, h, y, &nrz);
+      crt_curve_row(row, row_ca, raw_row, w, yterm, ca_xq, rz, nrz);
     }
   }
 #ifndef TEST_ENV
@@ -1231,6 +1376,8 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
   time_ms(&g1s, &g1ms);
   timing_gather_ms = (int)((g1s - g0s) * 1000 + g1ms - g0ms);
 #endif
+  // The vignette pane, last: over whatever the passes and the gather left.
+  if (curvature) vignette_pane(fb, w, h, stride);
 }
 
 // The canvas takes its cache back and repaints from scratch on its next
@@ -1244,7 +1391,7 @@ static void crt_strike_release(void) {
 // The strike's first frame, the face as the layers drew it and before any pass,
 // goes into the canvas's scene cache; the canvas stops repainting for the strike
 // and every frame of it is gathered from here. With curvature on, the capture is
-// warped once, in place, by stage 3's own row helper, so the gathers never warp
+// warped once, in place, by stage 2's own row helper, so the gathers never warp
 // per pixel and the pulse displaces the curved picture. A buffer that is not
 // the face's own, or no cache to borrow, leaves the strike to run in place.
 static void crt_strike_capture(const uint8_t* fb, int w, int h, int stride, bool curvature) {
@@ -1266,7 +1413,9 @@ static void crt_strike_capture(const uint8_t* fb, int w, int h, int stride, bool
     uint8_t* row = cache + (size_t)y * w;
     const int dy = 2 * y - (h - 1);
     memcpy(tmp, row, w);
-    crt_curve_row(row, tmp, tmp, w, dy * dy * 256 / h1sq, xq);
+    int nrz;
+    const CrtRigidZone* rz = rigid_zones(w, h, y, &nrz);
+    crt_curve_row(row, tmp, tmp, w, dy * dy * 256 / h1sq, xq, rz, nrz);
   }
 #ifndef TEST_ENV
   time_ms(&b1s, &b1ms);

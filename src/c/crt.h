@@ -5,21 +5,24 @@
 // The CRT effect lives entirely here: a full-screen overlay layer stacked
 // above the clock whose update proc captures the framebuffer (the public
 // graphics_capture_frame_buffer API) and runs a per-pixel pass — a software
-// "shader". Stage order: 1) chromatic aberration, 2) vignette + dither (in
-// content space, so the darkening bends WITH the curvature; light-background
-// themes take a steeper ease-in LUT — dot density over shade, black only at
-// the rim — and hold ink one step clear of the level their field renders as,
-// which a plain gain quantizes away), 3) curvature — the pincushion warp.
-// Each axis maps its edge distance onto the LUTs' 0..16 domain, so
-// CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
-// own. The degauss strike skips stages 1-3: its first frame is captured raw (the
-// canvas's scene cache is lent for it) and, with curvature on, warped once in
-// place by stage 3's row helper; every frame gathers each pixel from that
+// "shader". Stage order: 1) chromatic aberration, 2) curvature — the pincushion
+// warp, then the vignette pane over the result. The pane is a fixed darkening
+// in front of the glass: how much a pixel is darkened depends on its screen
+// position and the theme's falloff curve (light-background themes take a
+// steeper ease-in LUT — dot density over shade, black only at the rim), never
+// on the pixel's content, and it is applied last in every frame. Its shape is
+// the falloff of the content space pushed through the warp: the pane at a glass
+// pixel is the falloff at the content position the warp shows there, dither
+// phase included. Each axis maps its edge distance onto the LUTs' 0..16 domain,
+// so CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
+// own. The degauss strike skips stages 1 and 2: its first frame is captured raw
+// (the canvas's scene cache is lent for it) and, with curvature on, warped once
+// in place by stage 2's row helper; every frame gathers each pixel from that
 // curved capture, pulling its edges in as a pincushion pulse, black beyond the
-// raster, fringing R and B as it samples and
-// rotating each pixel's hue into purity stripes, greys tinted a step, black
-// left alone. Stage 2 then runs over the result, on the glass. Without a cache
-// to borrow the strike runs the stages in place and gathers from their output.
+// raster, fringing R and B as it samples and rotating each pixel's hue into
+// purity stripes, greys tinted a step, black left alone. The pane then runs
+// over the result, as it does over a normal frame. Without a cache to borrow
+// the strike runs the stages in place and gathers from their output.
 // The toggle gates the pass; off means the proc returns before capturing, so
 // the effect costs exactly nothing.
 //
@@ -32,11 +35,12 @@ extern Layer* s_crt_layer;
 // cx + (x-cx)·M/65536 with M = 65536 + CRT_WARP_R2_K·r² (r² = the
 // elliptical Q8 xq+yq the CA zones also use). K=8 ≈ 3.1px of pull at a
 // mid-edge (r²=256), smoothly more toward the corners. The vignette darkens
-// within a band of the nearest edge, counted around the corner arcs.
+// within a band of the nearest edge of the content, counted around the corner
+// arcs, and the pane carries that band through the warp.
 //
 // K also sets how much solid black the sides carry, which is not obvious: the
 // outermost dest columns' sources run off the frame and clamp to column 0,
-// which the vignette has already taken to depth 0. At K=8 three columns clamp,
+// which the pane takes at depth 0. At K=8 three columns clamp,
 // and with the depth-0 and depth-1 columns behind them that is the black no
 // vignette constant can touch. Lower K is a flatter tube, so this trades bow
 // for rim; higher K clamps more columns.
@@ -74,12 +78,6 @@ extern Layer* s_crt_layer;
 // without it the top would carry less black than the sides and read as
 // missing. Track it to the clamp: at K=8 that is three each way.
 #define CRT_VIGNETTE_EDGE_PX 3
-// Gain below which the falloff is bezel, not content — the light LUT's depths
-// 0 to 4, where the field is crushed and nothing is meant to be read. Ink/field
-// separation (crt.c's clear_of_ground) stops here so the rim can reach black.
-// Compare it against the curve when either changes: depth 4 is 96, which is
-// under this, so the boundary sits between depths 4 and 5.
-#define CRT_VIGNETTE_READ_Q8 128
 // Corner arc radius, in LUT depth units (the 0..CRT_VIGNETTE_PX domain both
 // axes map onto), not pixels.
 #define CRT_CORNER_RADIUS 14
@@ -185,11 +183,11 @@ int crt_vignette_q8_from_depth(int d);
 // tests drive it with a mock buffer.
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase);
 // The same pass with its stages chosen: `aberration` is stage 1 (RGB fringing),
-// `curvature` stages 2 and 3 (vignette, warp). With curvature off the sampling
-// is an exact copy. A strike (flash_phase in range) runs the fringing and the
-// pulse and stripes regardless, as the strike always shows both; with its frame
-// captured (crt_update_proc does that, curving it when `curvature` is on) it
-// gathers from the capture instead of running stages 1 and 3.
+// `curvature` stage 2 and the vignette pane (warp, then the pane over it). With
+// curvature off the sampling is an exact copy. A strike (flash_phase in range) runs the fringing
+// and the pulse and stripes regardless, as the strike always shows both; with its frame captured
+// (crt_update_proc does that, curving it when `curvature` is on) it gathers from the capture
+// instead of running stages 1 and 3.
 void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
                                   bool aberration, bool curvature);
 

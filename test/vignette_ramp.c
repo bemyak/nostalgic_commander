@@ -66,7 +66,7 @@ static void report(const char* name, const WatchTheme* theme, uint8_t fill) {
   } else if ((fill & 0x3F) == 0) {
     printf("(field is black: the falloff is invisible on it, only ink dims)\n");
   } else {
-    printf("(no grey ground; separation and the light curve are both off)\n");
+    printf("(no grey ground; the dark curve applies)\n");
   }
 
   printf("  side ");
@@ -90,8 +90,8 @@ void setUp(void) {}
 void tearDown(void) {}
 
 int main(void) {
-  printf("SIDE_PX=%d BAND_PX=%d EDGE_PX=%d READ_Q8=%d WARP_K=%d\n\n", CRT_VIGNETTE_SIDE_PX,
-         CRT_VIGNETTE_BAND_PX, CRT_VIGNETTE_EDGE_PX, CRT_VIGNETTE_READ_Q8, CRT_WARP_R2_K);
+  printf("SIDE_PX=%d BAND_PX=%d EDGE_PX=%d WARP_K=%d\n\n", CRT_VIGNETTE_SIDE_PX,
+         CRT_VIGNETTE_BAND_PX, CRT_VIGNETTE_EDGE_PX, CRT_WARP_R2_K);
   report("panel", &s_theme_panel, 0xC2);          // DukeBlue field
   report("shadow", &s_theme_shadow, 0xC0);        // Black field
   report("dialog", &s_theme_dialog, 0xEA);        // LightGray field
