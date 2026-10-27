@@ -12,11 +12,16 @@
 // which a plain gain quantizes away), 3) curvature — the pincushion warp.
 // Each axis maps its edge distance onto the LUTs' 0..16 domain, so
 // CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
-// own. The degauss strike gathers every pixel from the frame as stage 2 left it,
-// pulling its edges in as a pincushion pulse, black beyond the raster, and
+// own. The degauss strike skips stages 1-3: its first frame is captured raw (the
+// canvas's scene cache is lent for it) and, with curvature on, warped once in
+// place by stage 3's row helper; every frame gathers each pixel from that
+// curved capture, pulling its edges in as a pincushion pulse, black beyond the
+// raster, fringing R and B as it samples and
 // rotating each pixel's hue into purity stripes, greys tinted a step, black
-// left alone. The toggle gates the pass; off means the proc returns before
-// capturing, so the effect costs exactly nothing.
+// left alone. Stage 2 then runs over the result, on the glass. Without a cache
+// to borrow the strike runs the stages in place and gathers from their output.
+// The toggle gates the pass; off means the proc returns before capturing, so
+// the effect costs exactly nothing.
 //
 // main.c owns the layer's lifecycle (create/stack/destroy), like the canvas;
 // the handle is mirrored here the way drawing.h mirrors s_canvas_layer.
@@ -130,7 +135,8 @@ extern Layer* s_crt_layer;
 // the raster's edges pulled in and pushed out in curves with the mains, black
 // where it leaves the glass, and the picture striped in hues (greys tinted,
 // black untouched) that thin to nothing as the amplitude decays, plus
-// amplified channel separation — the CRT's shadow-mask demagnetization.
+// amplified channel separation, whole px and horizontal only, text boxes
+// included — the CRT's shadow-mask demagnetization.
 // Only a look earns it. A wrist shake (the accel tap, which the kernel
 // delivers just before the backlight-on it causes) strikes at once. Any other
 // wake may be a menu press, and the face cannot see buttons: the firmware
@@ -181,7 +187,9 @@ void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phas
 // The same pass with its stages chosen: `aberration` is stage 1 (RGB fringing),
 // `curvature` stages 2 and 3 (vignette, warp). With curvature off the sampling
 // is an exact copy. A strike (flash_phase in range) runs the fringing and the
-// pulse and stripes regardless, as the strike always shows both.
+// pulse and stripes regardless, as the strike always shows both; with its frame
+// captured (crt_update_proc does that, curving it when `curvature` is on) it
+// gathers from the capture instead of running stages 1 and 3.
 void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
                                   bool aberration, bool curvature);
 

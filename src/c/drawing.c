@@ -862,6 +862,9 @@ static bool quick_view_covers_slot(int index) {
 #define CANVAS_CACHE_BYTES (SCREEN_W * SCREEN_H)
 static uint8_t* s_scene_cache = NULL;
 static bool s_scene_cache_valid = false;
+// Lent to the CRT strike as its frame store: the cache holds no scene, and the
+// canvas stays out of the framebuffer until it is returned.
+static bool s_scene_cache_borrowed = false;
 
 // Row-wise copy through GBitmapDataRowInfo, which gives each row's data
 // pointer and valid column range regardless of the driver's row stride. The
@@ -887,10 +890,23 @@ void canvas_invalidate_cache(void) {
   s_scene_cache_valid = false;
 }
 
+uint8_t* canvas_cache_borrow(void) {
+  if (!s_scene_cache) return NULL;
+  s_scene_cache_borrowed = true;
+  s_scene_cache_valid = false;
+  return s_scene_cache;
+}
+
+void canvas_cache_return(void) {
+  s_scene_cache_borrowed = false;
+  s_scene_cache_valid = false;
+}
+
 void canvas_deinit(void) {
   free(s_scene_cache);
   s_scene_cache = NULL;
   s_scene_cache_valid = false;
+  s_scene_cache_borrowed = false;
   s_canvas_layer = NULL;
 }
 
@@ -899,6 +915,9 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   // window->background_color on every render pass (PebbleOS
   // window_do_layer_update_proc), and apply_theme() keeps it at center_bg.
   (void)layer;
+
+  // The strike's gather overwrites every pixel the canvas would draw.
+  if (s_scene_cache_borrowed) return;
 
   // Cache hit: blit and done. Capture-then-write ONLY here — the framebuffer
   // may not be drawn into by SDK draw calls while captured, so the live-draw

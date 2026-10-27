@@ -92,6 +92,13 @@ void request_ui_redraw(void);
 // state globals.
 void reset_ui_snapshot(void);
 
+// The CRT strike's frame store: the scene cache, lent for the strike's length,
+// or NULL when it was never allocated. The cache holds no scene while lent and
+// the canvas proc draws nothing; returning it invalidates it, so the canvas
+// repaints from scratch on its next render.
+uint8_t* canvas_cache_borrow(void);
+void canvas_cache_return(void);
+
 // Window-unload teardown, called before main.c destroys the canvas layer:
 // frees the scene cache and clears s_canvas_layer, so a late event cannot
 // dirty a freed layer. Idempotent.

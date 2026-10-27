@@ -98,8 +98,10 @@ static void reset_all_state(void) {
 
   s_shown_time[0] = '\0';
   s_scene_cache_valid = false;
+  s_scene_cache_borrowed = false;
   free(s_scene_cache);
   s_scene_cache = NULL;
+  s_strike_src = NULL;
   s_flash_phase = CRT_FLASH_IDLE;
   s_flash_timer = NULL;
   s_cover_suppresses_strike = false;
@@ -5164,7 +5166,25 @@ static void strike_gather_frame(int phase, bool curvature) {
     int dx = 2 * x - (SCREEN_W - 1);
     xq[x] = (uint16_t)(dx * dx * 256 / ((SCREEN_W - 1) * (SCREEN_W - 1)));
   }
-  crt_strike_gather(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, phase, curvature, xq);
+  crt_strike_gather(mock_framebuffer, NULL, SCREEN_W, SCREEN_H, SCREEN_W, phase, curvature, xq);
+}
+
+// The gather from a captured frame: the frame as staged is the capture, and the
+// framebuffer is overwritten from it, fringing included.
+static void strike_gather_captured(int phase, bool curvature) {
+  static uint8_t src[SCREEN_W * SCREEN_H];
+  memcpy(src, mock_framebuffer, sizeof(src));
+  crt_strike_gather(mock_framebuffer, src, SCREEN_W, SCREEN_H, SCREEN_W, phase, curvature,
+                    crt_tables(SCREEN_W)->ca_xq);
+}
+
+// Either gather, for the tests whose frames fringing leaves as they are.
+static void strike_gather_either(bool captured, int phase, bool curvature) {
+  if (captured) {
+    strike_gather_captured(phase, curvature);
+  } else {
+    strike_gather_frame(phase, curvature);
+  }
 }
 
 // White as the strike leaves it at (x, y): tinted by that pixel's band.
@@ -5319,56 +5339,60 @@ void test_crt_strike_should_read_rows_above_as_they_were_before_the_warp(void) {
 }
 
 void test_crt_strike_should_be_black_beyond_the_raster(void) {
-  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
-  strike_gather_frame(0, false);
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[0]);                    // source left of the frame
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[99]);                   // source above it
-  TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * SCREEN_W + 99]);  // source below it
-  TEST_ASSERT_EQUAL_HEX8(strike_white(100, 113),
-                         mock_framebuffer[113 * SCREEN_W + 100]);  // the picture stays
-  TEST_ASSERT_EQUAL_HEX8(strike_white(60, 113), mock_framebuffer[113 * SCREEN_W + 60]);
+  for (int captured = 0; captured < 2; captured++) {
+    memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
+    strike_gather_either(captured, 0, false);
+    TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[0]);   // source left of the frame
+    TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[99]);  // source above it
+    TEST_ASSERT_EQUAL_HEX8(0xC0, mock_framebuffer[227 * SCREEN_W + 99]);  // source below it
+    TEST_ASSERT_EQUAL_HEX8(strike_white(100, 113),
+                           mock_framebuffer[113 * SCREEN_W + 100]);  // the picture stays
+    TEST_ASSERT_EQUAL_HEX8(strike_white(60, 113), mock_framebuffer[113 * SCREEN_W + 60]);
+  }
 }
 
 void test_crt_strike_should_stripe_colour_with_hue_and_tint_grey(void) {
-  memset(mock_framebuffer, 0xC3, sizeof(mock_framebuffer));  // pure blue
-  strike_gather_frame(0, false);
-  bool seen[256] = {false};
-  for (int x = SCREEN_W / 2; x < 180; x++) {
-    int dx, dy;
-    crt_strike_field(x, 113, 0, &dx, &dy);
-    if (x + dx >= SCREEN_W) break;  // beyond the raster: black from here out
-    uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
-    TEST_ASSERT_EQUAL_HEX8(strike_hue(0xC3, crt_strike_band(x, 113, 0)), v);
-    seen[v] = true;
-  }
-  TEST_ASSERT_TRUE(seen[0xC3]);  // identity: blue
-  TEST_ASSERT_TRUE(seen[0xF0]);  // R->G->B->R: red
-  TEST_ASSERT_TRUE(seen[0xCC]);  // R->B->G->R: green
-
-  for (int level = 0; level < 4; level++) {
-    const uint8_t grey = (uint8_t)(GCOLOR8_ALPHA | (level << 4) | (level << 2) | level);
-    memset(mock_framebuffer, grey, sizeof(mock_framebuffer));
-    strike_gather_frame(0, false);
-    bool tints[256] = {false};
+  for (int captured = 0; captured < 2; captured++) {
+    memset(mock_framebuffer, 0xC3, sizeof(mock_framebuffer));  // pure blue
+    strike_gather_either(captured, 0, false);
+    bool seen[256] = {false};
     for (int x = SCREEN_W / 2; x < 180; x++) {
       int dx, dy;
       crt_strike_field(x, 113, 0, &dx, &dy);
-      if (x + dx >= SCREEN_W) break;
+      if (x + dx >= SCREEN_W) break;  // beyond the raster: black from here out
       uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
-      int band = crt_strike_band(x, 113, 0);
-      if (!band || level == 0) {
-        TEST_ASSERT_EQUAL_HEX8(grey, v);
-        continue;
-      }
-      TEST_ASSERT_FALSE(is_grey(v));
-      TEST_ASSERT_TRUE(abs(((v >> 4) & 3) - level) <= 2);
-      TEST_ASSERT_TRUE(abs(((v >> 2) & 3) - level) <= 2);
-      TEST_ASSERT_TRUE(abs((v & 3) - level) <= 2);
-      tints[v] = true;
+      TEST_ASSERT_EQUAL_HEX8(strike_hue(0xC3, crt_strike_band(x, 113, 0)), v);
+      seen[v] = true;
     }
-    int distinct = 0;
-    for (int i = 0; i < 256; i++) distinct += tints[i];
-    if (level == 2) TEST_ASSERT_TRUE(distinct >= 3);
+    TEST_ASSERT_TRUE(seen[0xC3]);  // identity: blue
+    TEST_ASSERT_TRUE(seen[0xF0]);  // R->G->B->R: red
+    TEST_ASSERT_TRUE(seen[0xCC]);  // R->B->G->R: green
+
+    for (int level = 0; level < 4; level++) {
+      const uint8_t grey = (uint8_t)(GCOLOR8_ALPHA | (level << 4) | (level << 2) | level);
+      memset(mock_framebuffer, grey, sizeof(mock_framebuffer));
+      strike_gather_either(captured, 0, false);
+      bool tints[256] = {false};
+      for (int x = SCREEN_W / 2; x < 180; x++) {
+        int dx, dy;
+        crt_strike_field(x, 113, 0, &dx, &dy);
+        if (x + dx >= SCREEN_W) break;
+        uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
+        int band = crt_strike_band(x, 113, 0);
+        if (!band || level == 0) {
+          TEST_ASSERT_EQUAL_HEX8(grey, v);
+          continue;
+        }
+        TEST_ASSERT_FALSE(is_grey(v));
+        TEST_ASSERT_TRUE(abs(((v >> 4) & 3) - level) <= 2);
+        TEST_ASSERT_TRUE(abs(((v >> 2) & 3) - level) <= 2);
+        TEST_ASSERT_TRUE(abs((v & 3) - level) <= 2);
+        tints[v] = true;
+      }
+      int distinct = 0;
+      for (int i = 0; i < 256; i++) distinct += tints[i];
+      if (level == 2) TEST_ASSERT_TRUE(distinct >= 3);
+    }
   }
 }
 
@@ -5426,6 +5450,452 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
   TEST_ASSERT_EQUAL_INT(0, mock_mark_dirty_count);
   TEST_ASSERT_EQUAL_INT(registered, mock_timer_register_count);
+}
+
+// A strike on a face whose canvas has drawn, so the scene cache exists to
+// borrow; leaves phase 0 pending its repaint.
+static void crt_strike_begin(void) {
+  s_settings_crt_degauss = 1;
+  s_active_theme = &s_theme_shadow;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  canvas_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_NULL(s_scene_cache);
+  crt_wake_by_shake();
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_fire_strike_start();
+}
+
+static void crt_strike_advance_to(int phase) {
+  while (s_flash_phase < phase) mock_timer_callback(NULL);
+}
+
+static void fill_test_frame(uint32_t seed) {
+  for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
+    seed = seed * 1664525u + 1013904223u;
+    mock_framebuffer[i] = 0xC0 | ((seed >> 16) & 0x3F);
+  }
+}
+
+void test_crt_strike_band_table_should_match_the_tint_and_hue_rules(void) {
+  for (int band = 0; band < 6; band++) {
+    for (int v = 0; v < 64; v++) {
+      uint8_t px = (uint8_t)(GCOLOR8_ALPHA | v);
+      uint8_t expected = is_grey(px) ? s_strike_grey_tint[v & 3][band] : strike_hue(px, band);
+      TEST_ASSERT_EQUAL_HEX8(expected, s_strike_band_px[band][v]);
+    }
+  }
+}
+
+// Runs of flat colour and grey, which the random frame has none of: the blends
+// of equal neighbours, the greys' tints and the copied spans all want them.
+static void fill_flat_frame(uint32_t seed) {
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      uint32_t h = ((uint32_t)(x / 7) * 73856093u) ^ ((uint32_t)(y / 5) * 19349663u) ^ seed;
+      h = h * 1664525u + 1013904223u;
+      uint8_t v = (uint8_t)((h >> 16) & 0x3F);
+      if ((h >> 24) % 5 < 2) v = (uint8_t)(((v & 3) << 4) | ((v & 3) << 2) | (v & 3));
+      mock_framebuffer[y * SCREEN_W + x] = GCOLOR8_ALPHA | v;
+    }
+  }
+}
+
+// The normal pipeline's stage 3 over a whole frame, one row helper call each.
+static void curve_reference(uint8_t* dst, const uint8_t* raw) {
+  const uint16_t* xq = crt_tables(SCREEN_W)->ca_xq;
+  for (int y = 0; y < SCREEN_H; y++) {
+    int dy = 2 * y - (SCREEN_H - 1);
+    const uint8_t* r = raw + (size_t)y * SCREEN_W;
+    crt_curve_row(dst + (size_t)y * SCREEN_W, r, r, SCREEN_W,
+                  dy * dy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1)), xq);
+  }
+}
+
+void test_crt_strike_gather_should_match_the_per_pixel_loop_in_every_frame(void) {
+  static uint8_t src[SCREEN_W * SCREEN_H];
+  static uint8_t expected[SCREEN_W * SCREEN_H];
+  static uint8_t baked[SCREEN_W * SCREEN_H];
+  const CrtTables* tb = crt_tables(SCREEN_W);
+  const uint16_t* xq = tb->ca_xq;
+  for (int source = 0; source < 3; source++) {
+    if (source == 0) {
+      fill_test_frame(5);
+    } else if (source == 1) {
+      fill_flat_frame(9);
+    } else {
+      memset(mock_framebuffer, 0xFF, sizeof(src));
+    }
+    memcpy(src, mock_framebuffer, sizeof(src));
+    for (int phase = 0; phase < CRT_FLASH_PHASES; phase++) {
+      for (int curvature = 0; curvature < 2; curvature++) {
+        memset(expected, 0x5A, sizeof(expected));
+        memset(mock_framebuffer, 0xA5, sizeof(src));
+        if (curvature) {
+          // A curved strike gathers from the baked capture with curvature off,
+          // then vignettes the glass, classifying on the capture.
+          curve_reference(baked, src);
+          s_strike_src = baked;
+          s_active_theme = &s_theme_shadow;
+          crt_strike_gather_scalar(expected, baked, SCREEN_W, SCREEN_H, SCREEN_W, phase, false, xq);
+          for (int y = 0; y < SCREEN_H; y++) {
+            uint8_t* row = expected + (size_t)y * SCREEN_W;
+            vignette_row(tb, row, baked + (size_t)y * SCREEN_W, y, SCREEN_H,
+                         theme_ground_level(s_active_theme),
+                         vignette_lut(theme_ground_level(s_active_theme)));
+          }
+          crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, phase, false,
+                                       true);
+          s_strike_src = NULL;
+        } else {
+          crt_strike_gather_scalar(expected, src, SCREEN_W, SCREEN_H, SCREEN_W, phase, false, xq);
+          crt_strike_gather(mock_framebuffer, src, SCREEN_W, SCREEN_H, SCREEN_W, phase, false, xq);
+        }
+        for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
+          if (expected[i] != mock_framebuffer[i]) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "source %d phase %d curvature %d x %d y %d", source, phase,
+                     curvature, i % SCREEN_W, i / SCREEN_W);
+            TEST_FAIL_MESSAGE(msg);
+          }
+        }
+      }
+    }
+  }
+}
+
+void test_crt_strike_should_capture_the_raw_frame_on_phase_zero_and_gather_later_frames_from_it(
+    void) {
+  static uint8_t raw[SCREEN_W * SCREEN_H];
+  static uint8_t expected[SCREEN_W * SCREEN_H];
+  crt_strike_begin();
+  fill_test_frame(3);
+  memcpy(raw, mock_framebuffer, sizeof(raw));
+
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_PTR(s_scene_cache, s_strike_src);
+  TEST_ASSERT_EQUAL_MEMORY(raw, s_scene_cache, sizeof(raw));
+  TEST_ASSERT_TRUE(memcmp(raw, mock_framebuffer, sizeof(raw)) != 0);
+
+  // The live frame is no longer read: whatever the layers leave there, the
+  // frame is the gather of the capture.
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
+  crt_strike_advance_to(1);
+  crt_update_proc(NULL, s_fake_ctx);
+  memcpy(expected, raw, sizeof(expected));
+  crt_strike_gather(expected, raw, SCREEN_W, SCREEN_H, SCREEN_W, 1, false,
+                    crt_tables(SCREEN_W)->ca_xq);
+  TEST_ASSERT_EQUAL_MEMORY(expected, mock_framebuffer, sizeof(expected));
+  TEST_ASSERT_EQUAL_MEMORY(raw, s_scene_cache, sizeof(raw));
+}
+
+void test_crt_strike_should_write_every_pixel_from_the_capture(void) {
+  crt_strike_begin();
+  memset(mock_framebuffer, 0xC3, sizeof(mock_framebuffer));  // blue everywhere
+  crt_update_proc(NULL, s_fake_ctx);
+  // Nothing of the live frame may survive: a stale 0x5A byte would be read as
+  // content were any pixel skipped.
+  memset(mock_framebuffer, 0x5A, sizeof(mock_framebuffer));
+  crt_strike_advance_to(6);
+  crt_update_proc(NULL, s_fake_ctx);
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      TEST_ASSERT_EQUAL_HEX8(0xC3, mock_framebuffer[y * SCREEN_W + x]);
+    }
+  }
+}
+
+// One column of white on black; the lit pixels the gather leaves on row 113 say
+// where each channel was sampled: R, G and B each light on their own.
+static void strike_lit_columns(int phase, int* r, int* g, int* b) {
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 120] = 0xFF;
+  strike_gather_captured(phase, false);
+  *r = *g = *b = -1;
+  for (int x = 100; x < 150; x++) {
+    uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
+    if (v == 0xF0) *r = x;
+    if (v == 0xCC) *g = x;
+    if (v == 0xC3) *b = x;
+  }
+}
+
+void test_crt_strike_should_separate_the_channels_further_in_the_early_frames(void) {
+  int r0, g0, b0, r5, g5, b5;
+  strike_lit_columns(0, &r0, &g0, &b0);
+  strike_lit_columns(5, &r5, &g5, &b5);
+  TEST_ASSERT_TRUE(r0 >= 0 && g0 >= 0 && b0 >= 0);
+  TEST_ASSERT_TRUE(r5 >= 0 && g5 >= 0 && b5 >= 0);
+  // Right half: R is sampled from the left of G, B from the right, so on the
+  // glass R lands right of B.
+  TEST_ASSERT_TRUE(r0 > b0 && r5 > b5);
+  TEST_ASSERT_TRUE(r0 - b0 >= r5 - b5 + 3);
+  // The channels straddle the green one, each as far as the other.
+  TEST_ASSERT_INT_WITHIN(1, g0 - b0, r0 - g0);
+  TEST_ASSERT_INT_WITHIN(1, g5 - b5, r5 - g5);
+}
+
+void test_crt_strike_should_mirror_the_fringing_across_the_centreline(void) {
+  memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
+  for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 79] = 0xFF;
+  strike_gather_captured(5, false);
+  int r = -1, b = -1;
+  for (int x = 50; x < 100; x++) {
+    uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
+    if (v == 0xF0) r = x;
+    if (v == 0xC3) b = x;
+  }
+  TEST_ASSERT_TRUE(r >= 0 && b >= 0);
+  TEST_ASSERT_TRUE(r < b);  // left half: R from the right of G
+}
+
+void test_crt_strike_should_leave_the_dead_zone_alone_at_zero_amplitude(void) {
+  fill_test_frame(11);
+  static uint8_t raw[SCREEN_W * SCREEN_H];
+  memcpy(raw, mock_framebuffer, sizeof(raw));
+  strike_gather_captured(6, false);
+  // Inside the CA's dead zone, past the fringing's reach: the frame as it was.
+  for (int y = 100; y < 128; y++) {
+    for (int x = 60; x < 140; x++) {
+      TEST_ASSERT_EQUAL_HEX8(raw[y * SCREEN_W + x], mock_framebuffer[y * SCREEN_W + x]);
+    }
+  }
+}
+
+void test_crt_strike_should_vignette_the_glass_after_the_warp(void) {
+  s_settings_crt_curvature = 1;
+  crt_strike_begin();
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));  // white, bright to the rim
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(6);
+  crt_update_proc(NULL, s_fake_ctx);
+  // The warp pulls bright interior content to the rim columns, and the rim is
+  // dark on the glass all the same.
+  for (int x = 3; x < 6; x++) {
+    uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
+    TEST_ASSERT_TRUE(((v >> 4) & 3) <= 1 && ((v >> 2) & 3) <= 1 && (v & 3) <= 1);
+  }
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 100]);
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[SCREEN_W / 2 + 113 * SCREEN_W - 1]);
+}
+
+void test_crt_strike_should_vignette_by_the_captured_content_not_the_tint(void) {
+  s_settings_crt_curvature = 1;
+  crt_strike_begin();
+  s_active_theme = &s_theme_navigator;
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));  // white: grey content
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(1);
+  crt_update_proc(NULL, s_fake_ctx);
+
+  const CrtTables* tb = crt_tables(SCREEN_W);
+  const int ground = theme_ground_level(s_active_theme);
+  static uint8_t gathered[SCREEN_W * SCREEN_H];
+  static uint8_t by_content[SCREEN_W * SCREEN_H];
+  static uint8_t by_tint[SCREEN_W * SCREEN_H];
+  crt_strike_gather(gathered, s_strike_src, SCREEN_W, SCREEN_H, SCREEN_W, 1, false, tb->ca_xq);
+  memcpy(by_content, gathered, sizeof(gathered));
+  memcpy(by_tint, gathered, sizeof(gathered));
+  for (int y = 0; y < SCREEN_H; y++) {
+    vignette_row(tb, by_content + y * SCREEN_W, s_strike_src + y * SCREEN_W, y, SCREEN_H, ground,
+                 vignette_lut(ground));
+    vignette_row(tb, by_tint + y * SCREEN_W, by_tint + y * SCREEN_W, y, SCREEN_H, ground,
+                 vignette_lut(ground));
+  }
+  // The input tells the two apart, and the frame follows the content.
+  TEST_ASSERT_TRUE(memcmp(by_content, by_tint, sizeof(by_tint)) != 0);
+  TEST_ASSERT_EQUAL_MEMORY(by_content, mock_framebuffer, sizeof(by_content));
+}
+
+void test_crt_strike_should_not_vignette_without_curvature(void) {
+  s_settings_crt_curvature = 0;
+  crt_strike_begin();
+  memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(6);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 4]);
+  TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[4 * SCREEN_W + 100]);
+}
+
+void test_crt_strike_should_keep_the_canvas_out_of_the_frame_while_it_runs(void) {
+  crt_strike_begin();
+  fill_test_frame(5);
+  crt_update_proc(NULL, s_fake_ctx);
+  int fills = mock_fill_rect_count;
+  int captures = mock_fb_capture_count;
+  memset(mock_framebuffer, 0x5A, sizeof(mock_framebuffer));
+  canvas_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(fills, mock_fill_rect_count);
+  TEST_ASSERT_EQUAL_INT(captures, mock_fb_capture_count);
+  TEST_ASSERT_EQUAL_HEX8(0x5A, mock_framebuffer[0]);
+}
+
+// The canvas repaints from scratch: it draws, not blits a stale scene.
+static void assert_canvas_repaints(void) {
+  int fills = mock_fill_rect_count;
+  canvas_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_TRUE(mock_fill_rect_count > fills);
+}
+
+void test_crt_strike_should_hand_the_canvas_cache_back_when_it_ends(void) {
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_NULL(s_strike_src);
+  while (s_flash_phase != CRT_FLASH_IDLE) mock_timer_callback(NULL);
+  TEST_ASSERT_NULL(s_strike_src);
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+  TEST_ASSERT_FALSE(s_scene_cache_valid);
+  assert_canvas_repaints();
+  TEST_ASSERT_TRUE(s_scene_cache_valid);
+}
+
+void test_crt_strike_should_hand_the_canvas_cache_back_when_cancelled(void) {
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  s_settings_crt_degauss = 0;
+  crt_apply_setting_change();
+  TEST_ASSERT_NULL(s_strike_src);
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+  assert_canvas_repaints();
+
+  s_settings_crt_degauss = 1;
+  s_scene_cache_valid = false;
+  crt_wake_by_shake();
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_fire_strike_start();
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NOT_NULL(s_strike_src);
+  crt_deinit();
+  TEST_ASSERT_NULL(s_strike_src);
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+  assert_canvas_repaints();
+}
+
+void test_crt_strike_should_recapture_after_a_reprime(void) {
+  static uint8_t second[SCREEN_W * SCREEN_H];
+  crt_strike_begin();
+  fill_test_frame(1);
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(2);
+
+  crt_wake_by_shake();  // re-prime mid-strike
+  TEST_ASSERT_NULL(s_strike_src);
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+  crt_update_proc(NULL, s_fake_ctx);  // the wake frame
+  crt_fire_strike_start();
+  fill_test_frame(2);
+  memcpy(second, mock_framebuffer, sizeof(second));
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_PTR(s_scene_cache, s_strike_src);
+  TEST_ASSERT_EQUAL_MEMORY(second, s_scene_cache, sizeof(second));
+}
+
+void test_crt_strike_should_bake_the_curvature_into_its_capture_once(void) {
+  static uint8_t raw[SCREEN_W * SCREEN_H];
+  static uint8_t curved[SCREEN_W * SCREEN_H];
+  s_settings_crt_curvature = 1;
+  crt_strike_begin();
+  fill_test_frame(3);
+  memcpy(raw, mock_framebuffer, sizeof(raw));
+  curve_reference(curved, raw);
+  TEST_ASSERT_TRUE(memcmp(raw, curved, sizeof(raw)) != 0);
+
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_MEMORY(curved, s_scene_cache, sizeof(curved));
+
+  // Later frames gather from the capture as it is: a changed live frame is
+  // neither read nor warped into it.
+  fill_test_frame(4);
+  crt_strike_advance_to(1);
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(5);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_MEMORY(curved, s_scene_cache, sizeof(curved));
+}
+
+void test_crt_strike_should_not_bake_without_curvature(void) {
+  static uint8_t raw[SCREEN_W * SCREEN_H];
+  s_settings_crt_curvature = 0;
+  crt_strike_begin();
+  fill_test_frame(3);
+  memcpy(raw, mock_framebuffer, sizeof(raw));
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_MEMORY(raw, s_scene_cache, sizeof(raw));
+}
+
+void test_crt_strike_should_bake_again_after_a_reprime(void) {
+  static uint8_t second[SCREEN_W * SCREEN_H];
+  static uint8_t curved[SCREEN_W * SCREEN_H];
+  s_settings_crt_curvature = 1;
+  crt_strike_begin();
+  fill_test_frame(1);
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_strike_advance_to(2);
+
+  crt_wake_by_shake();
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_fire_strike_start();
+  fill_test_frame(2);
+  memcpy(second, mock_framebuffer, sizeof(second));
+  curve_reference(curved, second);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_MEMORY(curved, s_scene_cache, sizeof(curved));
+}
+
+void test_crt_curvature_pass_should_warp_each_row_after_the_vignette(void) {
+  static uint8_t raw[SCREEN_W * SCREEN_H];
+  static uint8_t expected[SCREEN_W * SCREEN_H];
+  s_active_theme = &s_theme_shadow;
+  fill_test_frame(6);
+  memcpy(raw, mock_framebuffer, sizeof(raw));
+  const CrtTables* tb = crt_tables(SCREEN_W);
+  const int ground = theme_ground_level(s_active_theme);
+  static uint8_t vig[SCREEN_W];
+  for (int y = 0; y < SCREEN_H; y++) {
+    int dy = 2 * y - (SCREEN_H - 1);
+    memcpy(vig, raw + (size_t)y * SCREEN_W, SCREEN_W);
+    vignette_row(tb, vig, raw + (size_t)y * SCREEN_W, y, SCREEN_H, ground, vignette_lut(ground));
+    crt_curve_row(expected + (size_t)y * SCREEN_W, vig, raw + (size_t)y * SCREEN_W, SCREEN_W,
+                  dy * dy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1)), tb->ca_xq);
+  }
+  crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE,
+                               false, true);
+  TEST_ASSERT_EQUAL_MEMORY(expected, mock_framebuffer, sizeof(expected));
+}
+
+void test_crt_strike_without_a_scene_cache_should_run_the_passes_in_place(void) {
+  static uint8_t expected[SCREEN_W * SCREEN_H];
+  s_settings_crt_degauss = 1;
+  s_active_theme = &s_theme_shadow;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  TEST_ASSERT_NULL(s_scene_cache);
+  crt_wake_by_shake();
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_fire_strike_start();
+
+  fill_test_frame(9);
+  memcpy(expected, mock_framebuffer, sizeof(expected));
+  crt_apply_framebuffer_passes(expected, SCREEN_W, SCREEN_H, SCREEN_W, 0, false, false);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_NULL(s_strike_src);
+  TEST_ASSERT_EQUAL_MEMORY(expected, mock_framebuffer, sizeof(expected));
+  while (s_flash_phase != CRT_FLASH_IDLE) mock_timer_callback(NULL);
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+}
+
+void test_canvas_cache_borrow_should_need_a_cache_and_force_a_repaint_on_return(void) {
+  TEST_ASSERT_NULL(canvas_cache_borrow());
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+
+  canvas_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_TRUE(s_scene_cache_valid);
+  TEST_ASSERT_EQUAL_PTR(s_scene_cache, canvas_cache_borrow());
+  TEST_ASSERT_FALSE(s_scene_cache_valid);
+  canvas_cache_return();
+  TEST_ASSERT_FALSE(s_scene_cache_borrowed);
+  assert_canvas_repaints();
 }
 
 void test_crt_setting_push_should_redraw_the_overlay(void) {
@@ -6507,6 +6977,27 @@ int main(void) {
   RUN_TEST(test_crt_strike_should_thin_the_stripes_as_the_amplitude_dies);
   RUN_TEST(test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude);
   RUN_TEST(test_crt_strike_start_should_do_nothing_once_the_chain_is_killed);
+  RUN_TEST(
+      test_crt_strike_should_capture_the_raw_frame_on_phase_zero_and_gather_later_frames_from_it);
+  RUN_TEST(test_crt_strike_should_write_every_pixel_from_the_capture);
+  RUN_TEST(test_crt_strike_band_table_should_match_the_tint_and_hue_rules);
+  RUN_TEST(test_crt_strike_gather_should_match_the_per_pixel_loop_in_every_frame);
+  RUN_TEST(test_crt_strike_should_bake_the_curvature_into_its_capture_once);
+  RUN_TEST(test_crt_strike_should_not_bake_without_curvature);
+  RUN_TEST(test_crt_strike_should_bake_again_after_a_reprime);
+  RUN_TEST(test_crt_curvature_pass_should_warp_each_row_after_the_vignette);
+  RUN_TEST(test_crt_strike_should_separate_the_channels_further_in_the_early_frames);
+  RUN_TEST(test_crt_strike_should_mirror_the_fringing_across_the_centreline);
+  RUN_TEST(test_crt_strike_should_leave_the_dead_zone_alone_at_zero_amplitude);
+  RUN_TEST(test_crt_strike_should_vignette_the_glass_after_the_warp);
+  RUN_TEST(test_crt_strike_should_vignette_by_the_captured_content_not_the_tint);
+  RUN_TEST(test_crt_strike_should_not_vignette_without_curvature);
+  RUN_TEST(test_crt_strike_should_keep_the_canvas_out_of_the_frame_while_it_runs);
+  RUN_TEST(test_crt_strike_should_hand_the_canvas_cache_back_when_it_ends);
+  RUN_TEST(test_crt_strike_should_hand_the_canvas_cache_back_when_cancelled);
+  RUN_TEST(test_crt_strike_should_recapture_after_a_reprime);
+  RUN_TEST(test_crt_strike_without_a_scene_cache_should_run_the_passes_in_place);
+  RUN_TEST(test_canvas_cache_borrow_should_need_a_cache_and_force_a_repaint_on_return);
   RUN_TEST(test_weather_age_should_judge_by_age_and_local_day);
   RUN_TEST(test_weather_stamp_for_should_trust_only_sane_fetch_times);
   RUN_TEST(test_weather_expire_should_keep_everything_while_fresh);
