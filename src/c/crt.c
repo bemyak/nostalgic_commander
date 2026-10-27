@@ -59,6 +59,16 @@ static AppTimer* s_shake_wake_timer = NULL;
 static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
 
+#ifndef TEST_ENV
+static int timing_gather_ms;
+static int timing_vig_ms;
+static time_t timing_mark_s;
+static uint16_t timing_mark_ms;
+#define TIMING_MARK() time_ms(&timing_mark_s, &timing_mark_ms)
+#else
+#define TIMING_MARK()
+#endif
+
 static void crt_cover_grace_cancel(void) {
   if (s_cover_grace_timer) {
     app_timer_cancel(s_cover_grace_timer);
@@ -722,6 +732,11 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       // hue held — and CA makes every 1px stroke chromatic, so the CA'd pixel
       // cannot answer that. Classify on the raw pixel, act on the CA'd one.
       const uint8_t* raw_row = s_vraw_ring[y % 3];
+#ifndef TEST_ENV
+      time_t v0s, v1s;
+      uint16_t v0ms, v1ms;
+      time_ms(&v0s, &v0ms);
+#endif
       for (int x = 0; curvature && x < w; x++) {
         // At f = 256 every rule below is a no-op, so row_ca[x] is already final.
         if (x == s_interior_x0 && ey_depth >= CRT_VIGNETTE_PX) {
@@ -782,6 +797,10 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
         }
         row_ca[x] = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
       }
+#ifndef TEST_ENV
+      time_ms(&v1s, &v1ms);
+      timing_vig_ms += (int)((v1s - v0s) * 1000 + v1ms - v0ms);
+#endif
 
       // 3) Curvature: dest (x,y) samples source column
       //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of warp_mul16 —
@@ -850,7 +869,16 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
       }
     }
   }
+#ifndef TEST_ENV
+  time_t g0s, g1s;
+  uint16_t g0ms, g1ms;
+  time_ms(&g0s, &g0ms);
+#endif
   if (striking) crt_strike_gather(fb, w, h, stride, flash_phase, curvature, s_ca_xq);
+#ifndef TEST_ENV
+  time_ms(&g1s, &g1ms);
+  timing_gather_ms = (int)((g1s - g0s) * 1000 + g1ms - g0ms);
+#endif
 }
 
 static bool crt_enabled(void) {
@@ -867,10 +895,24 @@ void crt_update_proc(Layer* layer, GContext* ctx) {
     GBitmap* fb = graphics_capture_frame_buffer(ctx);
     if (!fb) return;
     GRect bounds = gbitmap_get_bounds(fb);
+#ifndef TEST_ENV
+    time_t t0s, t1s;
+    uint16_t t0ms, t1ms;
+    time_ms(&t0s, &t0ms);
+#endif
     crt_apply_framebuffer_passes(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
                                  gbitmap_get_bytes_per_row(fb), s_flash_phase,
                                  s_settings_crt_aberration != 0, s_settings_crt_curvature != 0);
     graphics_release_frame_buffer(ctx, fb);
+#ifndef TEST_ENV
+    time_ms(&t1s, &t1ms);
+    APP_LOG(APP_LOG_LEVEL_INFO,
+            "TIMING frame phase %d at %ld.%03u layers %ld ms pass %ld ms gather %d ms vig %d ms",
+            s_flash_phase, (long)t0s, t0ms,
+            (long)((t0s - timing_mark_s) * 1000 + t0ms - timing_mark_ms),
+            (long)((t1s - t0s) * 1000 + t1ms - t0ms), timing_gather_ms, timing_vig_ms);
+    timing_vig_ms = 0;
+#endif
   }
   // Strike trigger lives at the END of the wake frame (not the backlight
   // handler): the sound starts once the ring can survive what follows.
@@ -888,6 +930,7 @@ static void crt_flash_start(void* data) {
   (void)data;
   // A killed chain (deinit, setting off, re-prime) leaves IDLE behind.
   if (s_flash_phase == CRT_FLASH_IDLE) return;
+  TIMING_MARK();
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
   s_flash_timer = app_timer_register(CRT_FLASH_TICK_MS, crt_flash_tick, NULL);
 }
@@ -902,6 +945,7 @@ static void crt_flash_tick(void* data) {
     s_flash_phase = CRT_FLASH_IDLE;
     s_flash_timer = NULL;
   }
+  TIMING_MARK();
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
   // One-shot timers free themselves on firing.
   if (s_flash_phase != CRT_FLASH_IDLE) {
