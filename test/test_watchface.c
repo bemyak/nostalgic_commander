@@ -104,6 +104,9 @@ static void reset_all_state(void) {
   s_flash_timer = NULL;
   s_cover_suppresses_strike = false;
   s_cover_grace_timer = NULL;
+  s_button_wake_timer = NULL;
+  s_shake_wake = false;
+  s_shake_wake_timer = NULL;
   s_strike_pending = false;
   s_app_in_focus = false;
   s_crt_layer = NULL;
@@ -4213,6 +4216,7 @@ void test_init_should_subscribe_the_crt_services_when_degauss_is_on(void) {
   s_settings_crt_degauss = 1;
   init();
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_accel_tap_subscribe_count);
   TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.did_focus);
   TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.will_focus);
   // Launch focus still arrives through did_focus.
@@ -4224,6 +4228,7 @@ void test_init_should_not_subscribe_the_crt_services_for_effects_without_a_strik
   s_settings_crt_curvature = 1;
   init();
   TEST_ASSERT_EQUAL_INT(0, mock_backlight_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(0, mock_accel_tap_subscribe_count);
   TEST_ASSERT_NULL(mock_app_focus_handlers.did_focus);
 }
 
@@ -4246,6 +4251,7 @@ void test_turning_the_crt_on_mid_run_should_subscribe_and_let_the_next_wake_stri
   TEST_ASSERT_NOT_NULL(mock_backlight_handler);
   TEST_ASSERT_NOT_NULL(mock_app_focus_handlers.did_focus);
 
+  mock_accel_tap_handler(ACCEL_AXIS_X, 1);
   mock_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
 
@@ -4261,6 +4267,7 @@ void test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike(void)
   s_settings_crt_degauss = 1;
   init();
   mock_app_focus_handlers.did_focus(true);
+  mock_accel_tap_handler(ACCEL_AXIS_X, 1);
   mock_backlight_handler(true);
   TEST_ASSERT_TRUE(s_strike_pending);
 
@@ -4269,6 +4276,7 @@ void test_turning_the_crt_off_should_unsubscribe_and_drop_a_pending_strike(void)
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_FALSE(s_strike_pending);
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_accel_tap_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_app_focus_unsubscribe_count);
   TEST_ASSERT_NULL(mock_backlight_handler);
 }
@@ -4579,23 +4587,29 @@ void test_crt_text_boxes_should_not_move_with_quick_view(void) {
   }
 }
 
+// A wrist shake and the backlight-on it causes: the look that strikes at once.
+static void crt_wake_by_shake(void) {
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  crt_backlight_handler(true);
+}
+
 void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   s_settings_crt_degauss = 1;
   s_settings_degauss_volume = 0;
   crt_app_focus_did_handler(true);
 
-  crt_backlight_handler(true);  // volume Off: nothing
+  crt_wake_by_shake();  // volume Off: nothing
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 
   s_settings_degauss_volume = 90;
   mock_speaker_muted = true;  // system mute / Quiet Time wins
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 
   mock_speaker_muted = false;
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
   TEST_ASSERT_EQUAL_UINT32(1, mock_speaker_last_num_tracks);
@@ -4620,7 +4634,7 @@ void test_crt_strike_should_prime_after_the_first_did_focus(void) {
   s_settings_degauss_volume = 90;
 
   crt_app_focus_did_handler(true);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
 
   crt_update_proc(NULL, s_fake_ctx);
@@ -4701,7 +4715,7 @@ void test_crt_strike_should_fire_on_the_backlight_after_the_dismissal(void) {
   TEST_ASSERT_FALSE(s_strike_pending);
 
   crt_backlight_handler(false);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   crt_fire_strike_start();
@@ -4727,7 +4741,7 @@ void test_crt_strike_should_keep_the_one_shot_through_a_covered_backlight(void) 
   TEST_ASSERT_FALSE(s_strike_pending);
 
   crt_backlight_handler(false);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
@@ -4749,7 +4763,7 @@ void test_crt_strike_should_drop_the_one_shot_once_the_backlight_goes_off_in_vie
   crt_backlight_handler(false);
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
 
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
@@ -4772,7 +4786,7 @@ void test_crt_strike_should_ignore_backlight_while_quick_view_is_up(void) {
 
   s_quick_view_active = false;
   crt_backlight_handler(false);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
@@ -4807,7 +4821,7 @@ void test_crt_strike_should_expire_the_one_shot_after_the_grace_window(void) {
   TEST_ASSERT_FALSE(s_cover_suppresses_strike);
   TEST_ASSERT_NULL(s_cover_grace_timer);
 
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
@@ -4847,7 +4861,7 @@ void test_crt_deinit_should_cancel_the_strike_and_drop_the_layer(void) {
   main_window_load(NULL);
   s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);  // strike running: chain armed
   int registered = mock_timer_register_count;
   int cancelled = mock_timer_cancel_count;
@@ -4879,10 +4893,174 @@ void test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off(void) {
 
   // The effect comes on later; the first real wake strikes.
   s_settings_crt_degauss = 1;
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+// A button or touch wake: the delay timer is armed, nothing is primed yet.
+static void crt_wake_by_button(void) {
+  crt_backlight_handler(true);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  TEST_ASSERT_NOT_NULL(s_button_wake_timer);
+  TEST_ASSERT_EQUAL_UINT32(CRT_BUTTON_WAKE_DELAY_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(crt_button_wake_fire, mock_timer_callback);
+}
+
+void test_crt_shake_should_prime_the_backlight_wake_at_once(void) {
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
+  crt_app_focus_did_handler(true);
+
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  TEST_ASSERT_TRUE(s_shake_wake);
+  TEST_ASSERT_EQUAL_UINT32(CRT_SHAKE_WAKE_WINDOW_MS, mock_timer_last_ms);
+  TEST_ASSERT_EQUAL_PTR(crt_shake_wake_expire, mock_timer_callback);
+
+  crt_backlight_handler(true);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  TEST_ASSERT_FALSE(s_shake_wake);
+  TEST_ASSERT_NULL(s_shake_wake_timer);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+}
+
+void test_crt_button_wake_should_strike_only_after_the_delay(void) {
+  s_settings_crt_degauss = 1;
+  s_settings_degauss_volume = 90;
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  crt_app_focus_did_handler(true);
+
+  crt_wake_by_button();
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
+
+  mock_timer_callback(NULL);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  TEST_ASSERT_TRUE(s_strike_pending);
+  crt_update_proc(NULL, s_fake_ctx);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_play_tracks_count);
+  crt_fire_strike_start();
+}
+
+void test_crt_button_wake_should_die_with_the_face(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+
+  int cancelled = mock_timer_cancel_count;
+  crt_deinit();
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  TEST_ASSERT_FALSE(s_strike_pending);
+}
+
+void test_crt_button_wake_should_not_strike_once_a_cover_arrives(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+  AppTimerCallback fire = mock_timer_callback;
+
+  int cancelled = mock_timer_cancel_count;
+  crt_app_focus_will_handler(false);
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  fire(NULL);
+  TEST_ASSERT_FALSE(s_strike_pending);
+}
+
+void test_crt_button_wake_should_not_strike_once_quick_view_is_up(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+
+  s_quick_view_active = true;
+  mock_timer_callback(NULL);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  TEST_ASSERT_FALSE(s_strike_pending);
+  s_quick_view_active = false;
+}
+
+void test_crt_button_wake_should_not_strike_once_degauss_is_off(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+  AppTimerCallback fire = mock_timer_callback;
+
+  s_settings_crt_degauss = 0;
+  int cancelled = mock_timer_cancel_count;
+  crt_apply_setting_change();
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  fire(NULL);
+  TEST_ASSERT_FALSE(s_strike_pending);
+}
+
+void test_crt_button_wake_should_end_with_the_backlight(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+
+  int cancelled = mock_timer_cancel_count;
+  crt_backlight_handler(false);
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_NULL(s_button_wake_timer);
+}
+
+void test_crt_button_wake_should_restart_its_delay_on_a_new_wake(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+  crt_wake_by_button();
+
+  int cancelled = mock_timer_cancel_count;
+  crt_wake_by_button();
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+
+  crt_wake_by_shake();
+  TEST_ASSERT_NULL(s_button_wake_timer);
+  TEST_ASSERT_TRUE(s_strike_pending);
+}
+
+void test_crt_shake_should_expire_so_a_later_button_wake_waits(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  mock_timer_callback(NULL);
+  TEST_ASSERT_FALSE(s_shake_wake);
+  TEST_ASSERT_NULL(s_shake_wake_timer);
+
+  crt_wake_by_button();
+}
+
+void test_crt_backlight_off_should_clear_the_shake(void) {
+  s_settings_crt_degauss = 1;
+  crt_app_focus_did_handler(true);
+
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  crt_backlight_handler(false);
+  TEST_ASSERT_FALSE(s_shake_wake);
+  TEST_ASSERT_NULL(s_shake_wake_timer);
+
+  crt_wake_by_button();
+}
+
+void test_crt_shake_should_rearm_its_expiry(void) {
+  s_settings_crt_degauss = 1;
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  int cancelled = mock_timer_cancel_count;
+  crt_tap_handler(ACCEL_AXIS_Y, -1);
+  TEST_ASSERT_EQUAL_INT(cancelled + 1, mock_timer_cancel_count);
+  TEST_ASSERT_TRUE(s_shake_wake);
+}
+
+void test_crt_deinit_should_clear_the_shake(void) {
+  crt_tap_handler(ACCEL_AXIS_X, 1);
+  crt_deinit();
+  TEST_ASSERT_FALSE(s_shake_wake);
+  TEST_ASSERT_NULL(s_shake_wake_timer);
 }
 
 void test_crt_setting_change_should_disarm_a_pending_cover_suppression(void) {
@@ -4933,15 +5111,15 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
   s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
+  int armed = mock_timer_register_count;  // the shake's expiry
   // Deferred strike: the handler primes only; the wake frame's proc starts it.
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
-  TEST_ASSERT_EQUAL_INT(0, mock_timer_register_count);
   TEST_ASSERT_TRUE(mock_mark_dirty_count > 0);
   crt_update_proc(NULL, s_fake_ctx);
-  TEST_ASSERT_EQUAL_INT(1, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(armed + 1, mock_timer_register_count);
   crt_fire_strike_start();
-  TEST_ASSERT_EQUAL_INT(2, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(armed + 2, mock_timer_register_count);
   TEST_ASSERT_NOT_NULL(mock_timer_callback);
 
   // Drive the re-arming tick chain to completion; the chain must stop.
@@ -4952,7 +5130,7 @@ void test_crt_flash_should_need_backlight_on_and_the_toggle(void) {
     TEST_ASSERT_TRUE(frames <= CRT_FLASH_PHASES);  // no lost idle edge
   }
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES, frames);
-  TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES + 1, mock_timer_register_count);
+  TEST_ASSERT_EQUAL_INT(armed + CRT_FLASH_PHASES + 1, mock_timer_register_count);
 }
 
 void test_crt_strike_should_draw_phase_zero_after_the_wake_frame(void) {
@@ -4968,7 +5146,7 @@ void test_crt_strike_should_draw_phase_zero_after_the_wake_frame(void) {
   crt_update_proc(NULL, s_fake_ctx);
   memcpy(idle_frame, mock_framebuffer, sizeof(idle_frame));
 
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);  // wake frame: strike starts, not yet drawn
   crt_fire_strike_start();
 
@@ -5224,7 +5402,7 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
 
   // Setting off between the wake frame and the start timer.
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   AppTimerCallback start = mock_timer_callback;
   s_settings_crt_degauss = 0;
@@ -5238,10 +5416,10 @@ void test_crt_strike_start_should_do_nothing_once_the_chain_is_killed(void) {
 
   // A re-prime between the wake frame and the start timer.
   s_settings_crt_degauss = 1;
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   start = mock_timer_callback;
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   registered = mock_timer_register_count;
   mock_mark_dirty_count = 0;
   start(NULL);
@@ -5296,7 +5474,7 @@ void test_crt_degauss_off_should_end_a_strike_but_keep_the_other_effects(void) {
   s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_NOT_EQUAL(CRT_FLASH_IDLE, s_flash_phase);
 
@@ -5322,7 +5500,7 @@ void test_crt_overlay_should_capture_only_while_something_paints(void) {
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
 
-  crt_backlight_handler(true);  // the strike starts after the wake frame...
+  crt_wake_by_shake();  // the strike starts after the wake frame...
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_fb_capture_count);
   TEST_ASSERT_EQUAL_INT(0, s_flash_phase);
@@ -5345,11 +5523,11 @@ void test_crt_backlight_should_strike_only_with_the_degauss_effect(void) {
   s_settings_crt_aberration = 1;
   s_settings_crt_curvature = 1;
   crt_app_focus_did_handler(true);
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_FALSE(s_strike_pending);
 
   s_settings_crt_degauss = 1;
-  crt_backlight_handler(true);
+  crt_wake_by_shake();
   TEST_ASSERT_TRUE(s_strike_pending);
 }
 
@@ -5381,7 +5559,7 @@ void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
   s_crt_layer = layer_create(GRect(0, 0, 200, 228));
-  crt_backlight_handler(true);        // primes the strike
+  crt_wake_by_shake();                // primes the strike
   crt_update_proc(NULL, s_fake_ctx);  // wake frame lands → chain armed
   crt_fire_strike_start();
   mock_timer_callback(NULL);  // advance one tick for realism
@@ -6045,12 +6223,14 @@ void test_deinit_should_release_every_service_init_subscribed(void) {
   init();
   TEST_ASSERT_EQUAL_INT(1, mock_battery_subscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_backlight_subscribe_count);
+  TEST_ASSERT_EQUAL_INT(1, mock_accel_tap_subscribe_count);
   deinit();
   TEST_ASSERT_EQUAL_INT(mock_tick_subscribe_count, mock_tick_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(mock_battery_subscribe_count, mock_battery_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(mock_connection_subscribe_count, mock_connection_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(mock_health_subscribe_count, mock_health_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(mock_backlight_subscribe_count, mock_backlight_unsubscribe_count);
+  TEST_ASSERT_EQUAL_INT(mock_accel_tap_subscribe_count, mock_accel_tap_unsubscribe_count);
   TEST_ASSERT_EQUAL_INT(1, mock_app_focus_unsubscribe_count);
 }
 
@@ -6291,6 +6471,18 @@ int main(void) {
   RUN_TEST(test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget);
   RUN_TEST(test_crt_deinit_should_cancel_the_strike_and_drop_the_layer);
   RUN_TEST(test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off);
+  RUN_TEST(test_crt_shake_should_prime_the_backlight_wake_at_once);
+  RUN_TEST(test_crt_button_wake_should_strike_only_after_the_delay);
+  RUN_TEST(test_crt_button_wake_should_die_with_the_face);
+  RUN_TEST(test_crt_button_wake_should_not_strike_once_a_cover_arrives);
+  RUN_TEST(test_crt_button_wake_should_not_strike_once_quick_view_is_up);
+  RUN_TEST(test_crt_button_wake_should_not_strike_once_degauss_is_off);
+  RUN_TEST(test_crt_button_wake_should_end_with_the_backlight);
+  RUN_TEST(test_crt_button_wake_should_restart_its_delay_on_a_new_wake);
+  RUN_TEST(test_crt_shake_should_expire_so_a_later_button_wake_waits);
+  RUN_TEST(test_crt_backlight_off_should_clear_the_shake);
+  RUN_TEST(test_crt_shake_should_rearm_its_expiry);
+  RUN_TEST(test_crt_deinit_should_clear_the_shake);
   RUN_TEST(test_crt_setting_change_should_disarm_a_pending_cover_suppression);
   RUN_TEST(test_crt_pass_should_follow_the_row_stride);
   RUN_TEST(test_crt_flash_should_need_backlight_on_and_the_toggle);

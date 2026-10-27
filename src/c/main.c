@@ -329,7 +329,7 @@ static void health_handler(HealthEventType event, void* context) {
 typedef struct {
   bool battery;  // a slot shows the battery
   bool health;   // a slot shows a health metric
-  bool crt;      // the degauss strike's backlight and app focus gate
+  bool crt;      // the degauss strike's shake, backlight and app focus gate
 } SubscriptionSet;
 
 static SubscriptionSet s_subscribed;
@@ -356,11 +356,13 @@ static void apply_subscriptions(SubscriptionSet want, bool running) {
   }
   if (want.crt != s_subscribed.crt) {
     if (want.crt) {
+      accel_tap_service_subscribe(crt_tap_handler);
       backlight_service_subscribe(crt_backlight_handler);
       app_focus_service_subscribe_handlers((AppFocusHandlers){
           .will_focus = crt_app_focus_will_handler, .did_focus = crt_app_focus_did_handler});
       if (running) crt_set_in_focus(true);
     } else {
+      accel_tap_service_unsubscribe();
       backlight_service_unsubscribe();
       app_focus_service_unsubscribe();
     }

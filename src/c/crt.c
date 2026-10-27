@@ -44,6 +44,17 @@ static bool s_app_in_focus = false;
 // backlight edge at all, so once focus returns the grace timer expires it.
 static bool s_cover_suppresses_strike = false;
 static AppTimer* s_cover_grace_timer = NULL;
+// A button press lights the backlight while the face is still in focus, then
+// the firmware closes the face for the menu — about 120-170 ms later, with no
+// button or focus event the face could see. So only a wrist shake (the motion
+// backlight) primes at once; any other backlight-on waits here, and
+// crt_deinit or a cover cancels it before it strikes.
+static AppTimer* s_button_wake_timer = NULL;
+// The kernel forwards a shake to the app before the backlight-on it causes.
+// The flag is consumed by the next backlight edge; the expiry timer clears it
+// when the shake lit nothing (light already on, motion backlight disabled).
+static bool s_shake_wake = false;
+static AppTimer* s_shake_wake_timer = NULL;
 
 static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
@@ -60,6 +71,35 @@ static void crt_cover_grace_expire(void* data) {
   // One-shot timers free themselves on firing.
   s_cover_grace_timer = NULL;
   s_cover_suppresses_strike = false;
+}
+
+static void crt_button_wake_cancel(void) {
+  if (s_button_wake_timer) {
+    app_timer_cancel(s_button_wake_timer);
+    s_button_wake_timer = NULL;
+  }
+}
+
+static void crt_shake_wake_clear(void) {
+  if (s_shake_wake_timer) {
+    app_timer_cancel(s_shake_wake_timer);
+    s_shake_wake_timer = NULL;
+  }
+  s_shake_wake = false;
+}
+
+static void crt_shake_wake_expire(void* data) {
+  (void)data;
+  s_shake_wake_timer = NULL;
+  s_shake_wake = false;
+}
+
+void crt_tap_handler(AccelAxisType axis, int32_t direction) {
+  (void)axis;
+  (void)direction;
+  if (s_shake_wake_timer) app_timer_cancel(s_shake_wake_timer);
+  s_shake_wake = true;
+  s_shake_wake_timer = app_timer_register(CRT_SHAKE_WAKE_WINDOW_MS, crt_shake_wake_expire, NULL);
 }
 
 static int isqrt_floor(int v) {
@@ -869,11 +909,34 @@ static void crt_flash_tick(void* data) {
   }
 }
 
+// Prime, don't strike: the overlay proc starts sound + chain after the wake
+// frame. A mid-strike prime cancels the old chain and re-primes.
+static void crt_strike_prime(void) {
+  if (s_flash_timer) {
+    app_timer_cancel(s_flash_timer);
+    s_flash_timer = NULL;
+  }
+  s_flash_phase = CRT_FLASH_IDLE;
+  s_strike_pending = true;
+  if (s_crt_layer) layer_mark_dirty(s_crt_layer);
+}
+
+static void crt_button_wake_fire(void* data) {
+  (void)data;
+  // One-shot timers free themselves on firing.
+  s_button_wake_timer = NULL;
+  if (!s_settings_crt_degauss || !s_app_in_focus || s_quick_view_active) return;
+  crt_strike_prime();
+}
+
 void crt_backlight_handler(bool on) {
   // Gating: the flash is the strike of a tube warming up. Backlight-off
   // transitions, a disabled effect, and a covered face start nothing — a
   // cover pumps the backlight too, and its flashes belong to the cover.
+  bool shake_wake = s_shake_wake;
+  crt_shake_wake_clear();
   if (!on) {
+    crt_button_wake_cancel();
     if (s_app_in_focus) s_cover_suppresses_strike = false;
     return;
   }
@@ -887,15 +950,14 @@ void crt_backlight_handler(bool on) {
     crt_cover_grace_cancel();
     return;
   }
-  // Prime, don't strike: the overlay proc starts sound + chain after the wake
-  // frame. A mid-strike backlight-on cancels the old chain and re-primes.
-  if (s_flash_timer) {
-    app_timer_cancel(s_flash_timer);
-    s_flash_timer = NULL;
+  // A shake is a look; anything else may be a menu press about to close the
+  // face, so it waits out CRT_BUTTON_WAKE_DELAY_MS. A new wake restarts the wait.
+  crt_button_wake_cancel();
+  if (shake_wake) {
+    crt_strike_prime();
+    return;
   }
-  s_flash_phase = CRT_FLASH_IDLE;
-  s_strike_pending = true;
-  if (s_crt_layer) layer_mark_dirty(s_crt_layer);
+  s_button_wake_timer = app_timer_register(CRT_BUTTON_WAKE_DELAY_MS, crt_button_wake_fire, NULL);
 }
 
 // The degauss thunk as synthesized PCM: note-table playback clicks at every
@@ -1077,6 +1139,7 @@ void crt_app_focus_will_handler(bool in_focus) {
   // lose its strike.
   if (!in_focus) {
     crt_cover_grace_cancel();
+    crt_button_wake_cancel();
     s_app_in_focus = false;
     s_cover_suppresses_strike = s_settings_crt_degauss;
   }
@@ -1102,6 +1165,7 @@ void crt_apply_setting_change(void) {
   if (!s_settings_crt_degauss) {
     s_cover_suppresses_strike = false;
     crt_cover_grace_cancel();
+    crt_button_wake_cancel();
     s_flash_phase = CRT_FLASH_IDLE;
     s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
     // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
@@ -1132,6 +1196,8 @@ void crt_deinit(void) {
   s_strike_pending = false;
   s_cover_suppresses_strike = false;
   crt_cover_grace_cancel();
+  crt_button_wake_cancel();
+  crt_shake_wake_clear();
   s_app_in_focus = false;
   s_crt_layer = NULL;
 }

@@ -131,12 +131,21 @@ extern Layer* s_crt_layer;
 // where it leaves the glass, and the picture striped in hues (greys tinted,
 // black untouched) that thin to nothing as the amplitude decays, plus
 // amplified channel separation — the CRT's shadow-mask demagnetization.
+// Only a look earns it. A wrist shake (the accel tap, which the kernel
+// delivers just before the backlight-on it causes) strikes at once. Any other
+// wake may be a menu press, and the face cannot see buttons: the firmware
+// lights the backlight, then closes the face ~120-170 ms later. Those wakes
+// hold the strike for CRT_BUTTON_WAKE_DELAY_MS and strike only if the face is
+// still there. A shake that lit nothing stops counting after
+// CRT_SHAKE_WAKE_WINDOW_MS.
 #define CRT_FLASH_TICK_MS 90
 #define CRT_FLASH_PHASES 8
 #define CRT_FLASH_IDLE (-1)
 // How long after focus returns a cover's one-shot can still eat the
 // dismissal's backlight-on before it expires.
 #define CRT_COVER_GRACE_MS 1000
+#define CRT_BUTTON_WAKE_DELAY_MS 200
+#define CRT_SHAKE_WAKE_WINDOW_MS 250
 
 // One text box: columns x0..x1-1 and rows y0..y1-1 of the face, taking a
 // constant CA of `sh` px across and `sv` rows down (before the strike's boost,
@@ -178,6 +187,7 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
 
 void crt_update_proc(Layer* layer, GContext* ctx);
 void crt_backlight_handler(bool on);
+void crt_tap_handler(AccelAxisType axis, int32_t direction);
 
 // Synthesises the degauss woomp to PCM, plays it via the speaker API and
 // frees the buffer (the service keeps its own copy). Silent when the speaker is muted by system

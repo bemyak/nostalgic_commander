@@ -129,6 +129,17 @@ void backlight_service_unsubscribe(void) {
   mock_backlight_unsubscribe_count++;
   mock_backlight_handler = NULL;
 }
+int mock_accel_tap_subscribe_count = 0;
+int mock_accel_tap_unsubscribe_count = 0;
+AccelTapHandler mock_accel_tap_handler = NULL;
+void accel_tap_service_subscribe(AccelTapHandler handler) {
+  mock_accel_tap_subscribe_count++;
+  mock_accel_tap_handler = handler;
+}
+void accel_tap_service_unsubscribe(void) {
+  mock_accel_tap_unsubscribe_count++;
+  mock_accel_tap_handler = NULL;
+}
 AppFocusHandlers mock_app_focus_handlers = {NULL, NULL};
 void app_focus_service_subscribe_handlers(AppFocusHandlers handlers) {
   mock_app_focus_handlers = handlers;
@@ -760,6 +771,9 @@ void mock_reset(void) {
   mock_backlight_subscribe_count = 0;
   mock_backlight_unsubscribe_count = 0;
   mock_backlight_handler = NULL;
+  mock_accel_tap_subscribe_count = 0;
+  mock_accel_tap_unsubscribe_count = 0;
+  mock_accel_tap_handler = NULL;
   mock_app_focus_handlers = (AppFocusHandlers){NULL, NULL};
   mock_timer_register_count = 0;
   mock_timer_cancel_count = 0;

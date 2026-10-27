@@ -277,6 +277,8 @@ typedef void (*AppMessageOutboxFailed)(DictionaryIterator* iterator, AppMessageR
                                        void* context);
 typedef void (*AppTimerCallback)(void* data);
 typedef void (*BacklightHandler)(bool on);
+typedef enum { ACCEL_AXIS_X = 0, ACCEL_AXIS_Y = 1, ACCEL_AXIS_Z = 2 } AccelAxisType;
+typedef void (*AccelTapHandler)(AccelAxisType axis, int32_t direction);
 // App Focus API surface used to silence the CRT strike while the face is
 // covered. Spelled as the SDK umbrella header has it.
 typedef void (*AppFocusHandler)(bool in_focus);
@@ -352,6 +354,8 @@ AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, voi
 void app_timer_cancel(AppTimer* timer);
 void backlight_service_subscribe(BacklightHandler handler);
 void backlight_service_unsubscribe(void);
+void accel_tap_service_subscribe(AccelTapHandler handler);
+void accel_tap_service_unsubscribe(void);
 void app_focus_service_subscribe_handlers(AppFocusHandlers handlers);
 void app_focus_service_unsubscribe(void);
 GBitmap* graphics_capture_frame_buffer(GContext* ctx);
@@ -459,6 +463,9 @@ extern int mock_backlight_subscribe_count;
 extern int mock_backlight_unsubscribe_count;
 // The last handler registered; tests drive backlight transitions through it.
 extern BacklightHandler mock_backlight_handler;
+extern int mock_accel_tap_subscribe_count;
+extern int mock_accel_tap_unsubscribe_count;
+extern AccelTapHandler mock_accel_tap_handler;
 // The last focus handlers registered; tests drive coverage changes through
 // mock_app_focus_handlers.did_focus.
 extern AppFocusHandlers mock_app_focus_handlers;
