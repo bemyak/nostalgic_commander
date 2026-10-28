@@ -16,6 +16,18 @@ All notable changes to Nostalgic Commander. Format follows
 - The settings page takes the colours of the selected theme.
 - Degauss colour stripes show on grey and white: on the Turbo Vision,
   Console and Navigator themes the strike was a bare warp. Black stays black.
+- Degauss runs at 25 frames a second, the most the panel can show, every
+  frame on time; it was 11. The face is drawn once per minute and the
+  effects are baked onto that drawing, so a frame costs a copy and the
+  strike's wobble.
+- The vignette is a darkening of the glass applied after the curvature, so
+  the rim bends with the tube; on light themes captions in the rim band are
+  no longer held a shade clear of their field.
+- Frame strokes keep their 2 px width under the curvature; the warp thinned
+  them to 1 px for a few rows at each column boundary.
+- A wrist shake degausses at once; any other wake waits 200 ms and strikes
+  only if the face is still showing, so a button press that opens the menu
+  no longer degausses behind it.
 
 ### Fixed
 
