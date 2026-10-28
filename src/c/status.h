@@ -8,3 +8,8 @@
 // disagree about one reading. theme.c has the palettes; this file picks
 // from them.
 GColor get_source_color(ComplicationDataSource source);
+
+// Whether the reading earns a status color at all — the one decision behind
+// every severity band. A quiet or missing reading draws plain text on the
+// ground; the drawers never compare colors themselves.
+bool source_needs_attention(ComplicationDataSource source);

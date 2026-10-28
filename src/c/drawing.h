@@ -43,9 +43,13 @@
 // The HI/LO window's value strip: two 4-cell halves with one air cell between.
 #define HI_LO_STRIP_CELLS 9
 
-// HUM/PCP two-field rhythm: 3-cell fields with a 2-cell gap, centred as one
-// strip so the pair reads close together and off the frame.
-#define HUM_PCP_FIELD_CELLS 3
+// HUM/PCP two-field rhythm: 4-cell fields with a 2-cell gap, centred as one
+// strip so the pair reads close together and off the frame. A field is as wide
+// as the widest reading it holds ("100%", "10mm" and up), because those
+// readings always band and the fill must cover the ink. 4+2+4 = 10 cells =
+// 80px, inside the 81px status band of a 93px top slot (93 - 2 * (2px border +
+// 4px pad)); the strip is symmetric, 6px clear of the frame on each side.
+#define HUM_PCP_FIELD_CELLS 4
 #define HUM_PCP_GAP_CELLS 2
 
 // The canvas main.c creates and everything draws on; request_ui_redraw()

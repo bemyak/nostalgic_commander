@@ -45,6 +45,11 @@ All notable changes to Nostalgic Commander. Format follows
 - Changing the forecast window blanks only the UV and rain-chance readings
   while the new maxima load; it used to blank all the weather.
 - Step and sleep readouts keep updating after the watch clock is set back.
+- The HUM/PCP window's fields are four cells wide, so a `100%` or `12mm`
+  reading no longer spills past its red band.
+- The weather strip's PCP chip bands on the live rain rate when the rain
+  chance is missing, the way the lone PCP chip does.
+- A rain rate of 3.9 mm is no longer rounded down below the 4 mm band.
 
 ## [1.12.0] - 2026-10-25
 

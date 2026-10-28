@@ -252,9 +252,9 @@ void draw_full_date_complication(GContext* ctx, GRect box_rect, ComplicationData
   draw_date_text(ctx, box_rect, s_date_display);
 }
 
-// CP437 shade characters, as UTF-8. FONT_VGA_16's characterRegex admits
-// these two plus U+2665 BLACK HEART SUIT (the heart rate window's chrome);
-// the 64pt clock draws none of them.
+// CP437 light shade, as UTF-8. FONT_VGA_16's characterRegex admits it plus
+// U+2665 BLACK HEART SUIT (the heart rate window's chrome); the 64pt clock
+// draws neither.
 #define BAR_TRACK "\xE2\x96\x91"  // U+2591 LIGHT SHADE
 #define BAR_VALUE_CELLS 4         // three digits plus '%'
 #define BAR_VALUE_MAX 999         // ...so this is the largest reading that fits
@@ -302,8 +302,7 @@ static void draw_progress_bar(GContext* ctx, GRect box_rect, int percent, bool h
   GRect row = value_row_rect(box_rect, band.origin.x, band.size.w, cells);
 
   // The fill is a solid block: one rect, not a glyph run. The track stays
-  // glyphs — ░ is a dither pattern, not a color. Rect geometry is the ink box
-  // of a █ run.
+  // glyphs — ░ is a dither pattern, not a color.
   if (filled > 0) {
     graphics_context_set_fill_color(ctx, fill);
     graphics_fill_rect(ctx, GRect(row.origin.x, band.origin.y, filled * VGA16_CHAR_W, VGA16_CELL_H),
@@ -385,21 +384,13 @@ static void draw_banded_value(GContext* ctx, GRect box_rect, const char* text, b
   draw_status_field(ctx, box_rect, b.origin.x, b.size.w, text, banded, band);
 }
 
-// The band shows exactly when the reading earns an attention color — both
-// come from get_source_color(), so thresholds live in one place. A quiet or
-// missing reading (text_primary) draws plain text on the ground.
-static bool reading_commands_attention(ComplicationDataSource source) {
-  return !gcolor_equal(get_source_color(source), s_active_theme->text_primary);
-}
-
 // A lone status chip (AQI, UV, PCP): bands when the reading earns an
 // attention color, and both band and thresholds come from get_source_color.
 // A calm reading stays quiet on the ground, unit hint accented.
 void draw_banded_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   char buf[8];
   get_source_data(source, buf, sizeof(buf), NULL);
-  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(source),
-                    get_source_color(source));
+  draw_banded_value(ctx, box_rect, buf, source_needs_attention(source), get_source_color(source));
 }
 
 // One half of a two-field chip: banded → fill and ink; quiet → the trailing
@@ -442,7 +433,7 @@ void draw_hum_pcp_complication(GContext* ctx, GRect box_rect, ComplicationDataSo
   char pcp_str[8];
   get_source_data(DATA_SOURCE_WEATHER_PCP, pcp_str, sizeof(pcp_str), NULL);
   draw_hinted_half(ctx, box_rect, right.origin.x, right.size.w, pcp_str,
-                   reading_commands_attention(DATA_SOURCE_WEATHER_PCP),
+                   source_needs_attention(DATA_SOURCE_WEATHER_PCP),
                    get_source_color(DATA_SOURCE_WEATHER_PCP));
 }
 
@@ -467,41 +458,29 @@ void draw_aqi_uv_complication(GContext* ctx, GRect box_rect, ComplicationDataSou
   // No separator glyph: the frame stubs above (AQI/UV) name the halves, a
   // cell of ground separates them, like the centre strip's chips.
   draw_status_field(ctx, box_rect, band.origin.x, half, aqi_str,
-                    reading_commands_attention(DATA_SOURCE_AQI), get_source_color(DATA_SOURCE_AQI));
-  draw_status_field(ctx, box_rect, right_x, half, uv_str,
-                    reading_commands_attention(DATA_SOURCE_UV), get_source_color(DATA_SOURCE_UV));
+                    source_needs_attention(DATA_SOURCE_AQI), get_source_color(DATA_SOURCE_AQI));
+  draw_status_field(ctx, box_rect, right_x, half, uv_str, source_needs_attention(DATA_SOURCE_UV),
+                    get_source_color(DATA_SOURCE_UV));
 }
 
 // One chip per reading; one-cell gaps between chips. The fill comes from the
 // atomic source's get_source_color, so severity thresholds stay
-// single-authority — a chip with no data draws plain text, no band. The
-// `reading` sentinel says when data is absent; condition shares temperature's
-// because they arrive in the same AppMessage pair.
+// single-authority — a chip with no data, or a neutral reading, draws plain
+// text: a plain-colour fill would read as a permanent highlight.
 typedef struct {
   ComplicationDataSource source;
   int cells;
   const char* caption;
-  const int* reading;
-  int sentinel;
 } FullWeatherField;
 
 static const FullWeatherField s_full_weather_fields[] = {
-    {DATA_SOURCE_WEATHER_COND, 4, "COND", &s_weather_temp, WEATHER_TEMP_NONE},
+    {DATA_SOURCE_WEATHER_COND, 4, "COND"},
     // 4 cells since the unit letter always shows: "+22C"/"103F" fit whole.
-    {DATA_SOURCE_WEATHER_TEMP, 4, "TMP", &s_weather_temp, WEATHER_TEMP_NONE},
-    {DATA_SOURCE_HUMIDITY, 4, "HUM", &s_weather_humidity, WEATHER_NONE},
-    {DATA_SOURCE_WEATHER_PCP, 4, "PCP", &s_weather_pcp, WEATHER_NONE},
+    {DATA_SOURCE_WEATHER_TEMP, 4, "TMP"},
+    {DATA_SOURCE_HUMIDITY, 4, "HUM"},
+    {DATA_SOURCE_WEATHER_PCP, 4, "PCP"},
 };
-
 #define FULL_WEATHER_NUM_FIELDS (sizeof(s_full_weather_fields) / sizeof(s_full_weather_fields[0]))
-
-// Chips earn their fill from a severity color only; a neutral reading would
-// paint its chip in the plain text color, which reads as a permanent
-// highlight rather than status.
-static bool strip_field_is_banded(const FullWeatherField* field) {
-  if (*field->reading == field->sentinel) return false;
-  return !gcolor_equal(get_source_color(field->source), s_active_theme->text_primary);
-}
 
 void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationDataSource source) {
   (void)source;  // bound to one source; see the registry row
@@ -525,10 +504,10 @@ void draw_weather_full_complication(GContext* ctx, GRect box_rect, ComplicationD
       // its run directly. A missing reading stays quiet on the ground.
       int len = strlen(buf);
       GRect row = value_row_rect(box_rect, x, w, len);
-      draw_run(
-          ctx, row, 0, buf, len,
-          *field->reading != field->sentinel ? s_active_theme->mark : s_active_theme->text_primary);
-    } else if (strip_field_is_banded(field)) {
+      draw_run(ctx, row, 0, buf, len,
+               s_weather_temp != WEATHER_TEMP_NONE ? s_active_theme->mark
+                                                   : s_active_theme->text_primary);
+    } else if (source_needs_attention(field->source)) {
       draw_status_field(ctx, box_rect, x, w, buf, true, get_source_color(field->source));
     } else {
       // A calm chip keeps its trailing unit's shortkey accent over the same
@@ -656,7 +635,7 @@ void draw_wind_complication(GContext* ctx, GRect box_rect, ComplicationDataSourc
   // lone-reading convention from draw_status_field. rungs live in
   // get_source_color, so nothing here compares speeds.
   GColor band = get_source_color(DATA_SOURCE_WIND);
-  bool banded = !gcolor_equal(band, s_active_theme->text_primary);
+  bool banded = source_needs_attention(DATA_SOURCE_WIND);
   GColor ink = banded ? s_active_theme->status_ink : band;
   if (banded) {
     graphics_context_set_fill_color(ctx, band);
@@ -768,7 +747,7 @@ void draw_battery_complication(GContext* ctx, GRect box_rect, ComplicationDataSo
   // A healthy charge just shows the ground. Below that — or whenever the
   // charger is in — it wears exactly the color the bar paints, so the two can
   // never disagree about the same reading.
-  draw_banded_value(ctx, box_rect, buf, reading_commands_attention(DATA_SOURCE_BATTERY),
+  draw_banded_value(ctx, box_rect, buf, source_needs_attention(DATA_SOURCE_BATTERY),
                     get_source_color(DATA_SOURCE_BATTERY));
 }
 
@@ -952,8 +931,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
       if (frame) {
         frame(ctx, slot->box_rect, slot->source);
       } else {
-        // A spec-less source (stale persisted id) gets the "???" title frame
-        // and no value.
+        // FRAME_PLAIN: a solid frame titled by the spec label.
         draw_ascii_window(ctx, slot->box_rect, get_source_label(slot->source));
       }
       if (spec && spec->draw) spec->draw(ctx, slot->box_rect, slot->source);

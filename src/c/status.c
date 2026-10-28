@@ -73,11 +73,11 @@ GColor get_source_color(ComplicationDataSource source) {
       return s_active_theme->text_primary;
     case DATA_SOURCE_WEATHER_PCP:
       if (weather_shows_precip_amount()) {
-        // WMO intensity bands (mm over the past hour): light rain is calm;
-        // heavy is worth a thought, violent is a warning.
-        int mm = s_precip_now / 10;
-        if (mm >= 8) return s_active_theme->status_red;
-        if (mm >= 4) return s_active_theme->status_yellow;
+        // The observed rate in tenths of a mm, on this face's own rungs:
+        // under 4 mm is light and calm, 4 mm and up notable, 8 mm and up
+        // heavy.
+        if (s_precip_now >= 80) return s_active_theme->status_red;
+        if (s_precip_now >= 40) return s_active_theme->status_yellow;
         return s_active_theme->text_primary;
       }
       // A dry timeline is unremarkable — at or under 50 there is nothing to
@@ -105,4 +105,8 @@ GColor get_source_color(ComplicationDataSource source) {
     default:
       return s_active_theme->text_primary;
   }
+}
+
+bool source_needs_attention(ComplicationDataSource source) {
+  return !gcolor_equal(get_source_color(source), s_active_theme->text_primary);
 }

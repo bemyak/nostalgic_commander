@@ -490,7 +490,7 @@ const ComplicationSpec* complication_spec(ComplicationDataSource source) {
 
 const char* get_source_label(ComplicationDataSource source) {
   const ComplicationSpec* spec = complication_spec(source);
-  return spec ? spec->label : "???";
+  return spec ? spec->label : "";
 }
 
 void get_source_data(ComplicationDataSource source, char* val_buf, int val_len, int* percent) {

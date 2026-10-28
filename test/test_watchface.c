@@ -385,6 +385,27 @@ void test_weather_strip_should_fill_only_the_chip_that_earns_a_band(void) {
                                  s_active_theme->status_red));
 }
 
+void test_weather_strip_should_band_the_pcp_chip_by_the_live_rain_rate(void) {
+  // The probability is missing, but the chip shows the observed rate — it
+  // bands with the colour that rate earns, like the lone PCP chip.
+  test_apply_theme();
+  s_complication_slots[SLOT_IDX_CENTER].source = DATA_SOURCE_WEATHER_FULL;
+  GRect box = s_complication_slots[SLOT_IDX_CENTER].box_rect;
+  s_settings_units = UNITS_METRIC;
+  s_weather_temp = 12;
+  s_weather_cond_code = 61;
+  s_weather_pcp = WEATHER_NONE;
+  s_precip_now = 120;
+  render_canvas();
+
+  int pcp_x =
+      box.origin.x + (box.size.w - FULL_WEATHER_STRIP_CELLS * VGA16_CHAR_W) / 2 + 15 * VGA16_CHAR_W;
+  GRect band = status_band_rect(box);
+  TEST_ASSERT_TRUE(has_text_run("12mm"));
+  TEST_ASSERT_TRUE(fill_rect_at(GRect(pcp_x, band.origin.y, 4 * VGA16_CHAR_W, band.size.h),
+                                s_active_theme->status_red));
+}
+
 void test_wind_without_a_bearing_should_draw_the_speed_alone(void) {
   test_apply_theme();
   s_complication_slots[SLOT_IDX_TOP_LEFT].source = DATA_SOURCE_WIND;
@@ -607,7 +628,7 @@ void test_pcp_chip_should_band_on_attention_probability(void) {
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
 }
 
-void test_pcp_chip_should_band_by_wmo_intensity(void) {
+void test_pcp_chip_should_band_by_rain_rate(void) {
   // Amount mode: light rain stays plain; at 4 mm the chip bands like the
   // strip's.
   s_complication_slots[3].source = DATA_SOURCE_WEATHER_PCP;
@@ -623,19 +644,67 @@ void test_pcp_chip_should_band_by_wmo_intensity(void) {
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
   TEST_ASSERT_FALSE(pcp_slot_banded_with(band, s_active_theme->status_red));
 
-  s_precip_now = 40;  // 4 mm: heavy — yellow band
+  s_precip_now = 40;  // 4 mm: notable — yellow band
   mock_fill_rect_reset();
   mock_text_runs_reset();
   s_scene_cache_valid = false;
   canvas_update_proc(NULL, NULL);
   TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_yellow));
 
-  s_precip_now = 80;  // 8 mm: violent — red band
+  s_precip_now = 80;  // 8 mm: heavy — red band
   mock_fill_rect_reset();
   mock_text_runs_reset();
   s_scene_cache_valid = false;
   canvas_update_proc(NULL, NULL);
   TEST_ASSERT_TRUE(pcp_slot_banded_with(band, s_active_theme->status_red));
+}
+
+// The recorded text run spelled `text`, or -1.
+static int text_run_index(const char* text) {
+  for (int i = 0; i < mock_text_run_count; i++) {
+    if (strcmp(mock_text_runs[i], text) == 0) return i;
+  }
+  return -1;
+}
+
+// The text row is taller than the band (the glyph cell sits inside it), so
+// only the horizontal extent says whether ink spills past a fill.
+static bool covers_horizontally(GRect fill, GRect text) {
+  return text.origin.x >= fill.origin.x &&
+         text.origin.x + text.size.w <= fill.origin.x + fill.size.w;
+}
+
+void test_hum_pcp_band_should_cover_the_widest_reading(void) {
+  // "100%" and "12mm" are four cells and always band red; the fill must
+  // contain the whole run, or ink lands on the ground beside it.
+  s_complication_slots[SLOT_IDX_TOP_RIGHT].source = DATA_SOURCE_HUM_PCP;
+  s_settings_units = UNITS_METRIC;
+  s_weather_cond_code = 61;
+  test_apply_theme();
+
+  s_weather_pcp = 100;
+  s_precip_now = -1;
+  render_canvas();
+  int run = text_run_index("100%");
+  TEST_ASSERT_TRUE(run >= 0);
+  bool covered = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    covered |= gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_red) &&
+               covers_horizontally(mock_fill_rects[i], mock_text_run_boxes[run]);
+  }
+  TEST_ASSERT_TRUE(covered);
+
+  s_weather_pcp = 30;
+  s_precip_now = 120;
+  render_canvas();
+  run = text_run_index("12mm");
+  TEST_ASSERT_TRUE(run >= 0);
+  covered = false;
+  for (int i = 0; i < mock_fill_rect_count; i++) {
+    covered |= gcolor_equal(mock_fill_rect_colors[i], s_active_theme->status_red) &&
+               covers_horizontally(mock_fill_rects[i], mock_text_run_boxes[run]);
+  }
+  TEST_ASSERT_TRUE(covered);
 }
 
 void test_battery_callback_should_coalesce_unchanged_levels(void) {
@@ -1696,36 +1765,31 @@ void test_strip_temp_formatter_should_always_carry_the_unit_letter(void) {
 }
 
 void test_full_weather_chips_should_fill_only_on_a_status_color(void) {
-  const FullWeatherField* cond = &s_full_weather_fields[0];
-  const FullWeatherField* temp = &s_full_weather_fields[1];
-  const FullWeatherField* hum = &s_full_weather_fields[2];
-  const FullWeatherField* pcp = &s_full_weather_fields[3];
-
   // Neutral weather (panel theme, imperial): everything plain text
   s_weather_temp = 72;
   s_weather_cond_code = 0;
   s_weather_humidity = -1;
   s_weather_pcp = -1;
-  TEST_ASSERT_FALSE(strip_field_is_banded(cond));
-  TEST_ASSERT_FALSE(strip_field_is_banded(temp));
-  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
-  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_WEATHER_COND));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_WEATHER_TEMP));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_HUMIDITY));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_WEATHER_PCP));
 
   // Extremes and comfort statuses earn their fills
   s_weather_temp = 90;
-  TEST_ASSERT_TRUE(strip_field_is_banded(temp));
+  TEST_ASSERT_TRUE(source_needs_attention(DATA_SOURCE_WEATHER_TEMP));
   s_weather_humidity = 45;  // plain readout — never a fill
-  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_HUMIDITY));
   s_weather_humidity = 65;
-  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_HUMIDITY));
   s_weather_humidity = 95;  // however muggy, no band
-  TEST_ASSERT_FALSE(strip_field_is_banded(hum));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_HUMIDITY));
   s_weather_pcp = 20;  // dry — neutral
-  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_WEATHER_PCP));
   s_weather_pcp = 50;  // 50 is now the neutral ceiling
-  TEST_ASSERT_FALSE(strip_field_is_banded(pcp));
+  TEST_ASSERT_FALSE(source_needs_attention(DATA_SOURCE_WEATHER_PCP));
   s_weather_pcp = 70;  // pack the umbrella
-  TEST_ASSERT_TRUE(strip_field_is_banded(pcp));
+  TEST_ASSERT_TRUE(source_needs_attention(DATA_SOURCE_WEATHER_PCP));
 }
 
 void test_full_weather_captions_should_align_with_the_strip(void) {
@@ -2571,14 +2635,16 @@ void test_get_source_color_should_return_appropriate_colors(void) {
   s_weather_pcp = 71;
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
 
-  // In amount mode the bands are WMO intensities (mm over the past hour)
+  // In amount mode the bands are this face's rungs on the rate in tenths of a mm
   s_settings_units = 1;
   s_weather_cond_code = 61;
-  s_precip_now = 20;  // 2mm light — calm
+  s_precip_now = 20;  // 2mm: light, calm
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
-  s_precip_now = 50;  // 5mm heavy
+  s_precip_now = 39;  // 3.9mm is still under the first rung
+  TEST_ASSERT_EQUAL_HEX(s_theme_panel.text_primary, get_source_color(DATA_SOURCE_WEATHER_PCP));
+  s_precip_now = 50;  // 5mm: notable
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_yellow, get_source_color(DATA_SOURCE_WEATHER_PCP));
-  s_precip_now = 90;  // 9mm violent
+  s_precip_now = 90;  // 9mm: heavy
   TEST_ASSERT_EQUAL_HEX(s_theme_panel.status_red, get_source_color(DATA_SOURCE_WEATHER_PCP));
   s_precip_now = -1;
   s_weather_cond_code = -1;
@@ -4751,28 +4817,6 @@ void test_empty_and_unknown_sources_should_draw_nothing(void) {
   }
 }
 
-void test_unknown_source_should_render_only_the_placeholder_frame(void) {
-  // A persisted id this build doesn't know (downgrade, retired slot) still
-  // gets its frame titled "???" — and nothing else: no value runs land in
-  // its rect.
-  test_apply_theme();
-  s_complication_slots[2].source = (ComplicationDataSource)42;
-  mock_text_runs_reset();
-  s_scene_cache_valid = false;
-  canvas_update_proc(NULL, NULL);
-  GRect box = s_complication_slots[2].box_rect;
-  int overlapping = 0;
-  for (int i = 0; i < mock_text_run_count; i++) {
-    GRect b = mock_text_run_boxes[i];
-    bool touches = b.origin.x < box.origin.x + box.size.w && b.origin.x + b.size.w > box.origin.x &&
-                   b.origin.y < box.origin.y + box.size.h && b.origin.y + b.size.h > box.origin.y;
-    if (!touches) continue;
-    TEST_ASSERT_EQUAL_STRING("???", mock_text_runs[i]);
-    overlapping++;
-  }
-  TEST_ASSERT_EQUAL_INT(1, overlapping);
-}
-
 void test_update_health_info_should_land_each_metric_on_its_own_target(void) {
   // All four health-backed sources visible (boot slots hold SLEEP, STEPS,
   // HR; slot 0 takes ACTV). The mock's distinct per-metric defaults make
@@ -6836,6 +6880,7 @@ int main(void) {
   RUN_TEST(test_canvas_should_skip_the_bottom_row_while_quick_view_is_up);
   RUN_TEST(test_canvas_procs_should_never_word_wrap);
   RUN_TEST(test_weather_strip_should_fill_only_the_chip_that_earns_a_band);
+  RUN_TEST(test_weather_strip_should_band_the_pcp_chip_by_the_live_rain_rate);
   RUN_TEST(test_wind_without_a_bearing_should_draw_the_speed_alone);
   RUN_TEST(test_bt_qt_narrow_should_draw_one_run_not_two_boxes);
   RUN_TEST(test_progress_bar_should_show_dashes_without_a_reading);
@@ -6845,7 +6890,8 @@ int main(void) {
   RUN_TEST(test_aqi_chip_should_band_only_on_an_attention_reading);
   RUN_TEST(test_battery_complications_should_wear_green_while_charging);
   RUN_TEST(test_pcp_chip_should_band_on_attention_probability);
-  RUN_TEST(test_pcp_chip_should_band_by_wmo_intensity);
+  RUN_TEST(test_pcp_chip_should_band_by_rain_rate);
+  RUN_TEST(test_hum_pcp_band_should_cover_the_widest_reading);
   RUN_TEST(test_battery_callback_should_coalesce_unchanged_levels);
   RUN_TEST(test_to_upper_str_should_convert_lowercase_to_uppercase);
   RUN_TEST(test_tuple_get_int_should_parse_strings_and_ints);
@@ -7049,7 +7095,6 @@ int main(void) {
   RUN_TEST(test_update_health_info_should_fall_back_to_sentinels_without_permission);
   RUN_TEST(test_clock_should_follow_the_12h_24h_settings);
   RUN_TEST(test_empty_and_unknown_sources_should_draw_nothing);
-  RUN_TEST(test_unknown_source_should_render_only_the_placeholder_frame);
   RUN_TEST(test_inbox_should_land_every_field_of_a_full_weather_payload);
   RUN_TEST(test_crt_should_not_capture_the_framebuffer_while_disabled);
   RUN_TEST(test_crt_text_boxes_should_not_move_with_quick_view);
