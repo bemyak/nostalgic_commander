@@ -379,21 +379,6 @@ static int strike_stripes(int phase) {
 }
 
 #ifdef TEST_ENV
-// The displacement the gather applies at dest (x, y), from the same pulse
-// terms, doubled-coordinate Q17 sums, lobes and weight.
-void crt_strike_field(int x, int y, int phase, int* dx, int* dy) {
-  int zx, zy;
-  crt_strike_pulse(phase, &zx, &zy);
-  int tdx = 2 * x - (SCREEN_W - 1);
-  int tdy = 2 * y - (SCREEN_H - 1);
-  int xq = tdx * tdx * 256 / ((SCREEN_W - 1) * (SCREEN_W - 1));
-  int yq = tdy * tdy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1));
-  int mod_y = strike_lobe_q8(y, SCREEN_H, phase, CRT_STRIKE_LOBE_STEP_X);
-  int mod_x = strike_lobe_q8(x, SCREEN_W, phase, CRT_STRIKE_LOBE_STEP_Y);
-  *dx = strike_pulse_px(((zx * tdx >> 4) * mod_y) >> 4, xq);
-  *dy = strike_pulse_px(((zy * tdy >> 4) * mod_x) >> 4, yq);
-}
-
 // The hue band at dest (x, y) in frame `phase`.
 int crt_strike_band(int x, int y, int phase) {
   int tdx = 2 * x - (SCREEN_W - 1);
@@ -476,20 +461,6 @@ static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, c
 }
 
 #ifdef TEST_ENV
-// The rules s_strike_band_px is written out from; the gather reads only the
-// table, so they are here for the test that pins it entry by entry.
-//
-// The pixel with its channels cycled by `band` (1..5), alpha kept: even bands
-// take the channels rotated by band / 2 places, odd ones average that with one
-// place further.
-uint8_t strike_hue(uint8_t v, int band) {
-  const int c[6] = {(v >> 4) & 3, (v >> 2) & 3, v & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3};
-  const int k = 3 - (band >> 1);
-  int o[3];
-  for (int i = 0; i < 3; i++) o[i] = (band & 1) ? (c[i + k] + c[i + k - 1] + 1) >> 1 : c[i + k];
-  return GCOLOR8_ALPHA | (uint8_t)((o[0] << 4) | (o[1] << 2) | o[2]);
-}
-
 #define STRIKE_TINT(r, g, b) ((uint8_t)(GCOLOR8_ALPHA | ((r) << 4) | ((g) << 2) | (b)))
 
 // A grey's stripes by level and band: tinted toward the band's hue (yellow,
@@ -510,10 +481,8 @@ static const uint8_t s_strike_grey_tint[4][6] = {
 #endif
 
 // The stripes of every pixel value in every band, for the gather's one read per
-// pixel: a grey takes s_strike_grey_tint's tint, anything else strike_hue's
-// rotation. Indexed [band][pixel & 63]; band 0 is the pixel as it is. Written
-// out from those two, which test_crt_strike_band_table_should_match_the_tint_and_hue_rules
-// pins entry by entry.
+// pixel: a grey takes a one-step tint of the band's hue, anything else its
+// channels rotated. Indexed [band][pixel & 63]; band 0 is the pixel as it is.
 static const uint8_t s_strike_band_px[6][64] = {
     {0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC,
      0xCD, 0xCE, 0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9,
@@ -828,15 +797,8 @@ static inline int pane_phase(const uint8_t* bayer_row, int w, int x) {
   return bayer_row[(x < w - 1 - x ? x : w - 1 - x) & 3];
 }
 
-#ifdef TEST_ENV
-static int s_pane_applied = 0;
-#endif
-
 // One rim pixel through gain f (Q8) and Bayer threshold t.
 static inline void pane_apply(uint8_t* row, int x, int f, int t) {
-#ifdef TEST_ENV
-  s_pane_applied++;
-#endif
   const uint8_t p = row[x];
   // Ordered dither, one third of a cycle apart per channel. A grey run
   // dithered in lockstep can only be black, DarkGray, LightGray or white

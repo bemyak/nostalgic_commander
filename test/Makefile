@@ -1,6 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -I. -I./unity/src -g -DTEST_ENV \
-         -fsanitize=address,undefined -fno-omit-frame-pointer
+         -fsanitize=address,undefined -fno-sanitize-recover=all \
+         -fno-omit-frame-pointer
 TARGET = test_watchface
 SRCS = test_watchface.c pebble_mock.c unity/src/unity.c
 
@@ -39,19 +40,23 @@ ramp: vignette_ramp
 clean:
 	rm -f $(TARGET) vignette_ramp
 
-# Three guards before the binary runs: the registered-runner count (existing),
+# vignette_ramp builds first so API drift under it fails here. Three guards
+# before the binary runs: the registered-runner set (every defined
+# test is registered, and the reverse),
 # the TU-include gate, and the reset-mirror lint (every writable s_* state global defined
 # at file scope in src/c must be restored by reset_all_state(), or it leaks
 # between tests). The lint's name-grep can't see the three indirect mechanisms,
-# so they resolve by hand: the wire-table sentinel walk (any global targeted by
-# messaging.c's s_weather_fields), set_slots() (s_complication_slots), and
-# reset_ui_snapshot() (s_shown_ui).
-test: $(TARGET)
-	@defined=$$(grep -c '^void test_' test_watchface.c); \
-	runner=$$(grep -c 'RUN_TEST(' test_watchface.c); \
-	if [ "$$defined" != "$$runner" ]; then \
-	  echo "RUN_TEST drift: $$defined defined tests vs $$runner registered"; exit 1; \
-	fi
+# so they resolve by hand: the wire-table sentinel walk (only the globals
+# targeted by messaging.c's s_weather_fields and s_settings_fields),
+# set_slots() (s_complication_slots), and reset_ui_snapshot() (s_shown_ui).
+test: $(TARGET) vignette_ramp
+	@defined=$$(mktemp); runner=$$(mktemp); \
+	sed -n 's/^void \(test_[a-zA-Z0-9_]*\)(void).*/\1/p' test_watchface.c | sort > $$defined; \
+	tr -d '\n' < test_watchface.c | grep -oE 'RUN_TEST\( *test_[a-zA-Z0-9_]*' \
+	  | sed 's/RUN_TEST( *//' | sort > $$runner; \
+	drift=$$(comm -3 $$defined $$runner | sed 's/^\t/  registered but not defined: /; t; s/^/  defined but not registered: /'); \
+	rm -f $$defined $$runner; \
+	if [ -n "$$drift" ]; then echo "RUN_TEST drift:"; echo "$$drift"; exit 1; fi
 	@srcs=$$(ls ../src/c/*.c | sed 's#.*/##' | sort); \
 	for host in $(TU_HOSTS); do \
 	  incs=$$(sed -n 's|^#include "\.\./src/c/\([a-z_]*\.c\)".*|\1|p' $$host | sort); \
@@ -64,14 +69,13 @@ test: $(TARGET)
 	    exit 1; \
 	  fi; \
 	done
-	@body=$$(sed -n '/^static void reset_all_state(void) {/,/^}/p' test_watchface.c); \
+	@body=$$(sed -n '/^static void reset_all_state(void) {/,/^}/p' test_watchface.c | sed 's|//.*||'); \
 	if echo "$$body" | grep -q 'set_slots('; then body="$$body s_complication_slots"; fi; \
 	if echo "$$body" | grep -q 'reset_ui_snapshot('; then body="$$body s_shown_ui"; fi; \
-	wire=$$(grep -hoE '&s_[a-z0-9_]+' ../src/c/messaging.c | tr -d '&' | sort -u | tr '\n' ' '); \
+	wire=$$(sed -n '/^static const MessageField s_\(weather\|settings\)_fields\[\] = {/,/^};/p' ../src/c/messaging.c \
+	    | grep -oE '&s_[a-z0-9_]+' | tr -d '&' | sort -u | tr '\n' ' '); \
 	missing=""; \
-	for name in $$(grep -hoE '^(static )?(const )?[A-Za-z_][A-Za-z0-9_]* ?\*? ?s_[a-z0-9_]+ ?(\[[^]]*\])? *[=;]' ../src/c/*.c \
-	    | grep -vE '\(|const [A-Za-z_][A-Za-z0-9_]* +s_' \
-	    | grep -oE 's_[a-z0-9_]+' | sort -u); do \
+	for name in $$(awk -f reset_lint.awk ../src/c/*.c | sort -u); do \
 	  case " $$wire " in *" $$name "*) continue;; esac; \
 	  case " $(RESET_LINT_EXEMPT) " in *" $$name "*) continue;; esac; \
 	  echo "$$body" | grep -qw "$$name" || missing="$$missing $$name"; \

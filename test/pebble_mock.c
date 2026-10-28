@@ -100,22 +100,44 @@ int mock_timer_register_count = 0;
 int mock_timer_cancel_count = 0;
 uint32_t mock_timer_last_ms = 0;
 AppTimerCallback mock_timer_callback = NULL;
-static int s_mock_timer_token;  // sentinel handle — arms are addressable
+// Recorded, not scheduled: host tests fire delayed callbacks through
+// mock_timer_fire(handle), or call mock_timer_callback (the last registered)
+// with NULL. Handles are distinct and never NULL — callers that cancel an armed
+// arm (crt.c's strike chain) must be observable. Cancelling a handle the mock
+// did not hand out, or one already cancelled or fired, fails the test.
+#define MOCK_MAX_TIMERS 32
+static struct {
+  AppTimerCallback callback;
+  void* data;
+  bool live;
+} s_mock_timers[MOCK_MAX_TIMERS];
+static int s_mock_timers_used = 0;
 AppTimer* app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void* callback_data) {
-  (void)callback_data;
-  // Recorded, not scheduled: host tests fire delayed callbacks by calling
-  // mock_timer_callback(NULL) directly. Returns a sentinel handle, not NULL —
-  // callers that cancel an armed arm (crt.c's strike chain) must be
-  // observable; nothing exercises the SDK's pool-exhausted NULL case against
-  // the returned handle (main.c's weather retry ignores it).
+  if (s_mock_timers_used >= MOCK_MAX_TIMERS) {
+    TEST_FAIL_MESSAGE("mock timer table full; raise MOCK_MAX_TIMERS");
+  }
   mock_timer_register_count++;
   mock_timer_last_ms = timeout_ms;
   mock_timer_callback = callback;
-  return &s_mock_timer_token;
+  s_mock_timers[s_mock_timers_used].callback = callback;
+  s_mock_timers[s_mock_timers_used].data = callback_data;
+  s_mock_timers[s_mock_timers_used].live = true;
+  return &s_mock_timers[s_mock_timers_used++];
 }
 void app_timer_cancel(AppTimer* timer) {
-  (void)timer;
+  if (timer < (AppTimer*)s_mock_timers || timer >= (AppTimer*)&s_mock_timers[s_mock_timers_used]) {
+    TEST_FAIL_MESSAGE("app_timer_cancel on a handle the mock never issued");
+  }
+  int i = (int)((char*)timer - (char*)s_mock_timers) / (int)sizeof(s_mock_timers[0]);
+  if (!s_mock_timers[i].live) TEST_FAIL_MESSAGE("app_timer_cancel on a dead timer");
+  s_mock_timers[i].live = false;
   mock_timer_cancel_count++;
+}
+void mock_timer_fire(AppTimer* timer) {
+  int i = (int)((char*)timer - (char*)s_mock_timers) / (int)sizeof(s_mock_timers[0]);
+  if (!s_mock_timers[i].live) TEST_FAIL_MESSAGE("mock_timer_fire on a dead timer");
+  s_mock_timers[i].live = false;
+  s_mock_timers[i].callback(s_mock_timers[i].data);
 }
 
 int mock_backlight_subscribe_count = 0;
@@ -374,7 +396,7 @@ void graphics_draw_line(GContext* ctx, GPoint p0, GPoint p1) {
   (void)p1;
 }
 int mock_wordwrap_calls = 0;
-char mock_text_runs[MOCK_MAX_TEXT_RUNS][32];
+char mock_text_runs[MOCK_MAX_TEXT_RUNS][128];
 GColor mock_text_run_colors[MOCK_MAX_TEXT_RUNS];
 GRect mock_text_run_boxes[MOCK_MAX_TEXT_RUNS];
 int mock_text_run_count = 0;
@@ -389,12 +411,16 @@ void graphics_draw_text(GContext* ctx, const char* text, GFont const font, const
   (void)alignment;
   (void)text_attributes;
   if (overflow_mode == GTextOverflowModeWordWrap) mock_wordwrap_calls++;
-  if (mock_text_run_count < MOCK_MAX_TEXT_RUNS) {
-    snprintf(mock_text_runs[mock_text_run_count], sizeof(mock_text_runs[0]), "%s", text);
-    mock_text_run_colors[mock_text_run_count] = s_mock_text_color;
-    mock_text_run_boxes[mock_text_run_count] = box;
-    mock_text_run_count++;
+  if (mock_text_run_count >= MOCK_MAX_TEXT_RUNS) {
+    TEST_FAIL_MESSAGE("mock text recorder full; raise MOCK_MAX_TEXT_RUNS");
   }
+  if (strlen(text) >= sizeof(mock_text_runs[0])) {
+    TEST_FAIL_MESSAGE("mock text run truncated; widen mock_text_runs");
+  }
+  snprintf(mock_text_runs[mock_text_run_count], sizeof(mock_text_runs[0]), "%s", text);
+  mock_text_run_colors[mock_text_run_count] = s_mock_text_color;
+  mock_text_run_boxes[mock_text_run_count] = box;
+  mock_text_run_count++;
 }
 GRect mock_fill_rects[MOCK_MAX_FILL_RECTS];
 GColor mock_fill_rect_colors[MOCK_MAX_FILL_RECTS];
@@ -407,10 +433,11 @@ void graphics_fill_rect(GContext* ctx, GRect rect, uint16_t corner_radius,
   (void)ctx;
   (void)corner_radius;
   (void)corner_mask;
-  if (mock_fill_rect_count < MOCK_MAX_FILL_RECTS) {
-    mock_fill_rects[mock_fill_rect_count] = rect;
-    mock_fill_rect_colors[mock_fill_rect_count++] = s_mock_fill_color;
+  if (mock_fill_rect_count >= MOCK_MAX_FILL_RECTS) {
+    TEST_FAIL_MESSAGE("mock fill recorder full; raise MOCK_MAX_FILL_RECTS");
   }
+  mock_fill_rects[mock_fill_rect_count] = rect;
+  mock_fill_rect_colors[mock_fill_rect_count++] = s_mock_fill_color;
 }
 
 int mock_health_subscribe_count = 0;
@@ -589,13 +616,13 @@ int mock_unobstructed_unsubscribe_count = 0;
 void unobstructed_area_service_unsubscribe(void) {
   mock_unobstructed_unsubscribe_count++;
 }
-// Mock wall clock: the health-event throttle is timestamp-based, so tests jump
-// seconds through this offset instead of sleeping.
+// Mock wall clock: starts at 2026-01-15 12:00:00 UTC and only moves when a test
+// jumps this offset, so no run straddles a DST edge or an hour boundary and
+// the health-event throttle needs no sleeping.
+#define MOCK_EPOCH 1768478400
 time_t mock_time_offset = 0;
 time_t time(time_t* t) {
-  struct timespec ts;
-  timespec_get(&ts, TIME_UTC);
-  time_t now = (time_t)ts.tv_sec + mock_time_offset;
+  time_t now = MOCK_EPOCH + mock_time_offset;
   if (t) *t = now;
   return now;
 }
@@ -737,6 +764,8 @@ void mock_reset(void) {
   mock_timer_cancel_count = 0;
   mock_timer_last_ms = 0;
   mock_timer_callback = NULL;
+  memset(s_mock_timers, 0, sizeof(s_mock_timers));
+  s_mock_timers_used = 0;
   mock_fb_capture_count = 0;
   mock_fb_release_count = 0;
   mock_window_set_bg_count = 0;

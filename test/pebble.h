@@ -51,35 +51,37 @@ typedef struct GBitmapDataRowInfo {
 
 typedef uint32_t GColor;
 #define gcolor_equal(a, b) ((a) == (b))
+// ARGB8 bytes as the SDK defines them (2 bits per channel under the alpha
+// pair), so contrast can be computed from the constants.
 #define GColorClear 0
-#define GColorBlack 1
-#define GColorWhite 2
-#define GColorChromeYellow 3
-#define GColorMintGreen 4
-#define GColorPastelYellow 5
-#define GColorSunsetOrange 6
-#define GColorDarkGray 7
-#define GColorLightGray 8
-#define GColorOrange 9
-#define GColorRed 11
-#define GColorIslamicGreen 12
-#define GColorBlue 13
-#define GColorKellyGreen 14
-#define GColorGreen 15
-#define GColorYellow 16
-#define GColorLimerick 17
-#define GColorDukeBlue 18
-#define GColorOxfordBlue 19
-#define GColorTiffanyBlue 20
-#define GColorElectricBlue 21
-#define GColorScreaminGreen 22
-#define GColorWindsorTan 23
-#define GColorRajah 24
-#define GColorIcterine 25
-#define GColorDarkCandyAppleRed 26
-#define GColorCyan 27
-#define GColorMelon 29
-#define GColorBulgarianRose 30
+#define GColorBlack 0xC0
+#define GColorWhite 0xFF
+#define GColorChromeYellow 0xF8
+#define GColorMintGreen 0xEE
+#define GColorPastelYellow 0xFE
+#define GColorSunsetOrange 0xF5
+#define GColorDarkGray 0xD5
+#define GColorLightGray 0xEA
+#define GColorOrange 0xF4
+#define GColorRed 0xF0
+#define GColorIslamicGreen 0xC8
+#define GColorBlue 0xC3
+#define GColorKellyGreen 0xD8
+#define GColorGreen 0xCC
+#define GColorYellow 0xFC
+#define GColorLimerick 0xE8
+#define GColorDukeBlue 0xC2
+#define GColorOxfordBlue 0xC1
+#define GColorTiffanyBlue 0xCA
+#define GColorElectricBlue 0xDF
+#define GColorScreaminGreen 0xDD
+#define GColorWindsorTan 0xE4
+#define GColorRajah 0xF9
+#define GColorIcterine 0xFD
+#define GColorDarkCandyAppleRed 0xE0
+#define GColorCyan 0xCF
+#define GColorMelon 0xFA
+#define GColorBulgarianRose 0xD0
 static inline GColor GColorFromRGB(int r, int g, int b) {
   (void)r;
   (void)g;
@@ -466,7 +468,8 @@ extern AccelTapHandler mock_accel_tap_handler;
 // mock_app_focus_handlers.did_focus.
 extern AppFocusHandlers mock_app_focus_handlers;
 // app_timer_register records its last call so tests can fire a delayed
-// callback manually: invoke mock_timer_callback(NULL) and assert the timeout.
+// callback manually: invoke mock_timer_callback(NULL) and assert the timeout,
+// or fire one handle with mock_timer_fire (which also marks it dead).
 // layer_destroy records each non-NULL destroy, in order, so unload tests can
 // tell a real destroy from layer_destroy(NULL).
 extern int mock_layer_destroy_count;
@@ -475,6 +478,7 @@ extern int mock_timer_register_count;
 extern int mock_timer_cancel_count;
 extern uint32_t mock_timer_last_ms;
 extern AppTimerCallback mock_timer_callback;
+void mock_timer_fire(AppTimer* timer);
 // The mock screen: capture/_release wrap this buffer, tests stage into and
 // assert out of it. GColor8 bytes, row-major, 200x228 like the glass.
 extern uint8_t mock_framebuffer[200 * 228];
@@ -501,7 +505,7 @@ void mock_fill_rect_reset(void);
 // tests can see accents (e.g. a `mark` unit run) the way mock_fill_rects
 // lets them see bands.
 #define MOCK_MAX_TEXT_RUNS 256
-extern char mock_text_runs[MOCK_MAX_TEXT_RUNS][32];
+extern char mock_text_runs[MOCK_MAX_TEXT_RUNS][128];
 extern GColor mock_text_run_colors[MOCK_MAX_TEXT_RUNS];
 extern GRect mock_text_run_boxes[MOCK_MAX_TEXT_RUNS];
 extern int mock_text_run_count;

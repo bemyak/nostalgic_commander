@@ -176,9 +176,6 @@ typedef struct {
 // The text box table of the face, left to right within each row band; returns
 // its length.
 int crt_text_boxes(const CrtTextBox** boxes);
-// The strike gather's displacement at dest (x, y) in frame `phase`, px: the
-// source sits at (x + dx, y + dy) of the baked scene.
-void crt_strike_field(int x, int y, int phase, int* dx, int* dy);
 // The hue band (0..5, sixths of a turn) the gather rotates dest (x, y) by.
 int crt_strike_band(int x, int y, int phase);
 // Q8 brightness factor at falloff depth `d` for the active theme's ground;
