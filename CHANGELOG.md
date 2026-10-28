@@ -6,6 +6,8 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-28
+
 ### Changed
 
 - Degauss runs at 25 frames a second, the most the panel can show, every
