@@ -129,7 +129,7 @@ extern Layer* s_crt_layer;
 #define CRT_CA_R2_X2Q8 ((CRT_CA_R2_Q8 * CRT_CA_R2_Q8 + 255) >> 8)
 #define CRT_CA_R2V_X2Q8 ((CRT_CA_R2V_Q8 * CRT_CA_R2V_Q8 + 255) >> 8)
 
-// The wake-up: a degauss strike. On backlight-on, FRAMES 90ms ticks of
+// The wake-up: a degauss strike. On backlight-on, 16 ticks of 45 ms:
 // the raster's edges pulled in and pushed out in curves with the mains, black
 // where it leaves the glass, and the picture striped in hues (greys tinted,
 // black untouched) that thin to nothing as the amplitude decays, plus
@@ -142,8 +142,8 @@ extern Layer* s_crt_layer;
 // hold the strike for CRT_BUTTON_WAKE_DELAY_MS and strike only if the face is
 // still there. A shake that lit nothing stops counting after
 // CRT_SHAKE_WAKE_WINDOW_MS.
-#define CRT_FLASH_TICK_MS 90
-#define CRT_FLASH_PHASES 8
+#define CRT_FLASH_TICK_MS 45
+#define CRT_FLASH_PHASES 16
 #define CRT_FLASH_IDLE (-1)
 // How long after focus returns a cover's one-shot can still eat the
 // dismissal's backlight-on before it expires.

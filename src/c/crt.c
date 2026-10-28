@@ -279,11 +279,14 @@ int crt_vignette_q8_from_depth(int d) {
 }
 #endif
 
-// Strike amplitude per frame: sudden, then decaying to nothing. The pulse
-// scales with it; at the first frame's 6 a corner moves CRT_STRIKE_REACH_PX
-// rows, the most any pixel moves vertically, which sizes the gather's row
-// ring.
-static const int s_strike_amp_px[CRT_FLASH_PHASES] = {6, 4, 3, 2, 1, 1, 0, 0};
+// Strike amplitude per frame, in sixteenths of a px: sudden, then decaying to
+// nothing by 540 ms. The pulse scales with it; at the first frame's 6 px a
+// corner moves CRT_STRIKE_REACH_PX rows, the most any pixel moves vertically,
+// which sizes the gather's row ring. The sub-pixel steps keep consecutive
+// frames from repeating.
+#define CRT_STRIKE_AMP_SHIFT 4
+static const int s_strike_amp_q4[CRT_FLASH_PHASES] = {96, 80, 64, 56, 48, 40, 32, 24,
+                                                      16, 16, 16, 8,  0,  0,  0,  0};
 #define CRT_STRIKE_REACH_PX 20
 
 static int16_t crt_wave_q15(uint32_t phase_q16);
@@ -305,19 +308,21 @@ static int16_t crt_wave_q15(uint32_t phase_q16);
 #define CRT_STRIKE_LOBE_Q8 200
 // Turns per frame, Q16: the sideways pull's lobes run down the rows, the
 // vertical pull's along the columns.
-#define CRT_STRIKE_LOBE_STEP_X 16384
-#define CRT_STRIKE_LOBE_STEP_Y 9830
+#define CRT_STRIKE_LOBE_STEP_X 8192
+#define CRT_STRIKE_LOBE_STEP_Y 4915
 
 static void crt_strike_pulse(int phase, int* zx, int* zy) {
-  int amp = (phase & 1 ? -1 : 1) * s_strike_amp_px[phase];
-  *zx = amp * CRT_STRIKE_PULSE_X_Q16;
-  *zy = amp * CRT_STRIKE_PULSE_Y_Q16;
+  int amp = (phase & 1 ? -1 : 1) * s_strike_amp_q4[phase];
+  *zx = amp * CRT_STRIKE_PULSE_X_Q16 / (1 << CRT_STRIKE_AMP_SHIFT);
+  *zy = amp * CRT_STRIKE_PULSE_Y_Q16 / (1 << CRT_STRIKE_AMP_SHIFT);
 }
 
 // The CA separation the strike adds, in whole px: the channels balloon while the
 // mask degausses. Phase-indexed through the same decay table as the pulse.
 static int strike_ca_boost(int phase) {
-  return (phase >= 0 && phase < CRT_FLASH_PHASES) ? (s_strike_amp_px[phase] + 1) / 2 : 0;
+  if (phase < 0 || phase >= CRT_FLASH_PHASES) return 0;
+  int amp_px = (s_strike_amp_q4[phase] + (1 << (CRT_STRIKE_AMP_SHIFT - 1))) >> CRT_STRIKE_AMP_SHIFT;
+  return (amp_px + 1) / 2;
 }
 
 // The Q8 factor of the lobes at position `pos` of `extent` along an edge.
@@ -345,6 +350,11 @@ static inline int strike_pulse_px(int lin_q17, int rq) {
 // stays black. Q13.
 #define CRT_STRIKE_STRIPES_Q13 11
 
+static int strike_stripes(int phase) {
+  return s_strike_amp_q4[phase] * s_strike_amp_q4[phase] * CRT_STRIKE_STRIPES_Q13 >>
+         (2 * CRT_STRIKE_AMP_SHIFT);
+}
+
 #ifdef TEST_ENV
 // The displacement the gather applies at dest (x, y), from the same pulse
 // terms, doubled-coordinate Q17 sums, lobes and weight.
@@ -367,8 +377,7 @@ int crt_strike_band(int x, int y, int phase) {
   int tdy = 2 * y - (SCREEN_H - 1);
   int field = 3 * (tdy * tdy * 256 / ((SCREEN_H - 1) * (SCREEN_H - 1))) +
               tdx * tdx * 256 / ((SCREEN_W - 1) * (SCREEN_W - 1));
-  int amp = s_strike_amp_px[phase];
-  return ((field * (amp * amp * CRT_STRIKE_STRIPES_Q13)) >> 13) % 6;
+  return ((field * strike_stripes(phase)) >> 13) % 6;
 }
 #endif
 
@@ -572,8 +581,7 @@ static void crt_strike_gather_scalar(uint8_t* fb, const uint8_t* src, int w, int
   static int16_t mod_x[SCREEN_W];
   int zx, zy;
   crt_strike_pulse(phase, &zx, &zy);
-  const int amp = s_strike_amp_px[phase];
-  const int stripes = amp * amp * CRT_STRIKE_STRIPES_Q13;
+  const int stripes = strike_stripes(phase);
   const int boost = strike_ca_boost(phase);
   const int h1sq = (h - 1) * (h - 1);
   for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
@@ -783,8 +791,7 @@ static void crt_strike_gather_runs(uint8_t* fb, const uint8_t* src, int w, int h
   StrikeRow r = {.xq = xq, .mod_x = mod_x, .w = w, .h = h, .hb = w / 2, .curvature = curvature};
   int zy;
   crt_strike_pulse(phase, &r.zx, &zy);
-  const int amp = s_strike_amp_px[phase];
-  r.stripes = amp * amp * CRT_STRIKE_STRIPES_Q13;
+  r.stripes = strike_stripes(phase);
   r.boost = strike_ca_boost(phase);
   const int h1sq = (h - 1) * (h - 1);
   for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
@@ -1640,7 +1647,7 @@ static void crt_strike_synth_voice(int8_t* buf, size_t n, const CrtStrikeVoice* 
   // are 1:2 at 4:1. The body is broadband: white noise through two
   // one-pole low-passes, decaying and scaled by
   // the strike's visual amplitude, interpolated between the per-phase
-  // s_strike_amp_px values so the rumble tracks the wobble. A smoothstep fade
+  // s_strike_amp_q4 values so the rumble tracks the wobble. A smoothstep fade
   // to zero over the last CRT_STRIKE_FADE_SAMPLES and CRT_STRIKE_TAIL_SAMPLES
   // of silence closes it.
   const size_t per_phase = n / CRT_FLASH_PHASES;
@@ -1674,10 +1681,10 @@ static void crt_strike_synth_voice(int8_t* buf, size_t n, const CrtStrikeVoice* 
     size_t k = i / per_phase;
     if (k >= CRT_FLASH_PHASES) k = CRT_FLASH_PHASES - 1;
     int frac = (int)(i - k * per_phase);
-    int a0 = s_strike_amp_px[k];
-    int a1 = k + 1 < CRT_FLASH_PHASES ? s_strike_amp_px[k + 1] : a0;
+    int a0 = s_strike_amp_q4[k];
+    int a1 = k + 1 < CRT_FLASH_PHASES ? s_strike_amp_q4[k + 1] : a0;
     int body =
-        (a0 * ((int)per_phase - frac) + a1 * frac) * 32767 / (s_strike_amp_px[0] * (int)per_phase);
+        (a0 * ((int)per_phase - frac) + a1 * frac) * 32767 / (s_strike_amp_q4[0] * (int)per_phase);
     int64_t tonal = (int64_t)y * tone >> 15;
     int64_t noisy = (int64_t)lp2 * v->rumble_gain * ((int64_t)rumble * body >> 15) >> 17;
 

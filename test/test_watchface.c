@@ -5200,7 +5200,7 @@ void test_crt_strike_field_should_stay_within_the_reach_in_every_frame(void) {
         crt_strike_field(x, y, phase, &dx, &dy);
         TEST_ASSERT_TRUE(abs(dx) <= 20);
         TEST_ASSERT_TRUE(abs(dy) <= CRT_STRIKE_REACH_PX);
-        if (s_strike_amp_px[phase] == 0) TEST_ASSERT_TRUE(dx == 0 && dy == 0);
+        if (s_strike_amp_q4[phase] == 0) TEST_ASSERT_TRUE(dx == 0 && dy == 0);
       }
     }
   }
@@ -5252,6 +5252,41 @@ void test_crt_strike_field_should_flip_between_pulled_in_and_pushed_out_every_fr
   }
 }
 
+void test_crt_strike_decay_should_keep_its_curve_in_time(void) {
+  static const int old_amp_px[8] = {6, 4, 3, 2, 1, 1, 0, 0};
+  for (int k = 0; k < 8; k++) {
+    TEST_ASSERT_EQUAL_INT(old_amp_px[k] << CRT_STRIKE_AMP_SHIFT, s_strike_amp_q4[2 * k]);
+    TEST_ASSERT_EQUAL_INT((old_amp_px[k] + 1) / 2, strike_ca_boost(2 * k));
+    TEST_ASSERT_EQUAL_INT(old_amp_px[k] * old_amp_px[k] * CRT_STRIKE_STRIPES_Q13,
+                          strike_stripes(2 * k));
+  }
+  for (int phase = 1; phase < CRT_FLASH_PHASES - 1; phase += 2) {
+    TEST_ASSERT_EQUAL_INT((s_strike_amp_q4[phase - 1] + s_strike_amp_q4[phase + 1]) / 2,
+                          s_strike_amp_q4[phase]);
+  }
+  for (int phase = 540 / CRT_FLASH_TICK_MS; phase < CRT_FLASH_PHASES; phase++) {
+    TEST_ASSERT_EQUAL_INT(0, s_strike_amp_q4[phase]);
+  }
+}
+
+void test_crt_strike_lobes_should_move_at_the_same_speed_in_time(void) {
+  for (int k = 0; k < 8; k++) {
+    for (int pos = 0; pos < SCREEN_H; pos += 7) {
+      uint32_t turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 16384;
+      TEST_ASSERT_EQUAL_INT(256 + ((CRT_STRIKE_LOBE_Q8 * crt_wave_q15(turn)) >> 15),
+                            strike_lobe_q8(pos, SCREEN_H, 2 * k, CRT_STRIKE_LOBE_STEP_X));
+      turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 9830;
+      TEST_ASSERT_EQUAL_INT(256 + ((CRT_STRIKE_LOBE_Q8 * crt_wave_q15(turn)) >> 15),
+                            strike_lobe_q8(pos, SCREEN_H, 2 * k, CRT_STRIKE_LOBE_STEP_Y));
+    }
+  }
+}
+
+void test_crt_strike_should_last_720_ms_as_long_as_its_sound(void) {
+  TEST_ASSERT_EQUAL_INT(720, CRT_FLASH_PHASES * CRT_FLASH_TICK_MS);
+  TEST_ASSERT_EQUAL_INT(720, CRT_STRIKE_PCM_MS);
+}
+
 void test_crt_strike_field_should_pull_unevenly_along_an_edge(void) {
   int max_dx = 0, min_dx = 99, dx, dy;
   for (int y = 0; y < SCREEN_H; y++) {
@@ -5264,8 +5299,8 @@ void test_crt_strike_field_should_pull_unevenly_along_an_edge(void) {
 }
 
 void test_crt_strike_field_should_move_the_lobes_between_frames(void) {
-  int peak_y[3] = {0, 0, 0};
-  for (int phase = 0; phase < 3; phase += 2) {
+  int peak_y[5] = {0};
+  for (int phase = 0; phase < 5; phase += 4) {
     int peak = 0, dx, dy;
     for (int y = 0; y < SCREEN_H; y++) {
       crt_strike_field(0, y, phase, &dx, &dy);
@@ -5275,7 +5310,7 @@ void test_crt_strike_field_should_move_the_lobes_between_frames(void) {
       }
     }
   }
-  TEST_ASSERT_TRUE(peak_y[0] != peak_y[2]);
+  TEST_ASSERT_TRUE(peak_y[0] != peak_y[4]);
 }
 
 void test_crt_strike_should_gather_pixels_where_the_field_says(void) {
@@ -5400,10 +5435,10 @@ void test_crt_strike_should_thin_the_stripes_as_the_amplitude_dies(void) {
   int bands0 = 0, bands_last = 0;
   for (int x = SCREEN_W / 2; x < SCREEN_W; x++) {
     if (crt_strike_band(x, 0, 0) != crt_strike_band(x - 1, 0, 0)) bands0++;
-    if (crt_strike_band(x, 0, 5) != crt_strike_band(x - 1, 0, 5)) bands_last++;
+    if (crt_strike_band(x, 0, 10) != crt_strike_band(x - 1, 0, 10)) bands_last++;
   }
   TEST_ASSERT_TRUE(bands0 > 6 * bands_last);
-  TEST_ASSERT_EQUAL_INT(0, crt_strike_band(SCREEN_W - 1, 0, 6));
+  TEST_ASSERT_EQUAL_INT(0, crt_strike_band(SCREEN_W - 1, 0, 12));
 }
 
 void test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude(void) {
@@ -5416,7 +5451,7 @@ void test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude(void) {
   memcpy(idle_frame, mock_framebuffer, sizeof(idle_frame));
   crt_apply_framebuffer_passes(idle_frame, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE, true,
                                false);
-  crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, 6, true, false);
+  crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, 12, true, false);
   TEST_ASSERT_EQUAL_MEMORY(idle_frame, mock_framebuffer, sizeof(idle_frame));
 }
 
@@ -5828,10 +5863,10 @@ void test_crt_strike_should_capture_the_raw_frame_on_phase_zero_and_gather_later
   // The live frame is no longer read: whatever the layers leave there, the
   // frame is the gather of the capture.
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
-  crt_strike_advance_to(1);
+  crt_strike_advance_to(2);
   crt_update_proc(NULL, s_fake_ctx);
   memcpy(expected, raw, sizeof(expected));
-  crt_strike_gather(expected, raw, SCREEN_W, SCREEN_H, SCREEN_W, 1, false,
+  crt_strike_gather(expected, raw, SCREEN_W, SCREEN_H, SCREEN_W, 2, false,
                     crt_tables(SCREEN_W)->ca_xq);
   TEST_ASSERT_EQUAL_MEMORY(expected, mock_framebuffer, sizeof(expected));
   TEST_ASSERT_EQUAL_MEMORY(raw, s_scene_cache, sizeof(raw));
@@ -5844,7 +5879,7 @@ void test_crt_strike_should_write_every_pixel_from_the_capture(void) {
   // Nothing of the live frame may survive: a stale 0x5A byte would be read as
   // content were any pixel skipped.
   memset(mock_framebuffer, 0x5A, sizeof(mock_framebuffer));
-  crt_strike_advance_to(6);
+  crt_strike_advance_to(12);
   crt_update_proc(NULL, s_fake_ctx);
   for (int y = 0; y < SCREEN_H; y++) {
     for (int x = 0; x < SCREEN_W; x++) {
@@ -5871,7 +5906,7 @@ static void strike_lit_columns(int phase, int* r, int* g, int* b) {
 void test_crt_strike_should_separate_the_channels_further_in_the_early_frames(void) {
   int r0, g0, b0, r5, g5, b5;
   strike_lit_columns(0, &r0, &g0, &b0);
-  strike_lit_columns(5, &r5, &g5, &b5);
+  strike_lit_columns(10, &r5, &g5, &b5);
   TEST_ASSERT_TRUE(r0 >= 0 && g0 >= 0 && b0 >= 0);
   TEST_ASSERT_TRUE(r5 >= 0 && g5 >= 0 && b5 >= 0);
   // Right half: R is sampled from the left of G, B from the right, so on the
@@ -5886,7 +5921,7 @@ void test_crt_strike_should_separate_the_channels_further_in_the_early_frames(vo
 void test_crt_strike_should_mirror_the_fringing_across_the_centreline(void) {
   memset(mock_framebuffer, 0xC0, sizeof(mock_framebuffer));
   for (int y = 0; y < SCREEN_H; y++) mock_framebuffer[y * SCREEN_W + 79] = 0xFF;
-  strike_gather_captured(5, false);
+  strike_gather_captured(10, false);
   int r = -1, b = -1;
   for (int x = 50; x < 100; x++) {
     uint8_t v = mock_framebuffer[113 * SCREEN_W + x];
@@ -5901,7 +5936,7 @@ void test_crt_strike_should_leave_the_dead_zone_alone_at_zero_amplitude(void) {
   fill_test_frame(11);
   static uint8_t raw[SCREEN_W * SCREEN_H];
   memcpy(raw, mock_framebuffer, sizeof(raw));
-  strike_gather_captured(6, false);
+  strike_gather_captured(12, false);
   // Inside the CA's dead zone, past the fringing's reach: the frame as it was.
   for (int y = 100; y < 128; y++) {
     for (int x = 60; x < 140; x++) {
@@ -5915,7 +5950,7 @@ void test_crt_strike_should_vignette_the_glass_after_the_warp(void) {
   crt_strike_begin();
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));  // white, bright to the rim
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(6);
+  crt_strike_advance_to(12);
   crt_update_proc(NULL, s_fake_ctx);
   // The warp pulls bright interior content to the rim columns, and the rim is
   // dark on the glass all the same.
@@ -5932,7 +5967,7 @@ void test_crt_strike_should_not_vignette_without_curvature(void) {
   crt_strike_begin();
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(6);
+  crt_strike_advance_to(12);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 4]);
   TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[4 * SCREEN_W + 100]);
@@ -5997,7 +6032,7 @@ void test_crt_strike_should_recapture_after_a_reprime(void) {
   crt_strike_begin();
   fill_test_frame(1);
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(2);
+  crt_strike_advance_to(4);
 
   crt_wake_by_shake();  // re-prime mid-strike
   TEST_ASSERT_NULL(s_strike_src);
@@ -6027,9 +6062,9 @@ void test_crt_strike_should_bake_the_curvature_into_its_capture_once(void) {
   // Later frames gather from the capture as it is: a changed live frame is
   // neither read nor warped into it.
   fill_test_frame(4);
-  crt_strike_advance_to(1);
+  crt_strike_advance_to(2);
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(5);
+  crt_strike_advance_to(10);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_MEMORY(curved, s_scene_cache, sizeof(curved));
 }
@@ -6051,7 +6086,7 @@ void test_crt_strike_should_bake_again_after_a_reprime(void) {
   crt_strike_begin();
   fill_test_frame(1);
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(2);
+  crt_strike_advance_to(4);
 
   crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
@@ -6448,7 +6483,7 @@ void test_crt_toggle_off_should_force_a_full_repaint(void) {
 
 void test_crt_toggle_off_mid_strike_should_cancel_the_chain(void) {
   // Toggle off mid-strike: the pending tick must be cancelled — otherwise the
-  // chain re-arms from IDLE (phase −1 → 0) and runs a full 8-tick strike
+  // chain re-arms from IDLE (phase −1 → 0) and runs a full strike
   // nobody triggered, dirtying the layer each frame.
   s_settings_crt_degauss = 1;
   crt_app_focus_did_handler(true);
@@ -7391,6 +7426,9 @@ int main(void) {
   RUN_TEST(test_crt_strike_field_should_stay_within_the_reach_in_every_frame);
   RUN_TEST(test_crt_strike_field_should_pull_the_most_at_the_rim_and_leave_the_centre);
   RUN_TEST(test_crt_strike_field_should_flip_between_pulled_in_and_pushed_out_every_frame);
+  RUN_TEST(test_crt_strike_decay_should_keep_its_curve_in_time);
+  RUN_TEST(test_crt_strike_lobes_should_move_at_the_same_speed_in_time);
+  RUN_TEST(test_crt_strike_should_last_720_ms_as_long_as_its_sound);
   RUN_TEST(test_crt_strike_field_should_pull_unevenly_along_an_edge);
   RUN_TEST(test_crt_strike_field_should_move_the_lobes_between_frames);
   RUN_TEST(test_crt_strike_should_gather_pixels_where_the_field_says);
