@@ -102,6 +102,7 @@ static void reset_all_state(void) {
   free(s_scene_cache);
   s_scene_cache = NULL;
   s_strike_src = NULL;
+  s_strike_layers_skipped = false;
   s_flash_phase = CRT_FLASH_IDLE;
   s_flash_timer = NULL;
   s_cover_suppresses_strike = false;
@@ -4854,6 +4855,16 @@ void test_crt_strike_synth_should_sound_and_end_in_exact_silence(void) {
   }
 }
 
+void test_crt_strike_synth_should_keep_its_waveform_whatever_the_frame_rate(void) {
+  static int8_t pcm[CRT_STRIKE_PCM_SAMPLES];
+  crt_strike_synth(pcm, CRT_STRIKE_PCM_SAMPLES);
+  uint32_t hash = 2166136261u;
+  for (int i = 0; i < CRT_STRIKE_PCM_SAMPLES; i++) hash = (hash ^ (uint8_t)pcm[i]) * 16777619u;
+  // FNV-1a of the PCM the 8-frame strike shipped with: the envelope reads the
+  // curve's knots, not the frames.
+  TEST_ASSERT_EQUAL_HEX32(0x58D7C850u, hash);
+}
+
 void test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget(void) {
   TEST_ASSERT_EQUAL_INT(CRT_FLASH_PHASES * CRT_FLASH_TICK_MS, CRT_STRIKE_PCM_MS);
   TEST_ASSERT_TRUE(CRT_STRIKE_PCM_SAMPLES <= 16 * 1024);
@@ -5200,7 +5211,7 @@ void test_crt_strike_field_should_stay_within_the_reach_in_every_frame(void) {
         crt_strike_field(x, y, phase, &dx, &dy);
         TEST_ASSERT_TRUE(abs(dx) <= 20);
         TEST_ASSERT_TRUE(abs(dy) <= CRT_STRIKE_REACH_PX);
-        if (s_strike_amp_q4[phase] == 0) TEST_ASSERT_TRUE(dx == 0 && dy == 0);
+        if (strike_amp_q4(phase) == 0) TEST_ASSERT_TRUE(dx == 0 && dy == 0);
       }
     }
   }
@@ -5253,31 +5264,42 @@ void test_crt_strike_field_should_flip_between_pulled_in_and_pushed_out_every_fr
 }
 
 void test_crt_strike_decay_should_keep_its_curve_in_time(void) {
-  static const int old_amp_px[8] = {6, 4, 3, 2, 1, 1, 0, 0};
-  for (int k = 0; k < 8; k++) {
-    TEST_ASSERT_EQUAL_INT(old_amp_px[k] << CRT_STRIKE_AMP_SHIFT, s_strike_amp_q4[2 * k]);
-    TEST_ASSERT_EQUAL_INT((old_amp_px[k] + 1) / 2, strike_ca_boost(2 * k));
-    TEST_ASSERT_EQUAL_INT(old_amp_px[k] * old_amp_px[k] * CRT_STRIKE_STRIPES_Q13,
-                          strike_stripes(2 * k));
+  // The curve's knots, in px every 90 ms and linear between; a frame is the
+  // curve at its own time.
+  static const int knots_px[8] = {6, 4, 3, 2, 1, 1, 0, 0};
+  int prev = 1 << 20;
+  for (int phase = 0; phase < CRT_FLASH_PHASES; phase++) {
+    int t = phase * CRT_FLASH_TICK_MS;
+    double px = 0;
+    if (t < 630) {
+      double f = (t % 90) / 90.0;
+      px = knots_px[t / 90] * (1 - f) + knots_px[t / 90 + 1] * f;
+    }
+    int amp = (int)(px * (1 << CRT_STRIKE_AMP_SHIFT) + 0.5);
+    TEST_ASSERT_EQUAL_INT(amp, strike_amp_q4(phase));
+    TEST_ASSERT_EQUAL_INT(((amp + 8) / 16 + 1) / 2, strike_ca_boost(phase));
+    TEST_ASSERT_EQUAL_INT(amp * amp * CRT_STRIKE_STRIPES_Q13 / 256, strike_stripes(phase));
+    TEST_ASSERT_TRUE(strike_amp_q4(phase) <= prev);
+    prev = strike_amp_q4(phase);
+    if (t % 90 == 0) TEST_ASSERT_EQUAL_INT(knots_px[t / 90] << CRT_STRIKE_AMP_SHIFT, amp);
+    if (t >= 540) TEST_ASSERT_EQUAL_INT(0, strike_amp_q4(phase));
   }
-  for (int phase = 1; phase < CRT_FLASH_PHASES - 1; phase += 2) {
-    TEST_ASSERT_EQUAL_INT((s_strike_amp_q4[phase - 1] + s_strike_amp_q4[phase + 1]) / 2,
-                          s_strike_amp_q4[phase]);
-  }
-  for (int phase = 540 / CRT_FLASH_TICK_MS; phase < CRT_FLASH_PHASES; phase++) {
-    TEST_ASSERT_EQUAL_INT(0, s_strike_amp_q4[phase]);
-  }
+  TEST_ASSERT_EQUAL_INT(96, strike_amp_q4(0));
+  TEST_ASSERT_TRUE(strike_amp_q4(520 / CRT_FLASH_TICK_MS) > 0);
 }
 
 void test_crt_strike_lobes_should_move_at_the_same_speed_in_time(void) {
-  for (int k = 0; k < 8; k++) {
+  // 8192 and 4915 turns (Q16) per 45 ms, per 40-ms frame, to the nearest.
+  TEST_ASSERT_INT_WITHIN(45 / 2, 8192 * CRT_FLASH_TICK_MS, CRT_STRIKE_LOBE_STEP_X * 45);
+  TEST_ASSERT_INT_WITHIN(45 / 2, 4915 * CRT_FLASH_TICK_MS, CRT_STRIKE_LOBE_STEP_Y * 45);
+  for (int k = 0; k < CRT_FLASH_PHASES; k++) {
     for (int pos = 0; pos < SCREEN_H; pos += 7) {
-      uint32_t turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 16384;
+      uint32_t turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 7282;
       TEST_ASSERT_EQUAL_INT(256 + ((CRT_STRIKE_LOBE_Q8 * crt_wave_q15(turn)) >> 15),
-                            strike_lobe_q8(pos, SCREEN_H, 2 * k, CRT_STRIKE_LOBE_STEP_X));
-      turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 9830;
+                            strike_lobe_q8(pos, SCREEN_H, k, CRT_STRIKE_LOBE_STEP_X));
+      turn = (uint32_t)pos * 65536 / SCREEN_H + (uint32_t)k * 4369;
       TEST_ASSERT_EQUAL_INT(256 + ((CRT_STRIKE_LOBE_Q8 * crt_wave_q15(turn)) >> 15),
-                            strike_lobe_q8(pos, SCREEN_H, 2 * k, CRT_STRIKE_LOBE_STEP_Y));
+                            strike_lobe_q8(pos, SCREEN_H, k, CRT_STRIKE_LOBE_STEP_Y));
     }
   }
 }
@@ -5435,10 +5457,10 @@ void test_crt_strike_should_thin_the_stripes_as_the_amplitude_dies(void) {
   int bands0 = 0, bands_last = 0;
   for (int x = SCREEN_W / 2; x < SCREEN_W; x++) {
     if (crt_strike_band(x, 0, 0) != crt_strike_band(x - 1, 0, 0)) bands0++;
-    if (crt_strike_band(x, 0, 10) != crt_strike_band(x - 1, 0, 10)) bands_last++;
+    if (crt_strike_band(x, 0, 11) != crt_strike_band(x - 1, 0, 11)) bands_last++;
   }
   TEST_ASSERT_TRUE(bands0 > 6 * bands_last);
-  TEST_ASSERT_EQUAL_INT(0, crt_strike_band(SCREEN_W - 1, 0, 12));
+  TEST_ASSERT_EQUAL_INT(0, crt_strike_band(SCREEN_W - 1, 0, 14));
 }
 
 void test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude(void) {
@@ -5451,7 +5473,7 @@ void test_crt_strike_should_leave_the_frame_alone_at_zero_amplitude(void) {
   memcpy(idle_frame, mock_framebuffer, sizeof(idle_frame));
   crt_apply_framebuffer_passes(idle_frame, SCREEN_W, SCREEN_H, SCREEN_W, CRT_FLASH_IDLE, true,
                                false);
-  crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, 12, true, false);
+  crt_apply_framebuffer_passes(mock_framebuffer, SCREEN_W, SCREEN_H, SCREEN_W, 14, true, false);
   TEST_ASSERT_EQUAL_MEMORY(idle_frame, mock_framebuffer, sizeof(idle_frame));
 }
 
@@ -5879,7 +5901,7 @@ void test_crt_strike_should_write_every_pixel_from_the_capture(void) {
   // Nothing of the live frame may survive: a stale 0x5A byte would be read as
   // content were any pixel skipped.
   memset(mock_framebuffer, 0x5A, sizeof(mock_framebuffer));
-  crt_strike_advance_to(12);
+  crt_strike_advance_to(14);
   crt_update_proc(NULL, s_fake_ctx);
   for (int y = 0; y < SCREEN_H; y++) {
     for (int x = 0; x < SCREEN_W; x++) {
@@ -5936,7 +5958,7 @@ void test_crt_strike_should_leave_the_dead_zone_alone_at_zero_amplitude(void) {
   fill_test_frame(11);
   static uint8_t raw[SCREEN_W * SCREEN_H];
   memcpy(raw, mock_framebuffer, sizeof(raw));
-  strike_gather_captured(12, false);
+  strike_gather_captured(14, false);
   // Inside the CA's dead zone, past the fringing's reach: the frame as it was.
   for (int y = 100; y < 128; y++) {
     for (int x = 60; x < 140; x++) {
@@ -5950,7 +5972,7 @@ void test_crt_strike_should_vignette_the_glass_after_the_warp(void) {
   crt_strike_begin();
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));  // white, bright to the rim
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(12);
+  crt_strike_advance_to(14);
   crt_update_proc(NULL, s_fake_ctx);
   // The warp pulls bright interior content to the rim columns, and the rim is
   // dark on the glass all the same.
@@ -5967,7 +5989,7 @@ void test_crt_strike_should_not_vignette_without_curvature(void) {
   crt_strike_begin();
   memset(mock_framebuffer, 0xFF, sizeof(mock_framebuffer));
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(12);
+  crt_strike_advance_to(14);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[113 * SCREEN_W + 4]);
   TEST_ASSERT_EQUAL_HEX8(0xFF, mock_framebuffer[4 * SCREEN_W + 100]);
@@ -6046,6 +6068,127 @@ void test_crt_strike_should_recapture_after_a_reprime(void) {
   TEST_ASSERT_EQUAL_MEMORY(second, s_scene_cache, sizeof(second));
 }
 
+// The face's layers as main.c would have created them, for the strike's skip.
+static char s_fake_window_storage;
+static void crt_stage_face_layers(void) {
+  s_main_window = (Window*)&s_fake_window_storage;
+  s_canvas_layer = layer_create(GRect(0, 0, 200, 228));
+  s_time_layer = text_layer_create(GRect(0, 0, 200, 64));
+}
+
+static void assert_face_layers_drawn(void) {
+  TEST_ASSERT_FALSE(s_strike_layers_skipped);
+  TEST_ASSERT_FALSE(layer_get_hidden(s_canvas_layer));
+  TEST_ASSERT_FALSE(layer_get_hidden(text_layer_get_layer(s_time_layer)));
+}
+
+static void assert_face_layers_skipped(void) {
+  TEST_ASSERT_TRUE(s_strike_layers_skipped);
+  TEST_ASSERT_TRUE(layer_get_hidden(s_canvas_layer));
+  TEST_ASSERT_TRUE(layer_get_hidden(text_layer_get_layer(s_time_layer)));
+  TEST_ASSERT_EQUAL_UINT32(GColorClear, mock_window_last_bg);
+}
+
+static void assert_face_layers_restored(void) {
+  assert_face_layers_drawn();
+  TEST_ASSERT_EQUAL_UINT32(s_active_theme->center_bg, mock_window_last_bg);
+}
+
+void test_crt_strike_should_skip_the_face_layers_from_the_frame_after_the_capture(void) {
+  crt_stage_face_layers();
+  crt_strike_begin();
+  assert_face_layers_drawn();
+  TEST_ASSERT_EQUAL_INT(0, mock_window_set_bg_count);
+
+  crt_update_proc(NULL, s_fake_ctx);  // phase 0: the capture needs the layers drawn
+  TEST_ASSERT_NOT_NULL(s_strike_src);
+  assert_face_layers_drawn();
+
+  mock_timer_callback(NULL);
+  TEST_ASSERT_EQUAL_INT(1, s_flash_phase);
+  assert_face_layers_skipped();
+  int bg_sets = mock_window_set_bg_count;
+  crt_strike_advance_to(CRT_FLASH_PHASES - 1);
+  assert_face_layers_skipped();
+  TEST_ASSERT_EQUAL_INT(bg_sets, mock_window_set_bg_count);
+
+  mock_timer_callback(NULL);  // the last tick releases the capture
+  TEST_ASSERT_EQUAL_INT(CRT_FLASH_IDLE, s_flash_phase);
+  assert_face_layers_restored();
+}
+
+void test_crt_strike_should_leave_the_window_background_to_itself_across_a_refresh(void) {
+  crt_stage_face_layers();
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  mock_timer_callback(NULL);
+  assert_face_layers_skipped();
+
+  s_active_theme = &s_theme_panel;
+  refresh_state();
+  assert_face_layers_skipped();
+
+  while (s_flash_phase != CRT_FLASH_IDLE) mock_timer_callback(NULL);
+  assert_face_layers_restored();
+  TEST_ASSERT_EQUAL_UINT32(s_active_theme->center_bg, mock_window_last_bg);
+}
+
+void test_crt_strike_should_restore_the_face_layers_when_degauss_goes_off(void) {
+  crt_stage_face_layers();
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  mock_timer_callback(NULL);
+  assert_face_layers_skipped();
+
+  s_settings_crt_degauss = 0;
+  crt_apply_setting_change();
+  assert_face_layers_restored();
+}
+
+void test_crt_strike_should_restore_the_face_layers_when_re_primed(void) {
+  crt_stage_face_layers();
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  mock_timer_callback(NULL);
+  assert_face_layers_skipped();
+
+  crt_wake_by_shake();
+  assert_face_layers_restored();
+  crt_update_proc(NULL, s_fake_ctx);  // the wake frame
+  crt_fire_strike_start();
+  crt_update_proc(NULL, s_fake_ctx);  // the new capture frame is drawn whole
+  assert_face_layers_drawn();
+  mock_timer_callback(NULL);
+  assert_face_layers_skipped();
+}
+
+void test_crt_strike_should_restore_the_face_layers_on_deinit(void) {
+  crt_stage_face_layers();
+  crt_strike_begin();
+  crt_update_proc(NULL, s_fake_ctx);
+  mock_timer_callback(NULL);
+  assert_face_layers_skipped();
+
+  crt_deinit();
+  assert_face_layers_restored();
+}
+
+void test_crt_strike_should_not_skip_the_face_layers_without_a_capture(void) {
+  crt_stage_face_layers();
+  s_settings_crt_degauss = 1;
+  s_active_theme = &s_theme_shadow;
+  crt_app_focus_did_handler(true);
+  s_crt_layer = layer_create(GRect(0, 0, 200, 228));
+  crt_wake_by_shake();
+  crt_update_proc(NULL, s_fake_ctx);
+  crt_fire_strike_start();
+  crt_update_proc(NULL, s_fake_ctx);  // no scene cache to borrow
+  TEST_ASSERT_NULL(s_strike_src);
+  mock_timer_callback(NULL);
+  assert_face_layers_drawn();
+  TEST_ASSERT_EQUAL_INT(0, mock_window_set_bg_count);
+}
+
 void test_crt_strike_should_bake_the_curvature_into_its_capture_once(void) {
   static uint8_t raw[SCREEN_W * SCREEN_H];
   static uint8_t curved[SCREEN_W * SCREEN_H];
@@ -6064,7 +6207,7 @@ void test_crt_strike_should_bake_the_curvature_into_its_capture_once(void) {
   fill_test_frame(4);
   crt_strike_advance_to(2);
   crt_update_proc(NULL, s_fake_ctx);
-  crt_strike_advance_to(10);
+  crt_strike_advance_to(11);
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_MEMORY(curved, s_scene_cache, sizeof(curved));
 }
@@ -7397,6 +7540,7 @@ int main(void) {
   RUN_TEST(test_crt_strike_should_expire_the_one_shot_after_the_grace_window);
   RUN_TEST(test_crt_strike_should_cancel_a_pending_grace_when_a_new_cover_arrives);
   RUN_TEST(test_crt_strike_synth_should_sound_and_end_in_exact_silence);
+  RUN_TEST(test_crt_strike_synth_should_keep_its_waveform_whatever_the_frame_rate);
   RUN_TEST(test_crt_strike_pcm_should_last_as_long_as_the_animation_within_the_speaker_budget);
   RUN_TEST(test_crt_deinit_should_cancel_the_strike_and_drop_the_layer);
   RUN_TEST(test_crt_cover_should_not_eat_a_strike_while_the_effect_is_off);
@@ -7454,6 +7598,12 @@ int main(void) {
   RUN_TEST(test_blend_levels_should_step_light_greys_the_same_way);
   RUN_TEST(test_blend_levels_should_keep_the_rounded_mix_for_wider_blends);
   RUN_TEST(test_crt_strike_gather_should_match_the_per_pixel_loop_in_every_frame);
+  RUN_TEST(test_crt_strike_should_skip_the_face_layers_from_the_frame_after_the_capture);
+  RUN_TEST(test_crt_strike_should_leave_the_window_background_to_itself_across_a_refresh);
+  RUN_TEST(test_crt_strike_should_restore_the_face_layers_when_degauss_goes_off);
+  RUN_TEST(test_crt_strike_should_restore_the_face_layers_when_re_primed);
+  RUN_TEST(test_crt_strike_should_restore_the_face_layers_on_deinit);
+  RUN_TEST(test_crt_strike_should_not_skip_the_face_layers_without_a_capture);
   RUN_TEST(test_crt_strike_should_bake_the_curvature_into_its_capture_once);
   RUN_TEST(test_crt_strike_should_not_bake_without_curvature);
   RUN_TEST(test_crt_strike_should_bake_again_after_a_reprime);

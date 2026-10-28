@@ -60,6 +60,10 @@ static AppTimer* s_shake_wake_timer = NULL;
 // outside a strike, and for one whose borrow found no cache (malloc failed):
 // that strike runs the passes in place on the live frame.
 static const uint8_t* s_strike_src = NULL;
+// The strike overwrites every pixel from s_strike_src, so from the frame after
+// the capture until the release the layers under it are not drawn: the canvas
+// and clock layers hidden, the window not filling its background.
+static bool s_strike_layers_skipped = false;
 
 static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
@@ -279,14 +283,32 @@ int crt_vignette_q8_from_depth(int d) {
 }
 #endif
 
-// Strike amplitude per frame, in sixteenths of a px: sudden, then decaying to
-// nothing by 540 ms. The pulse scales with it; at the first frame's 6 px a
-// corner moves CRT_STRIKE_REACH_PX rows, the most any pixel moves vertically,
-// which sizes the gather's row ring. The sub-pixel steps keep consecutive
-// frames from repeating.
+// The strike's decay, nothing after the last knot: sudden, then dying out by
+// 540 ms. It is defined once, as its knots (px, one every CRT_STRIKE_KNOT_MS,
+// linear between), and everything reads it at its own rate: the frames at
+// their tick, the sound's rumble at its own steps. The pulse scales with it; at
+// the first frame's 6 px a corner moves CRT_STRIKE_REACH_PX rows, the most any
+// pixel moves vertically, which sizes the gather's row ring. The sub-pixel
+// steps keep consecutive frames from repeating.
 #define CRT_STRIKE_AMP_SHIFT 4
-static const int s_strike_amp_q4[CRT_FLASH_PHASES] = {96, 80, 64, 56, 48, 40, 32, 24,
-                                                      16, 16, 16, 8,  0,  0,  0,  0};
+#define CRT_STRIKE_KNOT_MS 90
+static const uint8_t s_strike_knots_px[] = {6, 4, 3, 2, 1, 1, 0, 0};
+#define CRT_STRIKE_KNOTS ((int)sizeof(s_strike_knots_px))
+
+// The curve at `t_ms`, in sixteenths of a px, rounded.
+static int strike_curve_q4(int t_ms) {
+  int k = t_ms / CRT_STRIKE_KNOT_MS;
+  if (k >= CRT_STRIKE_KNOTS - 1)
+    return s_strike_knots_px[CRT_STRIKE_KNOTS - 1] << CRT_STRIKE_AMP_SHIFT;
+  int frac = t_ms % CRT_STRIKE_KNOT_MS;
+  int a = s_strike_knots_px[k] << CRT_STRIKE_AMP_SHIFT;
+  int b = s_strike_knots_px[k + 1] << CRT_STRIKE_AMP_SHIFT;
+  return (a * (CRT_STRIKE_KNOT_MS - frac) + b * frac + CRT_STRIKE_KNOT_MS / 2) / CRT_STRIKE_KNOT_MS;
+}
+
+static int strike_amp_q4(int phase) {
+  return strike_curve_q4(phase * CRT_FLASH_TICK_MS);
+}
 #define CRT_STRIKE_REACH_PX 20
 
 static int16_t crt_wave_q15(uint32_t phase_q16);
@@ -306,22 +328,23 @@ static int16_t crt_wave_q15(uint32_t phase_q16);
 #define CRT_STRIKE_PULSE_X_Q16 2500
 #define CRT_STRIKE_PULSE_Y_Q16 2138
 #define CRT_STRIKE_LOBE_Q8 200
-// Turns per frame, Q16: the sideways pull's lobes run down the rows, the
-// vertical pull's along the columns.
-#define CRT_STRIKE_LOBE_STEP_X 8192
-#define CRT_STRIKE_LOBE_STEP_Y 4915
+// Turns per frame, Q16: 8192 and 4915 per 45 ms, per frame of CRT_FLASH_TICK_MS
+// (rounded: 4 and 2 of 65536 over the strike). The sideways pull's lobes run
+// down the rows, the vertical pull's along the columns.
+#define CRT_STRIKE_LOBE_STEP_X 7282
+#define CRT_STRIKE_LOBE_STEP_Y 4369
 
 static void crt_strike_pulse(int phase, int* zx, int* zy) {
-  int amp = (phase & 1 ? -1 : 1) * s_strike_amp_q4[phase];
+  int amp = (phase & 1 ? -1 : 1) * strike_amp_q4(phase);
   *zx = amp * CRT_STRIKE_PULSE_X_Q16 / (1 << CRT_STRIKE_AMP_SHIFT);
   *zy = amp * CRT_STRIKE_PULSE_Y_Q16 / (1 << CRT_STRIKE_AMP_SHIFT);
 }
 
 // The CA separation the strike adds, in whole px: the channels balloon while the
-// mask degausses. Phase-indexed through the same decay table as the pulse.
+// mask degausses. Phase-indexed through the same decay curve as the pulse.
 static int strike_ca_boost(int phase) {
   if (phase < 0 || phase >= CRT_FLASH_PHASES) return 0;
-  int amp_px = (s_strike_amp_q4[phase] + (1 << (CRT_STRIKE_AMP_SHIFT - 1))) >> CRT_STRIKE_AMP_SHIFT;
+  int amp_px = (strike_amp_q4(phase) + (1 << (CRT_STRIKE_AMP_SHIFT - 1))) >> CRT_STRIKE_AMP_SHIFT;
   return (amp_px + 1) / 2;
 }
 
@@ -351,8 +374,8 @@ static inline int strike_pulse_px(int lin_q17, int rq) {
 #define CRT_STRIKE_STRIPES_Q13 11
 
 static int strike_stripes(int phase) {
-  return s_strike_amp_q4[phase] * s_strike_amp_q4[phase] * CRT_STRIKE_STRIPES_Q13 >>
-         (2 * CRT_STRIKE_AMP_SHIFT);
+  int amp = strike_amp_q4(phase);
+  return amp * amp * CRT_STRIKE_STRIPES_Q13 >> (2 * CRT_STRIKE_AMP_SHIFT);
 }
 
 #ifdef TEST_ENV
@@ -1387,9 +1410,28 @@ void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int fla
   if (curvature) vignette_pane(fb, w, h, stride);
 }
 
+// Idempotent. Not in the capture frame, which is mid-render: the next tick.
+static void crt_strike_layers_skip(void) {
+  if (s_strike_layers_skipped) return;
+  s_strike_layers_skipped = true;
+  if (s_canvas_layer) layer_set_hidden(s_canvas_layer, true);
+  if (s_time_layer) layer_set_hidden(text_layer_get_layer(s_time_layer), true);
+  if (s_main_window) window_set_background_color(s_main_window, GColorClear);
+}
+
+bool crt_strike_layers_skipped(void) {
+  return s_strike_layers_skipped;
+}
+
 // The canvas takes its cache back and repaints from scratch on its next
 // render; idempotent, for every way a strike ends.
 static void crt_strike_release(void) {
+  if (s_strike_layers_skipped) {
+    s_strike_layers_skipped = false;
+    if (s_canvas_layer) layer_set_hidden(s_canvas_layer, false);
+    if (s_time_layer) layer_set_hidden(text_layer_get_layer(s_time_layer), false);
+    if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
+  }
   if (!s_strike_src) return;
   s_strike_src = NULL;
   canvas_cache_return();
@@ -1461,11 +1503,12 @@ void crt_update_proc(Layer* layer, GContext* ctx) {
     graphics_release_frame_buffer(ctx, fb);
 #ifndef TEST_ENV
     time_ms(&t1s, &t1ms);
-    APP_LOG(APP_LOG_LEVEL_INFO,
-            "TIMING phase %d layers %ld ms pass %ld ms bake %d ms gather %d ms vig %d ms",
-            s_flash_phase, (long)((t0s - timing_mark_s) * 1000 + t0ms - timing_mark_ms),
-            (long)((t1s - t0s) * 1000 + t1ms - t0ms), timing_bake_ms, timing_gather_ms,
-            timing_vig_ms);
+    APP_LOG(
+        APP_LOG_LEVEL_INFO,
+        "TIMING phase %d at %ld.%03u layers %ld ms pass %ld ms bake %d ms gather %d ms vig %d ms",
+        s_flash_phase, (long)timing_mark_s, (unsigned)timing_mark_ms,
+        (long)((t0s - timing_mark_s) * 1000 + t0ms - timing_mark_ms),
+        (long)((t1s - t0s) * 1000 + t1ms - t0ms), timing_bake_ms, timing_gather_ms, timing_vig_ms);
     timing_bake_ms = 0;
     timing_vig_ms = 0;
 #endif
@@ -1501,6 +1544,8 @@ static void crt_flash_tick(void* data) {
     s_flash_phase = CRT_FLASH_IDLE;
     s_flash_timer = NULL;
     crt_strike_release();
+  } else if (s_strike_src) {
+    crt_strike_layers_skip();
   }
   TIMING_MARK();
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
@@ -1571,6 +1616,12 @@ void crt_backlight_handler(bool on) {
 #define CRT_STRIKE_PCM_MS (CRT_FLASH_PHASES * CRT_FLASH_TICK_MS)
 #define CRT_STRIKE_PCM_RATE 16000
 #define CRT_STRIKE_PCM_SAMPLES (CRT_STRIKE_PCM_MS * CRT_STRIKE_PCM_RATE / 1000)
+// The rumble's envelope steps: half a knot apart, so the curve's knots and
+// midpoints are what it interpolates.
+#define CRT_STRIKE_SOUND_STEP_MS (CRT_STRIKE_KNOT_MS / 2)
+#define CRT_STRIKE_SOUND_STEPS (CRT_STRIKE_PCM_MS / CRT_STRIKE_SOUND_STEP_MS)
+_Static_assert(CRT_STRIKE_SOUND_STEPS* CRT_STRIKE_SOUND_STEP_MS == CRT_STRIKE_PCM_MS,
+               "the rumble's steps must tile the sample");
 #define CRT_STRIKE_PCM_BUDGET_BYTES (16 * 1024)
 _Static_assert(CRT_STRIKE_PCM_SAMPLES <= CRT_STRIKE_PCM_BUDGET_BYTES,
                "strike PCM exceeds the speaker service's per-call sample budget");
@@ -1646,11 +1697,12 @@ static void crt_strike_synth_voice(int8_t* buf, size_t n, const CrtStrikeVoice* 
   // A buzz with a falling colour and a rumble under it. The tone's partials
   // are 1:2 at 4:1. The body is broadband: white noise through two
   // one-pole low-passes, decaying and scaled by
-  // the strike's visual amplitude, interpolated between the per-phase
-  // s_strike_amp_q4 values so the rumble tracks the wobble. A smoothstep fade
+  // the strike's visual amplitude, read off the decay curve at steps of
+  // CRT_STRIKE_SOUND_STEP_MS and interpolated between them, so the rumble
+  // tracks the wobble whatever the frame rate. A smoothstep fade
   // to zero over the last CRT_STRIKE_FADE_SAMPLES and CRT_STRIKE_TAIL_SAMPLES
   // of silence closes it.
-  const size_t per_phase = n / CRT_FLASH_PHASES;
+  const size_t per_phase = n / CRT_STRIKE_SOUND_STEPS;
   const int end = v->len ? v->len : (int)n;
   uint32_t phase = 0;
   int ring = 32767;
@@ -1679,12 +1731,14 @@ static void crt_strike_synth_voice(int8_t* buf, size_t n, const CrtStrikeVoice* 
     lp2 += (lp1 - lp2) / v->lp_div;
 
     size_t k = i / per_phase;
-    if (k >= CRT_FLASH_PHASES) k = CRT_FLASH_PHASES - 1;
+    if (k >= CRT_STRIKE_SOUND_STEPS) k = CRT_STRIKE_SOUND_STEPS - 1;
     int frac = (int)(i - k * per_phase);
-    int a0 = s_strike_amp_q4[k];
-    int a1 = k + 1 < CRT_FLASH_PHASES ? s_strike_amp_q4[k + 1] : a0;
-    int body =
-        (a0 * ((int)per_phase - frac) + a1 * frac) * 32767 / (s_strike_amp_q4[0] * (int)per_phase);
+    int a0 = strike_curve_q4((int)k * CRT_STRIKE_SOUND_STEP_MS);
+    int a1 = k + 1 < CRT_STRIKE_SOUND_STEPS
+                 ? strike_curve_q4((int)(k + 1) * CRT_STRIKE_SOUND_STEP_MS)
+                 : a0;
+    int body = (int)((int64_t)(a0 * ((int)per_phase - frac) + a1 * frac) * 32767 /
+                     (strike_curve_q4(0) * (int)per_phase));
     int64_t tonal = (int64_t)y * tone >> 15;
     int64_t noisy = (int64_t)lp2 * v->rumble_gain * ((int64_t)rumble * body >> 15) >> 17;
 

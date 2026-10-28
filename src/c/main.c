@@ -156,7 +156,9 @@ void refresh_state(void) {
   // A settings push can change the theme while the face is open; the window
   // and time layer keep their load-time colors unless re-applied here.
   // Everything else is canvas-drawn and follows on redraw.
-  if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
+  if (s_main_window && !crt_strike_layers_skipped()) {
+    window_set_background_color(s_main_window, s_active_theme->center_bg);
+  }
   if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
 
   s_beats = compute_beats(temp);

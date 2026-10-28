@@ -513,6 +513,26 @@ void layer_mark_dirty(Layer* layer) {
   (void)layer;
   mock_mark_dirty_count++;
 }
+// Hidden flags by layer pointer: the sentinel layers are few.
+static Layer* mock_hidden_layers[16];
+static bool mock_hidden_flags[16];
+static int mock_hidden_count = 0;
+void layer_set_hidden(Layer* layer, bool hidden) {
+  for (int i = 0; i < mock_hidden_count; i++) {
+    if (mock_hidden_layers[i] == layer) {
+      mock_hidden_flags[i] = hidden;
+      return;
+    }
+  }
+  mock_hidden_layers[mock_hidden_count] = layer;
+  mock_hidden_flags[mock_hidden_count++] = hidden;
+}
+bool layer_get_hidden(const Layer* layer) {
+  for (int i = 0; i < mock_hidden_count; i++) {
+    if (mock_hidden_layers[i] == layer) return mock_hidden_flags[i];
+  }
+  return false;
+}
 void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc) {
   (void)layer;
   (void)update_proc;
@@ -578,8 +598,7 @@ void text_layer_destroy(TextLayer* text_layer) {
   (void)text_layer;
 }
 Layer* text_layer_get_layer(TextLayer* text_layer) {
-  (void)text_layer;
-  return NULL;
+  return (Layer*)text_layer;
 }
 void text_layer_set_background_color(TextLayer* text_layer, GColor color) {
   (void)text_layer;
@@ -696,9 +715,11 @@ Layer* window_get_root_layer(const Window* window) {
 }
 int mock_window_set_bg_count = 0;
 GColor mock_window_first_bg;
+GColor mock_window_last_bg;
 void window_set_background_color(Window* window, GColor background_color) {
   (void)window;
   if (mock_window_set_bg_count == 0) mock_window_first_bg = background_color;
+  mock_window_last_bg = background_color;
   mock_window_set_bg_count++;
 }
 void window_set_window_handlers(Window* window, WindowHandlers handlers) {
@@ -782,6 +803,7 @@ void mock_reset(void) {
   mock_fb_capture_count = 0;
   mock_fb_release_count = 0;
   mock_window_set_bg_count = 0;
+  mock_hidden_count = 0;
   mock_speaker_muted = false;
   mock_speaker_play_tracks_count = 0;
   mock_speaker_last_num_tracks = 0;
