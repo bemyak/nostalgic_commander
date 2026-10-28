@@ -3,28 +3,31 @@
 #include "data.h"
 
 // The CRT effect lives entirely here: a full-screen overlay layer stacked
-// above the clock whose update proc captures the framebuffer (the public
-// graphics_capture_frame_buffer API) and runs a per-pixel pass — a software
-// "shader". Stage order: 1) chromatic aberration, 2) curvature — the pincushion
-// warp, then the vignette pane over the result. The pane is a fixed darkening
-// in front of the glass: how much a pixel is darkened depends on its screen
-// position and the theme's falloff curve (light-background themes take a
-// steeper ease-in LUT — dot density over shade, black only at the rim), never
-// on the pixel's content, and it is applied last in every frame. Its shape is
-// the falloff of the content space pushed through the warp: the pane at a glass
-// pixel is the falloff at the content position the warp shows there, dither
-// phase included. Each axis maps its edge distance onto the LUTs' 0..16 domain,
-// so CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on their
-// own. The degauss strike skips stages 1 and 2: its first frame is captured raw
-// (the canvas's scene cache is lent for it) and, with curvature on, warped once
-// in place by stage 2's row helper; every frame gathers each pixel from that
-// curved capture, pulling its edges in as a pincushion pulse, black beyond the
-// raster, fringing R and B as it samples and rotating each pixel's hue into
-// purity stripes, greys tinted a step, black left alone. The pane then runs
-// over the result, as it does over a normal frame. Without a cache to borrow
-// the strike runs the stages in place and gathers from their output.
+// above the canvas whose update proc captures the framebuffer (the public
+// graphics_capture_frame_buffer API) and writes every pixel of it from the
+// canvas's scene cache, the raw frame, clock included — a software "shader".
+// The stages that depend only on the scene run once per scene, baked into the
+// cache: 1) chromatic aberration, 2) curvature, the pincushion warp. Every frame
+// is then gathered from it: a copy when idle, or the degauss strike, pulling its
+// edges in as a pincushion pulse, black beyond the raster, fringing R and B by
+// its boost and rotating each pixel's hue into purity stripes, greys tinted a
+// step, black left alone. The vignette pane runs last, over either. It is a
+// fixed darkening in front of the glass: how much a pixel is darkened depends on
+// its screen position and the theme's falloff curve (light-background themes
+// take a steeper ease-in LUT — dot density over shade, black only at the rim),
+// never on the pixel's content, with one exception: a coloured pixel keeps its
+// channels together (hold_hue) instead of decaying into another palette colour.
+// Its shape is the falloff of the content space pushed through the warp: the pane
+// at a glass pixel is the falloff at the content position the warp shows there,
+// dither phase included. Each axis maps its edge distance onto the LUTs' 0..16
+// domain, so CRT_VIGNETTE_SIDE_PX and CRT_VIGNETTE_BAND_PX size the four rims on
+// their own. Being content-blind, the pane cannot tell ink from field on light
+// themes: judge their captions at the rim on the watch.
+// The rim's gain is tabulated per theme curve (~14 KB heap) because computing it
+// per pixel per frame would be the pane's whole cost.
 // The toggle gates the pass; off means the proc returns before capturing, so
-// the effect costs exactly nothing.
+// the effect costs exactly nothing, and a degauss-only face is left to the
+// canvas between strikes (crt_paints).
 //
 // main.c owns the layer's lifecycle (create/stack/destroy), like the canvas;
 // the handle is mirrored here the way drawing.h mirrors s_canvas_layer.
@@ -110,8 +113,9 @@ extern Layer* s_crt_layer;
 // saturates just inside a mid-edge. A shift, not a divide — stage 1 runs this
 // per pixel.
 //
-// Vertical still steps: its shift is whole rows (the ring samples y±1, there
-// is no fractional row), so there is nothing between 0 and 1 to ramp through.
+// Vertical still steps: its shift is whole rows (the bake samples the raw row
+// y±1, there is no fractional row), so there is nothing between 0 and 1 to
+// ramp through.
 // Its jump is 1px against the horizontal's 1+1/3, and it was not the visible
 // edge. A box takes the vertical shift at its centre, too.
 #define CRT_CA_R2_Q8 170
@@ -142,6 +146,10 @@ extern Layer* s_crt_layer;
 // hold the strike for CRT_BUTTON_WAKE_DELAY_MS and strike only if the face is
 // still there. A shake that lit nothing stops counting after
 // CRT_SHAKE_WAKE_WINDOW_MS.
+// 40 ms because the panel's push of a full frame takes ~39 ms (JDI scan at the
+// LCDC's HCK), so a shorter tick only makes the compositor wait and samples the
+// phases unevenly; 40 is the smallest tick at or above it that fits the 720 ms
+// strike and the sound's 45 ms steps.
 #define CRT_FLASH_TICK_MS 40
 #define CRT_FLASH_PHASES 18
 #define CRT_FLASH_IDLE (-1)
@@ -152,9 +160,9 @@ extern Layer* s_crt_layer;
 #define CRT_SHAKE_WAKE_WINDOW_MS 250
 
 // One text box: columns x0..x1-1 and rows y0..y1-1 of the face, taking a
-// constant CA of `sh` px across and `sv` rows down (before the strike's boost,
-// which adds whole px to `sh`). `left` picks the half whose pull direction it
-// uses: R from the right on the left half, mirrored on the right.
+// constant CA of `sh` px across and `sv` rows down. `left` picks the half whose
+// pull direction it uses: R from the right on the left half, mirrored on the
+// right.
 typedef struct {
   int x0, x1, y0, y1;
   int sh, sv;
@@ -169,7 +177,7 @@ typedef struct {
 // its length.
 int crt_text_boxes(const CrtTextBox** boxes);
 // The strike gather's displacement at dest (x, y) in frame `phase`, px: the
-// source sits at (x + dx, y + dy) before the curvature warp's own position.
+// source sits at (x + dx, y + dy) of the baked scene.
 void crt_strike_field(int x, int y, int phase, int* dx, int* dy);
 // The hue band (0..5, sixths of a turn) the gather rotates dest (x, y) by.
 int crt_strike_band(int x, int y, int phase);
@@ -178,23 +186,23 @@ int crt_strike_band(int x, int y, int phase);
 int crt_vignette_q8_from_depth(int d);
 #endif
 
+// Whether the layer writes the frame: an effect is on or a strike is running.
+// The canvas leaves the framebuffer alone then, its scene cache being the
+// layer's source.
+bool crt_paints(void);
+
+#ifdef TEST_ENV
 // The whole pass over an 8-bit GColor8 framebuffer (0xAARRGGBB packed bytes,
-// row-major, `stride` bytes per row, w*h visible). Touch only via these:
-// tests drive it with a mock buffer.
+// row-major, `stride` bytes per row, w*h visible) as a test convenience: the
+// buffer is copied into a scene, baked and rendered back, as the layer does it.
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase);
-// The same pass with its stages chosen: `aberration` is stage 1 (RGB fringing),
-// `curvature` stage 2 and the vignette pane (warp, then the pane over it). With
-// curvature off the sampling is an exact copy. A strike (flash_phase in range) runs the fringing
-// and the pulse and stripes regardless, as the strike always shows both; with its frame captured
-// (crt_update_proc does that, curving it when `curvature` is on) it gathers from the capture
-// instead of running stages 1 and 3.
+// The same with the effects chosen: `aberration` is stage 1 (RGB fringing),
+// `curvature` stage 2 and the vignette pane. With curvature off the sampling is
+// an exact copy; a strike (flash_phase in range) gathers with its pulse, fringe
+// and stripes whatever the settings say.
 void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
                                   bool aberration, bool curvature);
-
-// True while a strike has the face's layers skipped (hidden, background not
-// filled); refresh_state() leaves the window background to the strike then,
-// which restores it from the active theme when it ends.
-bool crt_strike_layers_skipped(void);
+#endif
 
 void crt_update_proc(Layer* layer, GContext* ctx);
 void crt_backlight_handler(bool on);
@@ -216,14 +224,15 @@ void crt_app_focus_did_handler(bool in_focus);
 // Seeds the focus state for a subscription taken after launch, when the
 // did_focus that would establish it has already come and gone.
 void crt_set_in_focus(bool in_focus);
-// Re-applies the effect settings: with any effect on it only marks the overlay
-// dirty; turning the last off repaints — the OFF frame is painted by the
-// canvas/clock underneath once the background re-dirties, the overlay then
-// paints nothing over it. Turning degauss off ends any strike.
+// Re-applies the effect settings: the scene cache is dropped, as its bake
+// depends on them, and the canvas repaints; with any effect on the overlay is
+// marked dirty; turning the last off repaints — the OFF frame is painted by the
+// canvas underneath once the background re-dirties, the overlay then paints
+// nothing over it. Turning degauss off ends any strike.
 void crt_apply_setting_change(void);
 
 // Window-unload teardown, called before main.c destroys the overlay layer:
-// cancels the strike timer, resets the strike state, frees the strike PCM and
-// clears s_crt_layer, so a late tick or backlight event cannot touch a freed
-// layer. Idempotent.
+// cancels the strike, cover-grace, button-wake and shake timers, resets the
+// strike state, frees the pane table and clears s_crt_layer, so a late tick or backlight event
+// cannot touch a freed layer. Idempotent.
 void crt_deinit(void);

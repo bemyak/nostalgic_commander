@@ -424,13 +424,12 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
         *s_settings_fields[i].target != old) {
       window_changed = true;
     }
-    // The CRT overlay repaints outside the canvas's snapshot gate, so a toggle
-    // needs its own dirty-mark (units/window only schedule fetches). The sound
-    // volume goes through the same hook to release its PCM.
+    // The CRT effects are baked into the scene cache, so a toggle drops it and
+    // repaints (units/window only schedule fetches). The sound volume is read
+    // at the next strike.
     if ((s_settings_fields[i].target == &s_settings_crt_aberration ||
          s_settings_fields[i].target == &s_settings_crt_curvature ||
-         s_settings_fields[i].target == &s_settings_crt_degauss ||
-         s_settings_fields[i].target == &s_settings_degauss_volume) &&
+         s_settings_fields[i].target == &s_settings_crt_degauss) &&
         *s_settings_fields[i].target != old) {
       crt_apply_setting_change();
     }

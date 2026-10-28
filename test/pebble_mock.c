@@ -513,26 +513,6 @@ void layer_mark_dirty(Layer* layer) {
   (void)layer;
   mock_mark_dirty_count++;
 }
-// Hidden flags by layer pointer: the sentinel layers are few.
-static Layer* mock_hidden_layers[16];
-static bool mock_hidden_flags[16];
-static int mock_hidden_count = 0;
-void layer_set_hidden(Layer* layer, bool hidden) {
-  for (int i = 0; i < mock_hidden_count; i++) {
-    if (mock_hidden_layers[i] == layer) {
-      mock_hidden_flags[i] = hidden;
-      return;
-    }
-  }
-  mock_hidden_layers[mock_hidden_count] = layer;
-  mock_hidden_flags[mock_hidden_count++] = hidden;
-}
-bool layer_get_hidden(const Layer* layer) {
-  for (int i = 0; i < mock_hidden_count; i++) {
-    if (mock_hidden_layers[i] == layer) return mock_hidden_flags[i];
-  }
-  return false;
-}
 void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc) {
   (void)layer;
   (void)update_proc;
@@ -586,44 +566,6 @@ status_t persist_delete(const uint32_t key) {
 }
 void mock_persist_reset(void) {
   s_mock_persist_count = 0;
-}
-
-static char mock_text_layer_storage[8];
-static int mock_text_layers_given = 0;
-TextLayer* text_layer_create(GRect frame) {
-  (void)frame;
-  return (TextLayer*)&mock_text_layer_storage[mock_text_layers_given++ % 8];
-}
-void text_layer_destroy(TextLayer* text_layer) {
-  (void)text_layer;
-}
-Layer* text_layer_get_layer(TextLayer* text_layer) {
-  return (Layer*)text_layer;
-}
-void text_layer_set_background_color(TextLayer* text_layer, GColor color) {
-  (void)text_layer;
-  (void)color;
-}
-void text_layer_set_font(TextLayer* text_layer, GFont font) {
-  (void)text_layer;
-  (void)font;
-}
-int mock_set_text_count = 0;
-char mock_last_text[32] = "";
-void text_layer_set_text(TextLayer* text_layer, const char* text) {
-  (void)text_layer;
-  mock_set_text_count++;
-  snprintf(mock_last_text, sizeof(mock_last_text), "%s", text);
-}
-void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment) {
-  (void)text_layer;
-  (void)text_alignment;
-}
-int mock_set_text_color_count = 0;
-void text_layer_set_text_color(TextLayer* text_layer, GColor color) {
-  (void)text_layer;
-  (void)color;
-  mock_set_text_color_count++;
 }
 
 int mock_tick_subscribe_count = 0;
@@ -715,11 +657,9 @@ Layer* window_get_root_layer(const Window* window) {
 }
 int mock_window_set_bg_count = 0;
 GColor mock_window_first_bg;
-GColor mock_window_last_bg;
 void window_set_background_color(Window* window, GColor background_color) {
   (void)window;
   if (mock_window_set_bg_count == 0) mock_window_first_bg = background_color;
-  mock_window_last_bg = background_color;
   mock_window_set_bg_count++;
 }
 void window_set_window_handlers(Window* window, WindowHandlers handlers) {
@@ -782,9 +722,6 @@ void mock_reset(void) {
   mock_speaker_tone_volume = 0;
   mock_speaker_tone_waveform = SpeakerWaveformSine;
   mock_mark_dirty_count = 0;
-  mock_set_text_count = 0;
-  mock_set_text_color_count = 0;
-  mock_last_text[0] = '\0';
   mock_tick_subscribe_count = 0;
   mock_tick_units = 0;
   mock_battery_subscribe_count = 0;
@@ -803,7 +740,6 @@ void mock_reset(void) {
   mock_fb_capture_count = 0;
   mock_fb_release_count = 0;
   mock_window_set_bg_count = 0;
-  mock_hidden_count = 0;
   mock_speaker_muted = false;
   mock_speaker_play_tracks_count = 0;
   mock_speaker_last_num_tracks = 0;
@@ -819,7 +755,6 @@ void mock_reset(void) {
   mock_persist_write_count = 0;
   mock_layers_given = 0;
   mock_layer_destroy_count = 0;
-  mock_text_layers_given = 0;
   mock_unobstructed_bounds = GRect(0, 0, 200, 228);
   s_mock_fill_color = GColorClear;
   s_mock_text_color = GColorClear;

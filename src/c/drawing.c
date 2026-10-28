@@ -2,6 +2,7 @@
 #include "drawing.h"
 #include "data.h"
 #include "complication.h"
+#include "crt.h"
 #include "status.h"
 #include "theme.h"
 
@@ -853,18 +854,17 @@ static bool quick_view_covers_slot(int index) {
 
 // Whole-face scene cache: a framebuffer snapshot reused on re-renders whose
 // content hasn't changed. The window engine bg-fills and re-runs every
-// layer's proc on each pass, so during strike ticks the scene gets painted
-// from scratch every 90ms — glyphs and frames were the non-pass half of the
-// ~93ms blocked stretch that starved the stock FW's 128ms audio ring.
-// Redrawn only via request_ui_redraw()/invalidation.
+// layer's proc on each pass, and a strike frame every CRT_FLASH_TICK_MS, so
+// glyphs and frames are drawn once per scene, not per frame. Redrawn only via
+// request_ui_redraw()/invalidation. The CRT layer reads it as the scene its
+// frames come from, and bakes the stages that depend only on the scene into it
+// once (s_scene_cache_baked) rather than per frame.
 // HEAP, not .bss: apps have a 64KB virtual_size window and 45.6KB of static
 // cache blows straight through it.
 #define CANVAS_CACHE_BYTES (SCREEN_W * SCREEN_H)
 static uint8_t* s_scene_cache = NULL;
 static bool s_scene_cache_valid = false;
-// Lent to the CRT strike as its frame store: the cache holds no scene, and the
-// canvas stays out of the framebuffer until it is returned.
-static bool s_scene_cache_borrowed = false;
+static bool s_scene_cache_baked = false;
 
 // Row-wise copy through GBitmapDataRowInfo, which gives each row's data
 // pointer and valid column range regardless of the driver's row stride. The
@@ -888,25 +888,26 @@ static void cache_rows_to(GBitmap* fb) {
 // the next render repaints and re-snapshots instead of blitting.
 void canvas_invalidate_cache(void) {
   s_scene_cache_valid = false;
+  s_scene_cache_baked = false;
 }
 
-uint8_t* canvas_cache_borrow(void) {
-  if (!s_scene_cache) return NULL;
-  s_scene_cache_borrowed = true;
-  s_scene_cache_valid = false;
-  return s_scene_cache;
+uint8_t* canvas_scene(void) {
+  return s_scene_cache_valid ? s_scene_cache : NULL;
 }
 
-void canvas_cache_return(void) {
-  s_scene_cache_borrowed = false;
-  s_scene_cache_valid = false;
+bool canvas_scene_baked(void) {
+  return s_scene_cache_baked;
+}
+
+void canvas_scene_mark_baked(void) {
+  s_scene_cache_baked = true;
 }
 
 void canvas_deinit(void) {
   free(s_scene_cache);
   s_scene_cache = NULL;
   s_scene_cache_valid = false;
-  s_scene_cache_borrowed = false;
+  s_scene_cache_baked = false;
   s_canvas_layer = NULL;
 }
 
@@ -916,19 +917,18 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   // window_do_layer_update_proc), and apply_theme() keeps it at center_bg.
   (void)layer;
 
-  // The strike's gather overwrites every pixel the canvas would draw.
-  if (s_scene_cache_borrowed) return;
-
   // Cache hit: blit and done. Capture-then-write ONLY here — the framebuffer
   // may not be drawn into by SDK draw calls while captured, so the live-draw
   // path stays capture-free until after it paints (capturing first yields a
   // black interior, which would then be snapshotted).
   if (s_scene_cache && s_scene_cache_valid) {
+    // The CRT layer writes every pixel from the cache.
+    if (crt_paints()) return;
     GBitmap* fb = graphics_capture_frame_buffer(ctx);
     if (fb) {
-      // The snapshot holds bg+canvas content only — the clock draws after us,
-      // the CRT overlay after it; neither is in the cache, both reapply on
-      // top. Byte-identical to a live redraw.
+      // The snapshot holds bg+canvas content, clock included; the CRT overlay
+      // draws after it and is not in the cache. Byte-identical to a live
+      // redraw.
       cache_rows_to(fb);
       graphics_release_frame_buffer(ctx, fb);
       return;
@@ -938,6 +938,9 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   // TIME is fixed; the centre row is the sixth slot, so the loop below draws
   // its frame and title from whatever source it holds.
   draw_ascii_window(ctx, TIME_WINDOW_RECT, "TIME");
+  graphics_context_set_text_color(ctx, s_active_theme->text_primary);
+  graphics_draw_text(ctx, s_time_text, vga_font_64(), CLOCK_RECT, GTextOverflowModeFill,
+                     GTextAlignmentCenter, NULL);
 
   // Draw parameterized ASCII windows
   for (int i = 0; i < NUM_SLOTS; i++) {
@@ -962,6 +965,7 @@ void canvas_update_proc(Layer* layer, GContext* ctx) {
   if (fb) {
     cache_rows_from(fb);
     s_scene_cache_valid = true;
+    s_scene_cache_baked = false;
     graphics_release_frame_buffer(ctx, fb);
   }
 }
@@ -983,6 +987,8 @@ typedef struct {
   // snapshotted text — an equal-value day flips the frame alone, so the
   // lead itself is display state (one derivation shared by all HI/LO slots).
   bool hi_lo_hi_leads;
+  // The clock is drawn on the canvas: the minute turning is display state.
+  char time_text[sizeof(s_time_text)];
 } UiSnapshot;
 
 // What the last scheduled render will draw. Compared whole; build_snapshot
@@ -999,6 +1005,7 @@ static void build_snapshot(UiSnapshot* s) {
   s->theme = s_active_theme;
   s->quick_view_active = s_quick_view_active;
   s->hi_lo_hi_leads = high_low_hi_leads();
+  memcpy(s->time_text, s_time_text, sizeof(s->time_text));
   for (int i = 0; i < NUM_SLOTS; i++) {
     ComplicationSlot* slot = &s_complication_slots[i];
     // The label and frame follow the configured source; the value follows
@@ -1015,10 +1022,9 @@ void reset_ui_snapshot(void) {
   memset(&s_shown_ui, 0, sizeof(s_shown_ui));
 }
 
-// Schedules a render only when what the screen shows has changed. The tick's
-// clock set_text already guarantees one full-tree render a minute (PebbleOS
-// marks carry no region and re-run every visible layer's update_proc), so
-// this gate is about events: health, battery, Bluetooth, inbox.
+// Schedules a render only when what the screen shows has changed. The clock
+// text is in the snapshot, so the minute tick renders once a minute; the rest
+// of the gate is about events: health, battery, Bluetooth, inbox.
 void request_ui_redraw(void) {
   UiSnapshot now;
   build_snapshot(&now);

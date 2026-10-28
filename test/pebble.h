@@ -15,7 +15,6 @@
 // --- Types ---
 typedef struct Window Window;
 typedef struct Layer Layer;
-typedef struct TextLayer TextLayer;
 typedef struct GContext GContext;
 typedef struct DictionaryIterator DictionaryIterator;
 typedef void AppTimer;
@@ -398,8 +397,6 @@ void layer_destroy(Layer* layer);
 GRect layer_get_bounds(const Layer* layer);
 GRect layer_get_unobstructed_bounds(const Layer* layer);
 void layer_mark_dirty(Layer* layer);
-void layer_set_hidden(Layer* layer, bool hidden);
-bool layer_get_hidden(const Layer* layer);
 void layer_set_update_proc(Layer* layer, LayerUpdateProc update_proc);
 bool persist_exists(const uint32_t key);
 int32_t persist_read_int(const uint32_t key);
@@ -444,9 +441,6 @@ extern uint8_t mock_speaker_tone_volume;
 extern SpeakerWaveform mock_speaker_tone_waveform;
 extern int mock_outbox_sends;
 extern int mock_mark_dirty_count;
-extern int mock_set_text_count;
-extern int mock_set_text_color_count;
-extern char mock_last_text[32];  // most recent text_layer_set_text payload
 // Subscription recording: init()'s wiring is asserted, not assumed.
 extern int mock_tick_subscribe_count;
 extern TimeUnits mock_tick_units;
@@ -488,7 +482,6 @@ extern int mock_fb_capture_count;
 extern int mock_fb_release_count;
 extern int mock_window_set_bg_count;
 extern GColor mock_window_first_bg;
-extern GColor mock_window_last_bg;
 extern bool mock_speaker_muted;
 extern int mock_speaker_play_tracks_count;
 extern uint32_t mock_speaker_last_num_tracks;
@@ -523,17 +516,9 @@ void mock_dict_add_cstring(uint32_t key, const char* str);
 // Outbound capture (writes between outbox_begin and outbox_send).
 int mock_outbox_write_count(void);
 bool mock_outbox_has(uint32_t key, uint8_t value);
-TextLayer* text_layer_create(GRect frame);
-void text_layer_destroy(TextLayer* text_layer);
-Layer* text_layer_get_layer(TextLayer* text_layer);
-void text_layer_set_background_color(TextLayer* text_layer, GColor color);
-void text_layer_set_font(TextLayer* text_layer, GFont font);
-void text_layer_set_text(TextLayer* text_layer, const char* text);
-void text_layer_set_text_alignment(TextLayer* text_layer, GTextAlignment text_alignment);
 bool speaker_is_muted(void);
 bool speaker_play_tone(uint16_t frequency_hz, uint32_t duration_ms, uint8_t volume,
                        SpeakerWaveform waveform);
-void text_layer_set_text_color(TextLayer* text_layer, GColor color);
 void tick_timer_service_subscribe(TimeUnits tick_units, TickHandler handler);
 void tick_timer_service_unsubscribe(void);
 void unobstructed_area_service_subscribe(UnobstructedAreaHandlers handlers, void* context);

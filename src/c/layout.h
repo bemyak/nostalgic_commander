@@ -36,10 +36,10 @@
 #define TIME_WINDOW_RECT GRect(TIME_WINDOW_X, TIME_WINDOW_Y, TIME_WINDOW_W, TIME_WINDOW_H)
 
 // The VGA 8x16 font baked at size 64: cells are 64px tall. Feeds the clock
-// layer below; every other slot uses the 16px metrics from drawing.h.
+// run below; every other slot uses the 16px metrics from drawing.h.
 #define VGA64_CELL_H 64
 
-// The clock TextLayer: one 64pt cell high, inset 4px per side, and a
+// The clock run: one 64pt cell high, inset 4px per side, and a
 // deliberate 1px up-overlap past the window's top edge — the digits' ink
 // renders low in the cell, so the overlap keeps the clock optically centred.
 #define CLOCK_RECT GRect(TIME_WINDOW_X + 4, TIME_WINDOW_Y - 1, TIME_WINDOW_W - 8, VGA64_CELL_H)

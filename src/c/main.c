@@ -8,20 +8,15 @@
 #include "crt.h"
 #include "chime.h"
 
-// The window, the canvas everything draws on, and the clock row — owned here,
+// The window and the canvas everything draws on — owned here,
 // with lifecycle. drawing.c/the drawers read the handles via drawing.h/main.h.
 Window* s_main_window = NULL;
 Layer* s_canvas_layer = NULL;
-TextLayer* s_time_layer = NULL;
 Layer* s_crt_layer = NULL;
 
 // Two baked sizes of the same VGA 8x16 bitmap TTF, loaded once at init.
 static GFont s_vga_16;
 static GFont s_vga_64;
-
-// What the clock layer currently says (guards the unconditional
-// text_layer_set_text dirty-mark, below). Cleared on window load.
-static char s_shown_time[8] = "";
 
 // The date changes at midnight and on settings pushes only; reformat then,
 // not per tick. Consecutive days never share a tm_yday. File scope so tests
@@ -154,34 +149,22 @@ void refresh_state(void) {
   apply_theme();
 
   // A settings push can change the theme while the face is open; the window
-  // and time layer keep their load-time colors unless re-applied here.
-  // Everything else is canvas-drawn and follows on redraw.
-  if (s_main_window && !crt_strike_layers_skipped()) {
-    window_set_background_color(s_main_window, s_active_theme->center_bg);
-  }
-  if (s_time_layer) text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
+  // keeps its load-time color unless re-applied here. Everything else is
+  // canvas-drawn and follows on redraw.
+  if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
 
   s_beats = compute_beats(temp);
   s_solar_hour_angle = compute_solar_hour_angle(temp, s_longitude);
   s_week_number =
       iso_week_number(tick_time->tm_year + 1900, tick_time->tm_yday, tick_time->tm_wday);
 
-  static char s_time_buffer[8];
-  strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M",
-           tick_time);
-
-  char* time_str = s_time_buffer;
-  if (!clock_is_24h_style() && s_time_buffer[0] == '0') {
+  char time_buffer[sizeof(s_time_text)];
+  strftime(time_buffer, sizeof(time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M", tick_time);
+  const char* time_str = time_buffer;
+  if (!clock_is_24h_style() && time_buffer[0] == '0') {
     time_str++;  // strip leading zero
   }
-  // Guards the unconditional dirty-mark in text_layer_set_text: an unchanged
-  // string here would schedule a render and defeat the gate on every inbox
-  // message. On a MINUTE_UNIT tick the string always differs — the 1440/day
-  // floor is unaffected. s_shown_time is file-scope (see main_window_load).
-  if (s_time_layer && strcmp(time_str, s_shown_time) != 0) {
-    strncpy(s_shown_time, time_str, sizeof(s_shown_time) - 1);
-    text_layer_set_text(s_time_layer, time_str);
-  }
+  snprintf(s_time_text, sizeof(s_time_text), "%s", time_str);
 
   if (tick_time->tm_yday != s_fmt_yday || s_settings_date_format != s_fmt_format ||
       s_settings_short_date_format != s_fmt_short || s_settings_dow_position != s_fmt_dow) {
@@ -412,13 +395,6 @@ static void main_window_load(Window* window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  s_time_layer = text_layer_create(CLOCK_RECT);
-  text_layer_set_background_color(s_time_layer, GColorClear);
-  text_layer_set_text_color(s_time_layer, s_active_theme->text_primary);
-  text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
-  text_layer_set_font(s_time_layer, vga_font_64());
-  layer_add_child(window_layer, text_layer_get_layer(s_time_layer));
-
   // Topmost: the CRT overlay draws over the clock too (a tube has no
   // privileged pixels). It paints nothing while the setting is off.
   s_crt_layer = layer_create(bounds);
@@ -428,7 +404,6 @@ static void main_window_load(Window* window) {
   // Fresh layer tree: the next request_ui_redraw()/refresh_state() must apply
   // unconditionally, not match a previous layer tree's snapshot.
   reset_ui_snapshot();
-  s_shown_time[0] = '\0';
 
   // Layers exist now: subscribe, and evaluate once so the face comes up
   // correct if Quick View is already up (e.g. a relaunch with the peek out).
@@ -440,8 +415,6 @@ static void main_window_load(Window* window) {
 static void main_window_unload(Window* window) {
   (void)window;
   unobstructed_area_service_unsubscribe();
-  text_layer_destroy(s_time_layer);
-  s_time_layer = NULL;
   Layer* crt_layer = s_crt_layer;
   Layer* canvas_layer = s_canvas_layer;
   crt_deinit();

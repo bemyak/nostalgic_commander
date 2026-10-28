@@ -50,6 +50,7 @@ int s_solar_elevation = 0;
 int s_week_number = 1;
 char s_date_display[64] = "";
 char s_short_date_display[16] = "";
+char s_time_text[8] = "";
 
 // UI state.
 bool s_quick_view_active = false;

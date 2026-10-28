@@ -137,6 +137,10 @@ bool location_known(void);
 extern char s_date_display[64];
 extern char s_short_date_display[16];
 
+// The clock as last formatted by refresh_state(); drawn on the canvas. The
+// 12h style has no leading zero.
+extern char s_time_text[8];
+
 // Units option values; Clay sends them as strings, messaging.c's
 // tuple_get_int parses them to ints.
 #define UNITS_IMPERIAL 0

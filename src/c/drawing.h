@@ -16,8 +16,7 @@
 #define VGA16_CELL_H 16
 
 // Where a value sits inside its window, measured from the box origin. Shared
-// by every slot's canvas value run; the big clock row is the lone TextLayer
-// left.
+// by every slot's canvas value run.
 #define VALUE_ROW_DY 10
 #define VALUE_ROW_H 24
 
@@ -92,12 +91,17 @@ void request_ui_redraw(void);
 // state globals.
 void reset_ui_snapshot(void);
 
-// The CRT strike's frame store: the scene cache, lent for the strike's length,
-// or NULL when it was never allocated. The cache holds no scene while lent and
-// the canvas proc draws nothing; returning it invalidates it, so the canvas
-// repaints from scratch on its next render.
-uint8_t* canvas_cache_borrow(void);
-void canvas_cache_return(void);
+// The scene cache the CRT layer renders from: the whole raw frame (background,
+// frames, slots, clock) once the canvas has drawn it, or NULL while it is stale
+// or was never allocated. The CRT bakes the stages that depend only on the scene
+// into it, once, and says so with canvas_scene_mark_baked(); the canvas's next
+// live draw or an invalidation clears the flag along with the scene.
+uint8_t* canvas_scene(void);
+bool canvas_scene_baked(void);
+void canvas_scene_mark_baked(void);
+
+// The scene's contents changed: the next render repaints and re-snapshots.
+void canvas_invalidate_cache(void);
 
 // Window-unload teardown, called before main.c destroys the canvas layer:
 // frees the scene cache and clears s_canvas_layer, so a late event cannot

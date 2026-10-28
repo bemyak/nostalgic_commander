@@ -20,6 +20,27 @@
 
 #define GCOLOR8_ALPHA 0xC0
 
+// Per-frame timings on the app log (one line per overlay frame: the phase, the
+// bake, the gather or copy, the pane), for tuning the strike's tick against
+// what the watch can draw. Off in the shipped build: set it to 1 here or pass
+// -DCRT_TIMING=1. The host suite has no time_ms and would log every frame.
+#ifndef CRT_TIMING
+#define CRT_TIMING 0
+#endif
+#ifdef TEST_ENV
+#undef CRT_TIMING
+#define CRT_TIMING 0
+#endif
+#if CRT_TIMING
+static uint32_t timing_pane_ms;
+static uint32_t crt_now_ms(void) {
+  time_t s;
+  uint16_t ms;
+  time_ms(&s, &ms);
+  return (uint32_t)s * 1000 + ms;
+}
+#endif
+
 // Current warm-up phase, or CRT_FLASH_IDLE. Advanced by the self-re-arming
 // flash tick; written by crt_backlight_handler on backlight-on.
 static int s_flash_phase = CRT_FLASH_IDLE;
@@ -55,29 +76,8 @@ static AppTimer* s_button_wake_timer = NULL;
 // when the shake lit nothing (light already on, motion backlight disabled).
 static bool s_shake_wake = false;
 static AppTimer* s_shake_wake_timer = NULL;
-// The raw composed frame (canvas and clock, no pass) a strike gathers from,
-// borrowed from the canvas's scene cache on the strike's first frame. NULL
-// outside a strike, and for one whose borrow found no cache (malloc failed):
-// that strike runs the passes in place on the live frame.
-static const uint8_t* s_strike_src = NULL;
-// The strike overwrites every pixel from s_strike_src, so from the frame after
-// the capture until the release the layers under it are not drawn: the canvas
-// and clock layers hidden, the window not filling its background.
-static bool s_strike_layers_skipped = false;
-
 static void crt_flash_start(void* data);
 static void crt_flash_tick(void* data);
-
-#ifndef TEST_ENV
-static int timing_bake_ms;
-static int timing_gather_ms;
-static int timing_vig_ms;
-static time_t timing_mark_s;
-static uint16_t timing_mark_ms;
-#define TIMING_MARK() time_ms(&timing_mark_s, &timing_mark_ms)
-#else
-#define TIMING_MARK()
-#endif
 
 static void crt_cover_grace_cancel(void) {
   if (s_cover_grace_timer) {
@@ -176,7 +176,7 @@ static inline int corner_depth(int ex, int ey) {
 // ramping to 4 (1+1/3 px) over CRT_CA_RAMP_SHIFT — see crt.h for why it ramps
 // rather than steps. Thirds because the pass samples channels fractionally
 // (two weighted taps) instead of copying whole neighbours — see stage 1 in
-// crt_apply_framebuffer. Zone boundary squared once: rq ≥ R ⇔ xq+yq ≥
+// ca_row. Zone boundary squared once: rq ≥ R ⇔ xq+yq ≥
 // ceil(R²/256) — so no per-pixel sqrt is needed.
 static inline int crt_ca_t3_h2(int xy_sum) {
   if (xy_sum <= CRT_CA_R2_X2Q8) return 0;
@@ -288,8 +288,8 @@ int crt_vignette_q8_from_depth(int d) {
 // linear between), and everything reads it at its own rate: the frames at
 // their tick, the sound's rumble at its own steps. The pulse scales with it; at
 // the first frame's 6 px a corner moves CRT_STRIKE_REACH_PX rows, the most any
-// pixel moves vertically, which sizes the gather's row ring. The sub-pixel
-// steps keep consecutive frames from repeating.
+// pixel moves vertically. The sub-pixel steps keep consecutive frames from
+// repeating.
 #define CRT_STRIKE_AMP_SHIFT 4
 #define CRT_STRIKE_KNOT_MS 90
 static const uint8_t s_strike_knots_px[] = {6, 4, 3, 2, 1, 1, 0, 0};
@@ -328,9 +328,9 @@ static int16_t crt_wave_q15(uint32_t phase_q16);
 #define CRT_STRIKE_PULSE_X_Q16 2500
 #define CRT_STRIKE_PULSE_Y_Q16 2138
 #define CRT_STRIKE_LOBE_Q8 200
-// Turns per frame, Q16: 8192 and 4915 per 45 ms, per frame of CRT_FLASH_TICK_MS
-// (rounded: 4 and 2 of 65536 over the strike). The sideways pull's lobes run
-// down the rows, the vertical pull's along the columns.
+// Turns per frame, Q16: the sideways pull's lobes run down the rows at 8192
+// turns per 45 ms, the vertical pull's along the columns at 4915 per 45 ms, so
+// a 40 ms frame advances them 7282 and 4369.
 #define CRT_STRIKE_LOBE_STEP_X 7282
 #define CRT_STRIKE_LOBE_STEP_Y 4369
 
@@ -465,26 +465,24 @@ static void blend_levels(uint8_t p0, uint8_t p1, int fr, int* r, int* g, int* b)
   }
 }
 
-// Vertical CA samples neighbour rows; the row the pass writes into must stay
-// raw for the reader. Ring of the last three raw rows, populated in the row's
-// own turn, read for ±s_v offsets below/above.
-static uint8_t s_vraw_ring[3][SCREEN_W];
-
 // A text box's row of CA, from the raw source rows: R and B are exact copies
 // `sh` whole px over (R from the right on the left half), G is the pixel's own.
 static void ca_box_span(uint8_t* out, const uint8_t* row, const uint8_t* rrow, const uint8_t* brow,
-                        const CrtTextBox* b, int boost) {
-  int sh = b->sh + boost;
-  int dr = b->left ? sh : -sh;
+                        const CrtTextBox* b) {
+  int dr = b->left ? b->sh : -b->sh;
   for (int x = b->x0; x < b->x1; x++) {
     out[x] = GCOLOR8_ALPHA | (rrow[x + dr] & 0x30) | (row[x] & 0x0C) | (brow[x - dr] & 0x03);
   }
 }
 
+#ifdef TEST_ENV
+// The rules s_strike_band_px is written out from; the gather reads only the
+// table, so they are here for the test that pins it entry by entry.
+//
 // The pixel with its channels cycled by `band` (1..5), alpha kept: even bands
 // take the channels rotated by band / 2 places, odd ones average that with one
 // place further.
-static uint8_t strike_hue(uint8_t v, int band) {
+uint8_t strike_hue(uint8_t v, int band) {
   const int c[6] = {(v >> 4) & 3, (v >> 2) & 3, v & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3};
   const int k = 3 - (band >> 1);
   int o[3];
@@ -509,6 +507,7 @@ static const uint8_t s_strike_grey_tint[4][6] = {
     {STRIKE_TINT(3, 3, 3), STRIKE_TINT(3, 3, 1), STRIKE_TINT(1, 3, 1), STRIKE_TINT(1, 3, 3),
      STRIKE_TINT(1, 1, 3), STRIKE_TINT(3, 1, 3)},
 };
+#endif
 
 // The stripes of every pixel value in every band, for the gather's one read per
 // pixel: a grey takes s_strike_grey_tint's tint, anything else strike_hue's
@@ -557,318 +556,6 @@ static inline uint8_t strike_ca_pixel(const uint8_t* srow, int x, int dr, int w)
   return GCOLOR8_ALPHA | (srow[rx] & 0x30) | (srow[x] & 0x0C) | (srow[bx] & 0x03);
 }
 
-// The pixel at column `sx` of a source row as stage 2 would blend it: the
-// fringed pixel and its right neighbour, `fr` of 256 of the way across.
-static inline uint8_t strike_blend(const uint8_t* srow, int sx, int dr, int w, int fr) {
-  uint8_t p0 = strike_ca_pixel(srow, sx, dr, w);
-  uint8_t p1 = fr ? strike_ca_pixel(srow, sx + 1, dr, w) : p0;
-  uint8_t v = p0;
-  if (p0 != p1) {
-    int r, g, b;
-    blend_levels(p0, p1, fr, &r, &g, &b);
-    if (!is_grey(srow[sx])) {
-      int sr = max2((p0 >> 4) & 3, (p1 >> 4) & 3);
-      int sg = max2((p0 >> 2) & 3, (p1 >> 2) & 3);
-      int sb = max2(p0 & 3, p1 & 3);
-      int r0 = r, g0 = g, b0 = b;
-      r = hold_hue(r0, sr, g0, b0);
-      g = hold_hue(g0, sg, r0, b0);
-      b = hold_hue(b0, sb, r0, g0);
-    }
-    v = GCOLOR8_ALPHA | (uint8_t)((r << 4) | (g << 2) | b);
-  }
-  return v;
-}
-
-// A strike frame's gather: every dest pixel taken from the source frame. The
-// source is the curvature warp's position (the plain column without curvature)
-// displaced by the strike's pincushion pulse; beyond the raster it is black.
-// The nearest row, and the warp's column pair blend, as stage 2 below, then the
-// purity stripes. A captured frame has the warp baked in (crt_strike_capture),
-// so its gathers run with `curvature` off. The pulse's linear part advances along a row by one add
-// in Q17 (the doubled coordinates make the centre exact); its lobes are one factor per row for the
-// sideways pull and a table per column for the vertical.
-//
-// With `src`, the raw frame the strike captured, the gather also does stage 1's
-// horizontal fringing: R and B come from whole px either side of the warped
-// column, the separation the ramp's rung (as a text box rounds it) plus the
-// strike's boost, signed by the dest's half like stage 1. There is no vertical
-// fringe and no text box exemption, and the vignette pane follows as its own pass.
-// Without it the frame is the passes' output, gathered in place: a source row
-// below the dest row is still untouched in it; one above it has been
-// overwritten, but the ring holds each row as it was before its write, and the
-// pulse reaches at most CRT_STRIKE_REACH_PX rows up.
-static void crt_strike_gather_scalar(uint8_t* fb, const uint8_t* src, int w, int h, int stride,
-                                     int phase, bool curvature, const uint16_t* xq) {
-  static uint8_t ring[CRT_STRIKE_REACH_PX + 1][SCREEN_W];
-  static int16_t mod_x[SCREEN_W];
-  int zx, zy;
-  crt_strike_pulse(phase, &zx, &zy);
-  const int stripes = strike_stripes(phase);
-  const int boost = strike_ca_boost(phase);
-  const int h1sq = (h - 1) * (h - 1);
-  for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
-  for (int y = 0; y < h; y++) {
-    uint8_t* row = fb + (size_t)y * stride;
-    if (!src) memcpy(ring[y % (CRT_STRIKE_REACH_PX + 1)], row, w);
-    const int tdy = 2 * y - (h - 1);
-    const int yterm = tdy * tdy * 256 / h1sq;
-    const int stripe_y = 3 * yterm;
-    const int lin_y = zy * tdy;
-    const int mod_y = strike_lobe_q8(y, h, phase, CRT_STRIKE_LOBE_STEP_X);
-    int lin_x = -zx * (w - 1);
-    for (int x = 0; x < w; x++) {
-      const int rq = xq[x] + yterm;
-      int sy = y + strike_pulse_px(((lin_y >> 4) * mod_x[x]) >> 4, yterm);
-      int sx = x + strike_pulse_px(((lin_x >> 4) * mod_y) >> 4, xq[x]);
-      lin_x += 2 * zx;
-      int fr = 0;
-      if (curvature) {
-        int mul16 = warp_mul16(rq);
-        int S = (w - 1) * 65536 + (2 * x - (w - 1)) * mul16;
-        sx += (S >> 17) - x;
-        fr = (S >> 9) & 0xFF;
-      }
-      if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
-        row[x] = GCOLOR8_ALPHA;
-        continue;
-      }
-      if (sx >= w - 1) fr = 0;  // w-1, not w: kill the fraction symmetrically
-      const uint8_t* srow = src      ? src + (size_t)sy * w
-                            : sy > y ? fb + (size_t)sy * stride
-                                     : ring[sy % (CRT_STRIKE_REACH_PX + 1)];
-      const int sep = src ? (crt_ca_t3_h2(rq) + 1) / 3 + boost : 0;
-      const int dr = 2 * x < w - 1 ? sep : -sep;
-      const uint8_t v = strike_blend(srow, sx, dr, w, fr);
-      const int band = (((stripe_y + xq[x]) * stripes) >> 13) % 6;
-      row[x] = is_grey(v) ? s_strike_grey_tint[v & 3][band] : band ? strike_hue(v, band) : v;
-    }
-  }
-}
-
-// What the gather's row loop holds fixed while it works along one row.
-typedef struct {
-  const uint16_t* xq;
-  const int16_t* mod_x;
-  int w, h;
-  int hb;  // first column of the right half
-  bool curvature;
-  int zx, mod_y, lin_y, yterm, stripe_y, stripes, boost;
-} StrikeRow;
-
-static inline int strike_dx_at(const StrikeRow* r, int x) {
-  return strike_pulse_px((((r->zx * (2 * x - (r->w - 1))) >> 4) * r->mod_y) >> 4, r->xq[x]);
-}
-
-static inline int strike_warp_dx_at(const StrikeRow* r, int x) {
-  return ((2 * x - (r->w - 1)) * (warp_mul16(r->xq[x] + r->yterm) - 65536)) >> 17;
-}
-
-static inline int strike_dy_at(const StrikeRow* r, int x) {
-  return strike_pulse_px(((r->lin_y >> 4) * r->mod_x[x]) >> 4, r->yterm);
-}
-
-static inline int strike_sep_at(const StrikeRow* r, int x) {
-  return (crt_ca_t3_h2(r->xq[x] + r->yterm) + 1) / 3 + r->boost;
-}
-
-static inline int strike_stripe_at(const StrikeRow* r, int x) {
-  return ((r->stripe_y + r->xq[x]) * r->stripes) >> 13;
-}
-
-// The first column in (x, lim] where `at` leaves `v`, its value at x; lim if it
-// never does. Each of the terms is monotone along the stretch it is searched
-// over, so "still v" holds on a prefix of it and the search may gallop out and
-// bisect back instead of stepping: a run costs its log, not its length.
-#define STRIKE_RUN_END(name, at)                               \
-  static int name(const StrikeRow* r, int x, int v, int lim) { \
-    int lo = x, step = 1;                                      \
-    while (lo + step < lim && at(r, lo + step) == v) {         \
-      lo += step;                                              \
-      step <<= 1;                                              \
-    }                                                          \
-    int hi = lo + step < lim ? lo + step : lim;                \
-    while (hi - lo > 1) {                                      \
-      int mid = (lo + hi) >> 1;                                \
-      if (at(r, mid) == v) {                                   \
-        lo = mid;                                              \
-      } else {                                                 \
-        hi = mid;                                              \
-      }                                                        \
-    }                                                          \
-    return hi;                                                 \
-  }
-
-STRIKE_RUN_END(strike_dx_end, strike_dx_at)
-STRIKE_RUN_END(strike_warp_dx_end, strike_warp_dx_at)
-STRIKE_RUN_END(strike_dy_end, strike_dy_at)
-STRIKE_RUN_END(strike_sep_end, strike_sep_at)
-STRIKE_RUN_END(strike_stripe_end, strike_stripe_at)
-
-// Where each column's monotone stretch of `m` ends (exclusive): the stretches
-// are cut where the sequence turns round, which for the lobes' sine is a few
-// times per row.
-static void strike_mono_ends(const int16_t* m, int w, int16_t* end) {
-  int start = 0, dir = 0;
-  for (int i = 1; i <= w; i++) {
-    int d = i < w ? (m[i] > m[i - 1]) - (m[i] < m[i - 1]) : 0;
-    if (i == w || (d && dir && d != dir)) {
-      for (int k = start; k < i; k++) end[k] = (int16_t)i;
-      start = i;
-      dir = 0;
-    } else if (d) {
-      dir = d;
-    }
-  }
-}
-
-static inline uint32_t strike_load4(const uint8_t* p) {
-  uint32_t v;
-  memcpy(&v, p, sizeof(v));
-  return v;
-}
-
-static inline void strike_store4(uint8_t* p, uint32_t v) {
-  memcpy(p, &v, sizeof(v));
-}
-
-// Dest columns [x0, x1) of one row, all under the same source offset (`dxo`
-// columns, `dy` rows), fringe (`sep`, signed by the half) and band. Nothing
-// here depends on the column but the source and, under curvature, the
-// fraction. A run of whole pixels fringed 0 and unbanded is a copy; otherwise
-// four pixels merge per step, the channels masked out of three unaligned
-// loads, and the band, if any, is one table read per pixel.
-static void strike_run(uint8_t* row, const uint8_t* src, const StrikeRow* r, int y, int x0, int x1,
-                       int dxo, int dy, int sep, int band) {
-  const int w = r->w;
-  const int sy = y + dy;
-  int xl = x0 > -dxo ? x0 : -dxo;
-  int xr = x1 < w - dxo ? x1 : w - dxo;
-  if (sy < 0 || sy >= r->h || xl >= xr) {
-    memset(row + x0, GCOLOR8_ALPHA, (size_t)(x1 - x0));
-    return;
-  }
-  if (xl > x0) memset(row + x0, GCOLOR8_ALPHA, (size_t)(xl - x0));
-  if (xr < x1) memset(row + xr, GCOLOR8_ALPHA, (size_t)(x1 - xr));
-  const uint8_t* srow = src + (size_t)sy * w;
-  const int dr = x0 < r->hb ? sep : -sep;
-  const uint8_t* lut = band ? s_strike_band_px[band] : NULL;
-  int x = xl;
-  if (r->curvature) {
-    for (; x < xr; x++) {
-      const int sx = x + dxo;
-      int fr = (((2 * x - (w - 1)) * (warp_mul16(r->xq[x] + r->yterm) - 65536)) >> 9) & 0xFF;
-      if (sx >= w - 1) fr = 0;
-      const uint8_t v = strike_blend(srow, sx, dr, w, fr);
-      row[x] = lut ? lut[v & 63] : v;
-    }
-    return;
-  }
-  if (!dr && !lut) {
-    memcpy(row + xl, srow + xl + dxo, (size_t)(xr - xl));
-    return;
-  }
-  // The columns whose R and B taps stay inside the row, clamping nowhere.
-  const int adr = dr < 0 ? -dr : dr;
-  int fast_l = adr - dxo > xl ? adr - dxo : xl;
-  if (fast_l > xr) fast_l = xr;
-  int fast_r = w - adr - dxo < xr ? w - adr - dxo : xr;
-  if (fast_r < fast_l) fast_r = fast_l;
-  for (; x < fast_l; x++) {
-    const uint8_t v = strike_ca_pixel(srow, x + dxo, dr, w);
-    row[x] = lut ? lut[v & 63] : v;
-  }
-  const uint8_t* g = srow + dxo;
-  for (; x + 4 <= fast_r; x += 4) {
-    uint32_t m = 0xC0C0C0C0u | (strike_load4(g + x + dr) & 0x30303030u) |
-                 (strike_load4(g + x) & 0x0C0C0C0Cu) | (strike_load4(g + x - dr) & 0x03030303u);
-    if (!lut) {
-      strike_store4(row + x, m);
-      continue;
-    }
-    uint8_t px[4];
-    memcpy(px, &m, sizeof(px));
-    for (int i = 0; i < 4; i++) row[x + i] = lut[px[i] & 63];
-  }
-  for (; x < xr; x++) {
-    const uint8_t v = strike_ca_pixel(srow, x + dxo, dr, w);
-    row[x] = lut ? lut[v & 63] : v;
-  }
-}
-
-// A strike frame's gather from the captured frame, the same pixels as the
-// per-pixel loop above, found run by run. Along a row the source offset, the
-// fringe and the band are integer roundings of smooth terms, so each holds
-// over long runs, and each is tracked on its own: its next change is searched
-// for only when its run is spent, and a row is cut where any of them changes.
-// Every cut is a strike_run: black beyond the raster, a straight copy where
-// nothing displaces, fringes or stripes the pixels, four pixels at a time
-// otherwise. The terms are searched over stretches where they are monotone: a
-// half row for the pulse, the band and the fringe, the lobe table's rising or
-// falling stretch for the vertical pull. The source pixels are the face's, all
-// opaque.
-static void crt_strike_gather_runs(uint8_t* fb, const uint8_t* src, int w, int h, int stride,
-                                   int phase, bool curvature, const uint16_t* xq) {
-  static int16_t mod_x[SCREEN_W];
-  static int16_t mono_end[SCREEN_W];
-  StrikeRow r = {.xq = xq, .mod_x = mod_x, .w = w, .h = h, .hb = w / 2, .curvature = curvature};
-  int zy;
-  crt_strike_pulse(phase, &r.zx, &zy);
-  r.stripes = strike_stripes(phase);
-  r.boost = strike_ca_boost(phase);
-  const int h1sq = (h - 1) * (h - 1);
-  for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
-  strike_mono_ends(mod_x, w, mono_end);
-  for (int y = 0; y < h; y++) {
-    uint8_t* row = fb + (size_t)y * stride;
-    const int tdy = 2 * y - (h - 1);
-    r.yterm = tdy * tdy * 256 / h1sq;
-    r.stripe_y = 3 * r.yterm;
-    r.lin_y = zy * tdy;
-    r.mod_y = strike_lobe_q8(y, h, phase, CRT_STRIKE_LOBE_STEP_X);
-    int dx = 0, warp_dx = 0, dy = 0, sep = 0, stripe = 0;
-    int dx_end = 0, warp_dx_end = curvature ? 0 : w, dy_end = 0, sep_end = 0, stripe_end = 0;
-    for (int x = 0; x < w;) {
-      const int half_end = x < r.hb ? r.hb : w;
-      if (x >= dx_end) {
-        dx = strike_dx_at(&r, x);
-        dx_end = strike_dx_end(&r, x, dx, half_end);
-      }
-      if (x >= warp_dx_end) {
-        warp_dx = strike_warp_dx_at(&r, x);
-        warp_dx_end = strike_warp_dx_end(&r, x, warp_dx, w);
-      }
-      if (x >= dy_end) {
-        dy = strike_dy_at(&r, x);
-        dy_end = strike_dy_end(&r, x, dy, mono_end[x]);
-      }
-      if (x >= sep_end) {
-        sep = strike_sep_at(&r, x);
-        sep_end = strike_sep_end(&r, x, sep, half_end);
-      }
-      if (x >= stripe_end) {
-        stripe = strike_stripe_at(&r, x);
-        stripe_end = strike_stripe_end(&r, x, stripe, half_end);
-      }
-      int end = dx_end < warp_dx_end ? dx_end : warp_dx_end;
-      if (dy_end < end) end = dy_end;
-      if (sep_end < end) end = sep_end;
-      if (stripe_end < end) end = stripe_end;
-      strike_run(row, src, &r, y, x, end, dx + warp_dx, dy, sep, stripe % 6);
-      x = end;
-    }
-  }
-}
-
-static void crt_strike_gather(uint8_t* fb, const uint8_t* src, int w, int h, int stride, int phase,
-                              bool curvature, const uint16_t* xq) {
-  if (src) {
-    crt_strike_gather_runs(fb, src, w, h, stride, phase, curvature, xq);
-  } else {
-    crt_strike_gather_scalar(fb, src, w, h, stride, phase, curvature, xq);
-  }
-}
-
 // Per-width tables, rebuilt when the width changes: the squared Q8 column
 // offsets the CA zones and the strike share, and the pane's side depths.
 typedef struct {
@@ -895,6 +582,51 @@ static const CrtTables* crt_tables(int w) {
     t.w = w;
   }
   return &t;
+}
+
+// A strike frame's gather from the scene, every dest pixel taken from the
+// source displaced by the strike's pincushion pulse and fringed by its boost;
+// beyond the raster it is black. The scene has stages 1 and 2 baked in, so the
+// pulse displaces the curved picture and the gather does no warp of its own.
+// The loop is per pixel at every phase: the panel's full-frame push takes
+// ~39 ms and the gather ~20 ms, so it fits under the push and nothing is gained
+// by searching a row for where the offset changes. The pulse's linear part advances along a
+// row by one add in Q17 (the doubled coordinates make the centre exact); its
+// lobes are one factor per row for the sideways pull and a table per column for
+// the vertical. The fringe is signed by the half the dest column is in. The
+// source pixels are the face's, all opaque.
+static void crt_strike_gather(uint8_t* fb, const uint8_t* src, int w, int h, int stride,
+                              int phase) {
+  static int16_t mod_x[SCREEN_W];
+  const uint16_t* xq = crt_tables(w)->ca_xq;
+  int zx, zy;
+  crt_strike_pulse(phase, &zx, &zy);
+  const int stripes = strike_stripes(phase);
+  const int boost = strike_ca_boost(phase);
+  const int h1sq = (h - 1) * (h - 1);
+  for (int x = 0; x < w; x++) mod_x[x] = strike_lobe_q8(x, w, phase, CRT_STRIKE_LOBE_STEP_Y);
+  for (int y = 0; y < h; y++) {
+    uint8_t* row = fb + (size_t)y * stride;
+    const int tdy = 2 * y - (h - 1);
+    const int yterm = tdy * tdy * 256 / h1sq;
+    const int stripe_y = 3 * yterm;
+    const int lin_y = zy * tdy;
+    const int mod_y = strike_lobe_q8(y, h, phase, CRT_STRIKE_LOBE_STEP_X);
+    int lin_x = -zx * (w - 1);
+    for (int x = 0; x < w; x++) {
+      const int sy = y + strike_pulse_px(((lin_y >> 4) * mod_x[x]) >> 4, yterm);
+      const int sx = x + strike_pulse_px(((lin_x >> 4) * mod_y) >> 4, xq[x]);
+      lin_x += 2 * zx;
+      if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+        row[x] = GCOLOR8_ALPHA;
+        continue;
+      }
+      const int dr = 2 * x < w - 1 ? boost : -boost;
+      const uint8_t v = strike_ca_pixel(src + (size_t)sy * w, sx, dr, w);
+      const int band = (((stripe_y + xq[x]) * stripes) >> 13) % 6;
+      row[x] = s_strike_band_px[band][v & 63];
+    }
+  }
 }
 
 // The vertical frame strokes, each WINDOW_BORDER_PX wide from column x, over
@@ -999,11 +731,36 @@ static const CrtRigidZone* rigid_zones(int w, int h, int y, int* n) {
   return zones + first[y];
 }
 
-static inline const CrtRigidZone* rigid_at(const CrtRigidZone* z, int n, int x) {
-  for (int i = 0; i < n; i++) {
-    if (x >= z[i].xa && x <= z[i].xb) return &z[i];
+// The content column the warp shows at glass column x of a row, floored, and
+// its fraction toward the next column (0..255, the curve's own blend weight):
+// dest (x,y) samples source column cx + (x - cx)·M(x,y)/65536 with the radial M
+// of warp_mul16, from the CA stage's cached terms. M grows with x too, so
+// integer quantization boundaries curve instead of aligning into seams.
+// floor(S) + fraction IS the warp position, no rounding. Rim symmetry survives
+// without rounding: floor+frac is pointwise symmetric in dx (the floor(−a) vs
+// floor(a) ±1 phases sit under the pane's black rim). Inside a rigid zone the
+// position is the stroke's translation instead. Out-of-range replicates the
+// nearest column WITHOUT the inward blend: clamping sx alone would leave fr
+// live, so the left rim would blend the edge column with the (still dithered)
+// column 1 while the right rim self-replicates — an asymmetric grey bleed at
+// the corners.
+static inline void warp_sample(int x, int w, int yterm, const uint16_t* ca_xq,
+                               const CrtRigidZone* rz, int nrz, int* sx, int* fr) {
+  const int S = (w - 1) * 65536 + (2 * x - (w - 1)) * warp_mul16(ca_xq[x] + yterm);
+  *sx = S >> 17;
+  *fr = (S >> 9) & 0xFF;
+  for (int i = 0; i < nrz; i++) {
+    if (x >= rz[i].xa && x <= rz[i].xb) {
+      *sx = (x * 256 + rz[i].d) >> 8;
+      *fr = (x * 256 + rz[i].d) & 0xFF;
+      break;
+    }
   }
-  return NULL;
+  if (*sx < 0) *sx = *fr = 0;
+  if (*sx >= w - 1) {  // w-1, not w: kill the fraction symmetrically
+    *sx = w - 1;
+    *fr = 0;
+  }
 }
 
 // The vignette is a pane in front of the glass, not a stage of the picture: how
@@ -1014,9 +771,11 @@ static inline const CrtRigidZone* rigid_at(const CrtRigidZone* z, int n, int x) 
 // the content position the warp shows there, so the rim bends with the tube. The
 // dither is the pane's own, on the glass's grid rather than the content's.
 //
-// Computed per rim pixel from the warp's own terms, not tabulated: a table of
-// the rim band would take ~16 KB of a heap the scene cache already crowds, and
-// the content column is one multiply away.
+// The gain is tabulated per theme curve, one byte per rim pixel (~14 KB of
+// heap), because computing it per pixel per frame, a warp sample and two falloff
+// reads, would be the pane's whole cost. Without the heap for it, or at a size other
+// than the face's, the pane computes it from the warp's own terms, which is
+// also the oracle the table is tested against.
 typedef struct {
   const CrtTables* tb;
   const uint16_t* lut;
@@ -1027,23 +786,10 @@ typedef struct {
   int w, yterm, ey_depth;
 } PaneRow;
 
-// The content column stage 3 samples for glass column x, floored, replicating
-// the edge column where the warp runs off the raster, and the warp's fraction
-// toward the next column (0..255, the curve's own blend weight).
+// The content column the warp samples for glass column x, and its fraction.
 static inline int pane_column(const PaneRow* r, int x, int* fr) {
-  int S = (r->w - 1) * 65536 + (2 * x - (r->w - 1)) * warp_mul16(r->tb->ca_xq[x] + r->yterm);
-  int sx = S >> 17;
-  *fr = (S >> 9) & 0xFF;
-  const CrtRigidZone* z = rigid_at(r->rz, r->nrz, x);
-  if (z) {
-    sx = (x * 256 + z->d) >> 8;
-    *fr = (x * 256 + z->d) & 0xFF;
-  }
-  if (sx < 0) sx = *fr = 0;
-  if (sx >= r->w - 1) {
-    sx = r->w - 1;
-    *fr = 0;
-  }
+  int sx;
+  warp_sample(x, r->w, r->yterm, r->tb->ca_xq, r->rz, r->nrz, &sx, fr);
   return sx;
 }
 
@@ -1072,10 +818,26 @@ static inline int pane_gain(const PaneRow* r, int sx, int fr) {
          8;
 }
 
-static inline void pane_pixel(const PaneRow* r, uint8_t* row, int x, int sx, int fr) {
-  const int f = pane_gain(r, sx, fr);
+// A gain as its table byte, and back as the byte plus one.
+static inline uint8_t pane_encode(int f) {
+  return (uint8_t)(f > 1 ? f - 1 : 0);
+}
+
+// The pixel's Bayer threshold, by its distance from the nearer side edge.
+static inline int pane_phase(const uint8_t* bayer_row, int w, int x) {
+  return bayer_row[(x < w - 1 - x ? x : w - 1 - x) & 3];
+}
+
+#ifdef TEST_ENV
+static int s_pane_applied = 0;
+#endif
+
+// One rim pixel through gain f (Q8) and Bayer threshold t.
+static inline void pane_apply(uint8_t* row, int x, int f, int t) {
+#ifdef TEST_ENV
+  s_pane_applied++;
+#endif
   const uint8_t p = row[x];
-  const int t = r->bayer_row[(x < r->w - 1 - x ? x : r->w - 1 - x) & 3];
   // Ordered dither, one third of a cycle apart per channel. A grey run
   // dithered in lockstep can only be black, DarkGray, LightGray or white
   // — three stops from field to rim on a level-2 field, which is a sharp
@@ -1090,18 +852,33 @@ static inline void pane_pixel(const PaneRow* r, uint8_t* row, int x, int sx, int
   // Only the falloff band sees it. At full gain q4 is an exact multiple
   // of 16, so every phase quantizes to the same level and the interior
   // is untouched. B leads and R lags, which decays cool.
-  const int r_lv = vignette_level((p >> 4) & 3, f, t);
-  const int g_lv = vignette_level((p >> 2) & 3, f, (t + 5) & 15);
-  const int b_lv = vignette_level(p & 3, f, (t + 10) & 15);
+  int r_lv = vignette_level((p >> 4) & 3, f, t);
+  int g_lv = vignette_level((p >> 2) & 3, f, (t + 5) & 15);
+  int b_lv = vignette_level(p & 3, f, (t + 10) & 15);
+  if (!is_grey(p)) {
+    // A coloured fill holds its channels together instead of decaying into
+    // another palette colour. Read the pre-hold values so the three lifts
+    // don't feed each other.
+    const int r0 = r_lv, g0 = g_lv, b0 = b_lv;
+    r_lv = hold_hue(r0, (p >> 4) & 3, g0, b0);
+    g_lv = hold_hue(g0, (p >> 2) & 3, r0, b0);
+    b_lv = hold_hue(b0, p & 3, r0, g0);
+  }
   row[x] = GCOLOR8_ALPHA | (uint8_t)((r_lv << 4) | (g_lv << 2) | b_lv);
 }
 
 // One glass row of the pane. Past the rim the content column stays in the
 // interior as long as the row's own depth does, and the warp is monotone along
-// the row, so each half is walked in from its edge until it gets there.
-static void vignette_pane_row(const PaneRow* r, uint8_t* row) {
+// the row, so each half is walked in from its edge until it gets there. The
+// walk takes the gain of each rim pixel, applies it to `row` when given and
+// stores it to `tbl` when given, and returns how many pixels it visited. The
+// left span is [0, *left_end) and the right [*right_start, w) walked downward;
+// a full row has left_end = w, and right_start = w is no right span.
+static inline int pane_row_walk(const PaneRow* r, uint8_t* row, uint8_t* tbl, int* left_end,
+                                int* right_start) {
   const int w = r->w;
   const bool sides_only = r->ey_depth >= CRT_VIGNETTE_PX;
+  int n = 0;
   int xl = w;
   for (int x = 0; x < w; x++) {
     int fr;
@@ -1110,13 +887,110 @@ static void vignette_pane_row(const PaneRow* r, uint8_t* row) {
       xl = x;
       break;
     }
-    pane_pixel(r, row, x, sx, fr);
+    const int f = pane_gain(r, sx, fr);
+    if (tbl) tbl[n] = pane_encode(f);
+    if (row) pane_apply(row, x, f, pane_phase(r->bayer_row, w, x));
+    n++;
   }
-  for (int x = w - 1; x >= xl; x--) {
+  *left_end = xl;
+  int x = w - 1;
+  for (; x >= xl; x--) {
     int fr;
     const int sx = pane_column(r, x, &fr);
     if (pane_interior(r, sx)) break;
-    pane_pixel(r, row, x, sx, fr);
+    const int f = pane_gain(r, sx, fr);
+    if (tbl) tbl[n] = pane_encode(f);
+    if (row) pane_apply(row, x, f, pane_phase(r->bayer_row, w, x));
+    n++;
+  }
+  *right_start = x + 1;
+  return n;
+}
+
+static inline const uint8_t* pane_bayer_row(int y, int h) {
+  const int edge_px = y < h - 1 - y ? y : h - 1 - y;
+  return &s_bayer4[(edge_px & 3) * 4];
+}
+
+static inline void pane_row_init(PaneRow* r, const CrtTables* tb, const uint16_t* lut, int w, int h,
+                                 int y) {
+  const int edge_px = y < h - 1 - y ? y : h - 1 - y;
+  const int dy = 2 * y - (h - 1);
+  *r = (PaneRow){.tb = tb,
+                 .lut = lut,
+                 .bayer_row = pane_bayer_row(y, h),
+                 .w = w,
+                 .yterm = dy * dy * 256 / ((h - 1) * (h - 1)),
+                 .ey_depth = edge_depth_y(edge_px)};
+  r->corner_row = r->ey_depth < CRT_CORNER_RADIUS ? tb->corner_d[r->ey_depth] : NULL;
+  r->rz = rigid_zones(w, h, y, &r->nrz);
+}
+
+// The pane with the gain computed per pixel from the warp.
+static void vignette_pane_computed(uint8_t* fb, int w, int h, int stride, const uint16_t* lut) {
+  const CrtTables* tb = crt_tables(w);
+  for (int y = 0; y < h; y++) {
+    PaneRow r;
+    pane_row_init(&r, tb, lut, w, h, y);
+    int left_end, right_start;
+    pane_row_walk(&r, fb + (size_t)y * stride, NULL, &left_end, &right_start);
+  }
+}
+
+// The face's rim gains, one byte per pixel in the order the pane walks them
+// (row by row, each row's left span then its right), and each row's span
+// bounds as pane_row_walk returns them. A byte is the gain less one, floored
+// at zero: gains 0 and 1 render alike (gain_q4(c, 1) is 0 for every channel
+// level a pixel has) and 256 fits as 255. s_pane_table_lut is the curve the
+// table state is for, set whether or not the allocation succeeded: when malloc
+// fails the table stays NULL with the lut recorded, so vignette_pane does not
+// walk the face again every frame to fail again and computes the pane instead,
+// until a different curve or crt_deinit clears it. The count depends on the
+// size alone, so a rebuild for the other curve reuses the allocation.
+static uint8_t* s_pane_table = NULL;
+static int s_pane_table_n = 0;
+static const uint16_t* s_pane_table_lut = NULL;
+static uint8_t s_pane_span[SCREEN_H][2];
+
+static void pane_table_build(const uint16_t* lut) {
+  const CrtTables* tb = crt_tables(SCREEN_W);
+  PaneRow r;
+  if (!s_pane_table) {
+    int n = 0;
+    for (int y = 0; y < SCREEN_H; y++) {
+      int left_end, right_start;
+      pane_row_init(&r, tb, lut, SCREEN_W, SCREEN_H, y);
+      n += pane_row_walk(&r, NULL, NULL, &left_end, &right_start);
+    }
+    s_pane_table = malloc(n);
+    if (!s_pane_table) {
+      s_pane_table_lut = lut;
+      return;
+    }
+    s_pane_table_n = n;
+  }
+  uint8_t* at = s_pane_table;
+  for (int y = 0; y < SCREEN_H; y++) {
+    int left_end, right_start;
+    pane_row_init(&r, tb, lut, SCREEN_W, SCREEN_H, y);
+    at += pane_row_walk(&r, NULL, at, &left_end, &right_start);
+    s_pane_span[y][0] = (uint8_t)left_end;
+    s_pane_span[y][1] = (uint8_t)right_start;
+  }
+  s_pane_table_lut = lut;
+}
+
+static void vignette_pane_tabled(uint8_t* fb, int stride) {
+  const uint8_t* at = s_pane_table;
+  for (int y = 0; y < SCREEN_H; y++) {
+    const uint8_t* bayer_row = pane_bayer_row(y, SCREEN_H);
+    uint8_t* row = fb + (size_t)y * stride;
+    for (int x = 0; x < s_pane_span[y][0]; x++) {
+      pane_apply(row, x, *at++ + 1, pane_phase(bayer_row, SCREEN_W, x));
+    }
+    for (int x = SCREEN_W - 1; x >= s_pane_span[y][1]; x--) {
+      pane_apply(row, x, *at++ + 1, pane_phase(bayer_row, SCREEN_W, x));
+    }
   }
 }
 
@@ -1124,65 +998,32 @@ static void vignette_pane_row(const PaneRow* r, uint8_t* row) {
 // strike's frames and the idle ones share it, so a strike's last frame and the
 // frame after it cannot disagree at the rim.
 static void vignette_pane(uint8_t* fb, int w, int h, int stride) {
-#ifndef TEST_ENV
-  time_t v0s, v1s;
-  uint16_t v0ms, v1ms;
-  time_ms(&v0s, &v0ms);
-#endif
-  const CrtTables* tb = crt_tables(w);
   // The curve the theme's field selects, chosen once per frame: the pane runs
   // over thousands of pixels and walks the LUT directly.
   const uint16_t* lut = vignette_lut(theme_ground_level(s_active_theme));
-  const int h1sq = (h - 1) * (h - 1);
-  for (int y = 0; y < h; y++) {
-    const int edge_px = y < h - 1 - y ? y : h - 1 - y;
-    const int dy = 2 * y - (h - 1);
-    PaneRow r = {.tb = tb,
-                 .lut = lut,
-                 .bayer_row = &s_bayer4[(edge_px & 3) * 4],
-                 .w = w,
-                 .yterm = dy * dy * 256 / h1sq,
-                 .ey_depth = edge_depth_y(edge_px)};
-    r.corner_row = r.ey_depth < CRT_CORNER_RADIUS ? tb->corner_d[r.ey_depth] : NULL;
-    r.rz = rigid_zones(w, h, y, &r.nrz);
-    vignette_pane_row(&r, fb + (size_t)y * stride);
+  if (w == SCREEN_W && h == SCREEN_H) {
+    if (s_pane_table_lut != lut) pane_table_build(lut);
+    if (s_pane_table && s_pane_table_lut == lut) {
+      vignette_pane_tabled(fb, stride);
+      return;
+    }
   }
-#ifndef TEST_ENV
-  time_ms(&v1s, &v1ms);
-  timing_vig_ms = (int)((v1s - v0s) * 1000 + v1ms - v0ms);
-#endif
+  vignette_pane_computed(fb, w, h, stride, lut);
 }
 
 // Stage 2 on one row: `row` takes the warp of `src`, the row as stage 1 left
 // it, with `raw_row` the row as drawn (what the hue rule classifies on).
 // `src` and `row` must not overlap. `rz` are the row's rigid frame zones,
 // left to right: inside one the position is the stroke's translation, not the warp.
+// The fraction blends the column pair instead of picking one: magnification
+// decimates source columns under nearest-neighbour (a damaged 8px letter cell
+// measures 7px wide), and keeping their energy as fractional levels reads as
+// tube edge defocus while letters keep their rhythm.
 static void crt_curve_row(uint8_t* row, const uint8_t* src, const uint8_t* raw_row, int w,
                           int yterm, const uint16_t* ca_xq, const CrtRigidZone* rz, int nrz) {
-  const CrtRigidZone* const rz_end = rz + nrz;
   for (int x = 0; x < w; x++) {
-    int dx = 2 * x - (w - 1);
-    int mul16 = warp_mul16(ca_xq[x] + yterm);
-    int S = (w - 1) * 65536 + dx * mul16;  // exact warp position, Q17
-    int sx = S >> 17;
-    int fr = (S >> 9) & 0xFF;  // 0..255, weight toward sx+1
-    while (rz < rz_end && x > rz->xb) rz++;
-    if (rz < rz_end && x >= rz->xa) {
-      sx = (x * 256 + rz->d) >> 8;
-      fr = (x * 256 + rz->d) & 0xFF;
-    }
-    // Out-of-range replicates the nearest column WITHOUT the inward
-    // blend: clamping sx alone would leave fr live, so the left rim would
-    // blend the edge column with the (still dithered) column 1 while the
-    // right rim self-replicates — an asymmetric grey bleed at the corners.
-    if (sx < 0) {
-      sx = 0;
-      fr = 0;
-    }
-    if (sx >= w - 1) {  // w-1, not w: kill the fraction symmetrically
-      sx = w - 1;
-      fr = 0;
-    }
+    int sx, fr;
+    warp_sample(x, w, yterm, ca_xq, rz, nrz, &sx, &fr);
     int sx1 = sx + 1;
     if (sx1 >= w) sx1 = sx;
     uint8_t p0 = src[sx], p1 = src[sx1];
@@ -1209,309 +1050,201 @@ static void crt_curve_row(uint8_t* row, const uint8_t* src, const uint8_t* raw_r
   }
 }
 
+// Stage 1 on one row, into `out`: from the raw rows only, `row` the row itself
+// and `rrow`/`brow` the rows R and B are pulled from vertically (the own row or
+// a neighbour, by the vertical shift). `boxes` are the ones this row crosses,
+// left to right: inside one, CA is a single whole-pixel shift for the span, so
+// the per-pixel work is skipped. Outside them the horizontal fringe takes a
+// two-tap weighted sample per shifted channel (thirds-of-a-px pull), and the
+// vertical fringe samples the neighbour row.
+static void ca_row(uint8_t* out, const uint8_t* row, const uint8_t* const rrows[2],
+                   const uint8_t* const brows[2], int w, int yterm, const uint16_t* ca_xq,
+                   const CrtTextBox* const* boxes, int n_boxes) {
+  int next_box = 0;
+  int next_box_x = n_boxes ? boxes[0]->x0 : -1;
+  for (int x = 0; x < w; x++) {
+    if (x == next_box_x) {
+      const CrtTextBox* b = boxes[next_box++];
+      ca_box_span(out, row, rrows[b->sv], brows[b->sv], b);
+      x = b->x1 - 1;
+      next_box_x = next_box < n_boxes ? boxes[next_box]->x0 : -1;
+      continue;
+    }
+    bool left = x * 2 < w - 1;
+    int xy_sum = ca_xq[x] + yterm;
+    // Horizontal pull in THIRDS: the rung (0/4), plus the element-offset
+    // correction. The correction does NOT mirror: the RGB stripe puts R 1/3px
+    // left (B 1/3px right) of its pixel centre on BOTH halves, so the sign
+    // follows the half, not the pull direction. Folding a flat -1 into q before
+    // the tap mirror would carry a 2/3px residual splay through the right half.
+    // The cancellation makes the dead zone actually converge: at the centre the
+    // rasters land on the content.
+    int q = crt_ca_t3_h2(xy_sum) + (left ? -1 : 1);
+    int j = (q - (q < 0 ? 2 : 0)) / 3;  // floor(q/3); q >= -1 by construction
+    // f in 0..2, all three reachable: the ramped onset sweeps every rung.
+    int f = q - 3 * j;  // blend weight toward the farther tap
+    int s_v = crt_ca_shift_v2(xy_sum);
+
+    int rt0 = left ? x + j : x - j;
+    int rt1 = left ? x + j + 1 : x - j - 1;
+    int bt0 = left ? x - j : x + j;
+    int bt1 = left ? x - j - 1 : x + j + 1;
+    // Both taps of a channel come from the same row; clamp the COLUMNS, where
+    // the taps land on the same edge column and the weighted sample degenerates
+    // to a plain copy.
+    if (rt0 < 0) rt0 = 0;
+    if (rt0 >= w) rt0 = w - 1;
+    if (rt1 < 0) rt1 = 0;
+    if (rt1 >= w) rt1 = w - 1;
+    if (bt0 < 0) bt0 = 0;
+    if (bt0 >= w) bt0 = w - 1;
+    if (bt1 < 0) bt1 = 0;
+    if (bt1 >= w) bt1 = w - 1;
+
+    const uint8_t* rrow = rrows[s_v];
+    const uint8_t* brow = brows[s_v];
+    // Fractional channel sample: sum of both taps weighted (3-f, f),
+    // rounded to nearest — plain truncation biases R/B down half a level
+    // on average, a faint green cast on mid-tones (G is never blended).
+    // A 0<->3 edge yields exactly 2 and 1; weights act on code values,
+    // linear in light here (the panel makes levels by area fill) — no
+    // gamma round trip.
+    int r = ((3 - f) * ((rrow[rt0] >> 4) & 3) + f * ((rrow[rt1] >> 4) & 3) + 1) / 3;
+    int b = ((3 - f) * (brow[bt0] & 3) + f * (brow[bt1] & 3) + 1) / 3;
+    out[x] = GCOLOR8_ALPHA | (uint8_t)(r << 4) | (row[x] & 0x0C) | (uint8_t)b;
+  }
+}
+
+// The scene's own effects, baked once per scene: stage 1 (the chromatic
+// aberration), then stage 2 (the curvature's warp), in place, rows top to
+// bottom. Each stage reads raw rows only: the row above and the row itself come
+// from a ring of the last two raw rows, and the row below is still untouched
+// in the buffer. Both effects off leaves the scene as drawn. The strike's boost
+// and pulse are not baked, they change every frame.
+static void crt_bake_scene(uint8_t* scene, int w, int h, bool aberration, bool curvature) {
+  static uint8_t ring[2][SCREEN_W];
+  static uint8_t row_ca[SCREEN_W];
+  if (w > SCREEN_W || w <= 1 || h <= 1 || (!aberration && !curvature)) return;
+  const uint16_t* ca_xq = crt_tables(w)->ca_xq;
+  const int h1sq = (h - 1) * (h - 1);
+  // The boxes are laid out for the face's own frame; any other buffer has none.
+  const CrtTextBox* boxes = text_boxes();
+  const int n_boxes = (w == SCREEN_W && h == SCREEN_H) ? CRT_TEXT_BOXES : 0;
+  for (int y = 0; y < h; y++) {
+    uint8_t* row = scene + (size_t)y * w;
+    memcpy(ring[y & 1], row, w);
+    const uint8_t* own = ring[y & 1];
+    const int dy = 2 * y - (h - 1);
+    const int yterm = dy * dy * 256 / h1sq;
+    const uint8_t* ca_src = own;
+    if (aberration) {
+      // Sampling signs: left half pulls R from the right; top half pulls R
+      // from below. Mirrors across both centrelines.
+      const uint8_t* up = y > 0 ? ring[(y - 1) & 1] : own;
+      const uint8_t* down = y < h - 1 ? row + w : own;
+      const bool top = y * 2 < h - 1;
+      const uint8_t* const rrows[2] = {own, top ? down : up};
+      const uint8_t* const brows[2] = {own, top ? up : down};
+      const CrtTextBox* row_boxes[CRT_TEXT_BOXES];
+      int n_row_boxes = 0;
+      for (int i = 0; i < n_boxes; i++) {
+        if (y >= boxes[i].y0 && y < boxes[i].y1) row_boxes[n_row_boxes++] = &boxes[i];
+      }
+      uint8_t* out = curvature ? row_ca : row;
+      ca_row(out, own, rrows, brows, w, yterm, ca_xq, row_boxes, n_row_boxes);
+      ca_src = out;
+    }
+    if (!curvature) continue;
+    int nrz;
+    const CrtRigidZone* rz = rigid_zones(w, h, y, &nrz);
+    crt_curve_row(row, ca_src, own, w, yterm, ca_xq, rz, nrz);
+  }
+}
+
+// One frame from the baked scene into the framebuffer: the strike's gather while
+// one runs, a copy otherwise, and the vignette pane last, over whatever the
+// frame holds, so a strike's last frame and the idle frame after it cannot
+// disagree at the rim.
+static void crt_render_frame(uint8_t* fb, int w, int h, int stride, const uint8_t* scene, int phase,
+                             bool curvature) {
+  if (w > SCREEN_W || w <= 1 || h <= 1 || stride < w) return;
+  if (phase >= 0 && phase < CRT_FLASH_PHASES) {
+    crt_strike_gather(fb, scene, w, h, stride, phase);
+  } else {
+    for (int y = 0; y < h; y++) memcpy(fb + (size_t)y * stride, scene + (size_t)y * w, w);
+  }
+#if CRT_TIMING
+  const uint32_t t_pane = crt_now_ms();
+#endif
+  if (curvature) vignette_pane(fb, w, h, stride);
+#if CRT_TIMING
+  timing_pane_ms = crt_now_ms() - t_pane;
+#endif
+}
+
+#ifdef TEST_ENV
 void crt_apply_framebuffer(uint8_t* fb, int w, int h, int stride, int flash_phase) {
   crt_apply_framebuffer_passes(fb, w, h, stride, flash_phase, true, true);
 }
 
 void crt_apply_framebuffer_passes(uint8_t* fb, int w, int h, int stride, int flash_phase,
                                   bool aberration, bool curvature) {
-  static uint8_t row_ca[SCREEN_W];
-  if (w > SCREEN_W || w <= 1 || h <= 1 || stride < w) return;
-#ifndef TEST_ENV
-  timing_gather_ms = 0;
-  timing_vig_ms = 0;
-#endif
-  const CrtTables* tb = crt_tables(w);
-  const uint16_t* ca_xq = tb->ca_xq;
-  // CA boost during the strike: the separation balloons while the mask
-  // degausses. Phase-indexed through the same decay table as the row offset.
-  int ca_boost = strike_ca_boost(flash_phase);
-  // A strike always shows its fringing and wobble, whatever the settings say.
-  const bool striking = flash_phase >= 0 && flash_phase < CRT_FLASH_PHASES;
-  const bool do_ca = aberration || striking;
-  if (!do_ca && !curvature) return;
-  const int h1sq = (h - 1) * (h - 1);
-  // The boxes are laid out for the face's own frame; any other buffer has none.
-  const CrtTextBox* boxes = text_boxes();
-  const int n_boxes = (w == SCREEN_W && h == SCREEN_H) ? CRT_TEXT_BOXES : 0;
-
-  // A strike with its frame captured never runs the passes: the gather takes
-  // the capture, already curved, fringing included, and the pane follows on
-  // the glass.
-  if (striking && s_strike_src && w == SCREEN_W && h == SCREEN_H) {
-#ifndef TEST_ENV
-    time_t g0s, g1s;
-    uint16_t g0ms, g1ms;
-    time_ms(&g0s, &g0ms);
-#endif
-    crt_strike_gather(fb, s_strike_src, w, h, stride, flash_phase, false, ca_xq);
-#ifndef TEST_ENV
-    time_ms(&g1s, &g1ms);
-    timing_gather_ms = (int)((g1s - g0s) * 1000 + g1ms - g0ms);
-#endif
-    if (curvature) vignette_pane(fb, w, h, stride);
-    return;
-  }
-
-  // Per-row body, applied in two half-passes. Both passes read away from
-  // the screen centreline: from captured (raw) ring rows only, which is the
-  // pass-order invariant that lets dest rows be rewritten in place.
-  for (int pass = 0; pass < 2; pass++) {
-    // pass 0: 0..(h-1)/2 forward; pass 1: h-1..(h-1)/2+1 backward.
-    for (int yi = (pass == 0 ? 0 : h - 1); pass == 0 ? yi <= (h - 1) / 2 : yi > (h - 1) / 2;
-         yi += pass == 0 ? 1 : -1) {
-      int y = yi;
-      uint8_t* row = fb + (size_t)y * stride;
-      int dy = 2 * y - (h - 1);
-      int yterm = dy * dy * 256 / h1sq;
-
-      // Capture this row while it is still raw, and (if not done on this row)
-      // one step ahead in traversal direction — the CA stage reads ±1 rows on
-      // both halves and the ring can only hold what traversal has seen.
-      memcpy(s_vraw_ring[y % 3], row, w);
-      int y_next = pass == 0 ? y + 1 : y - 1;
-      // Lookahead stays inside this pass's own half: the other half's rows may
-      // already carry processed output by traversal time (ring reads raw).
-      bool owns_next = pass == 0 ? y_next <= (h - 1) / 2 : y_next > (h - 1) / 2;
-      if (owns_next && y_next >= 0 && y_next < h) {
-        memcpy(s_vraw_ring[y_next % 3], fb + (size_t)y_next * stride, w);
-      }
-
-      // 1) CA from raw sources: outside the text boxes the horizontal fringe
-      //    takes a two-tap weighted sample per shifted channel (thirds-of-a-px
-      //    pull); vertical fringe samples ring rows toward/away from the
-      //    centreline.
-      const bool top = y * 2 < h - 1;
-      // Sampling signs: left half pulls R from the right; top half pulls R
-      // from below. Mirrors across both centrelines. Forward reads (below on
-      // the top half, above on the bottom half) rely on the ring capture
-      // being one row ahead in traversal direction.
-      int ry1 = top ? y + 1 : y - 1;
-      int by1 = top ? y - 1 : y + 1;
-      // The ring only holds rows this pass has captured; at the half
-      // boundary the forward tap's row belongs to the OTHER pass (its slot
-      // carries a 3-rows-stale capture — pass 0 at y=113 would read row
-      // 111). Fall back to the own row; only the forward read can cross.
-      if (pass == 0 && ry1 > (h - 1) / 2) ry1 = y;
-      if (pass == 1 && ry1 <= (h - 1) / 2) ry1 = y;
-      if (ry1 < 0) ry1 = 0;
-      if (ry1 >= h) ry1 = h - 1;
-      if (by1 < 0) by1 = 0;
-      if (by1 >= h) by1 = h - 1;
-      // Ring rows by vertical shift s_v (0 or 1): the own row, or the
-      // neighbour. Both halves only read rows already captured into the ring.
-      const uint8_t* const rrows[2] = {s_vraw_ring[y % 3], s_vraw_ring[ry1 % 3]};
-      const uint8_t* const brows[2] = {s_vraw_ring[y % 3], s_vraw_ring[by1 % 3]};
-      // The boxes this row crosses, left to right: inside one, CA is a single
-      // whole-pixel shift for the span, so the per-pixel work is skipped.
-      const CrtTextBox* row_boxes[CRT_TEXT_BOXES];
-      int n_row_boxes = 0;
-      for (int i = 0; i < n_boxes; i++) {
-        if (y >= boxes[i].y0 && y < boxes[i].y1) row_boxes[n_row_boxes++] = &boxes[i];
-      }
-      int next_box = 0;
-      int next_box_x = n_row_boxes ? row_boxes[0]->x0 : -1;
-      if (!do_ca) memcpy(row_ca, row, w);
-      for (int x = 0; do_ca && x < w; x++) {
-        if (x == next_box_x) {
-          const CrtTextBox* b = row_boxes[next_box++];
-          ca_box_span(row_ca, row, rrows[b->sv], brows[b->sv], b, ca_boost);
-          x = b->x1 - 1;
-          next_box_x = next_box < n_row_boxes ? row_boxes[next_box]->x0 : -1;
-          continue;
-        }
-        bool left = x * 2 < w - 1;
-        int xy_sum = ca_xq[x] + yterm;
-        // Horizontal pull in THIRDS: the rung (0/4), plus the element-offset
-        // correction and the strike boost in whole pixels. The correction does
-        // NOT mirror: the RGB stripe puts R 1/3px left (B 1/3px right) of its
-        // pixel centre on BOTH halves, so the sign follows the half, not the
-        // pull direction. Folding a flat -1 into q before the tap mirror would
-        // carry a 2/3px residual splay through the right half. The
-        // cancellation makes the dead zone actually converge: at the centre
-        // the rasters land on the content.
-        int q = crt_ca_t3_h2(xy_sum) + (left ? -1 : 1) + 3 * ca_boost;
-        int j = (q - (q < 0 ? 2 : 0)) / 3;  // floor(q/3); q >= -1 by construction
-        // f in 0..2, all three reachable: the ramped onset sweeps every rung.
-        int f = q - 3 * j;  // blend weight toward the farther tap
-        int s_v = crt_ca_shift_v2(xy_sum);
-
-        int rt0 = left ? x + j : x - j;
-        int rt1 = left ? x + j + 1 : x - j - 1;
-        int bt0 = left ? x - j : x + j;
-        int bt1 = left ? x - j - 1 : x + j + 1;
-        // Both taps of a channel come from the same (valid) ring ROW; clamp
-        // the COLUMNS — at max strike the right half reaches q = 4+1+9 = 14
-        // (rung + sign fix + 3·boost) → j = 4, and the taps land on the same
-        // edge column and the weighted sample degenerates to a plain copy.
-        if (rt0 < 0) rt0 = 0;
-        if (rt0 >= w) rt0 = w - 1;
-        if (rt1 < 0) rt1 = 0;
-        if (rt1 >= w) rt1 = w - 1;
-        if (bt0 < 0) bt0 = 0;
-        if (bt0 >= w) bt0 = w - 1;
-        if (bt1 < 0) bt1 = 0;
-        if (bt1 >= w) bt1 = w - 1;
-
-        const uint8_t* rrow = rrows[s_v];
-        const uint8_t* brow = brows[s_v];
-        // Fractional channel sample: sum of both taps weighted (3-f, f),
-        // rounded to nearest — plain truncation biases R/B down half a level
-        // on average, a faint green cast on mid-tones (G is never blended).
-        // A 0<->3 edge yields exactly 2 and 1; weights act on code values,
-        // linear in light here (the panel makes levels by area fill) — no
-        // gamma round trip.
-        int r = ((3 - f) * ((rrow[rt0] >> 4) & 3) + f * ((rrow[rt1] >> 4) & 3) + 1) / 3;
-        int b = ((3 - f) * (brow[bt0] & 3) + f * (brow[bt1] & 3) + 1) / 3;
-        row_ca[x] = GCOLOR8_ALPHA | (uint8_t)(r << 4) | (row[x] & 0x0C) | (uint8_t)b;
-      }
-
-      // The row as drawn, before stage 1 scattered R and B across columns:
-      // curvature's blend classifies on it.
-      const uint8_t* raw_row = s_vraw_ring[y % 3];
-
-      // 2) Curvature: dest (x,y) samples source column
-      //    sx = cx + (x - cx)·M(x,y)/65536 with the radial M of warp_mul16 —
-      //    recomposed here from the CA stage's cached terms. A strike frame
-      //    stops at the row write; a captured one has had this baked into
-      //    its capture.
-      //    M grows with x too, so integer
-      //    quantization boundaries curve instead of aligning into seams.
-      //    floor(S) + fraction IS the warp position, no rounding. Rim
-      //    symmetry survives without rounding:
-      //    floor+frac is pointwise symmetric in dx (the floor(−a) vs floor(a)
-      //    ±1 phases sit under the pane's black rim). The fraction blends
-      //    the column pair instead of picking one: magnification decimates
-      //    source columns under nearest-neighbour (a damaged 8px letter cell
-      //    measures 7px wide), and keeping their energy as fractional levels
-      //    reads as tube edge defocus while letters keep their rhythm.
-      //    Rounding (+128) avoids a truncation bias toward dark.
-      //    Without curvature the row is an exact copy.
-      if (striking || !curvature) {
-        memcpy(row, row_ca, w);
-        continue;
-      }
-      int nrz;
-      const CrtRigidZone* rz = rigid_zones(w, h, y, &nrz);
-      crt_curve_row(row, row_ca, raw_row, w, yterm, ca_xq, rz, nrz);
-    }
-  }
-#ifndef TEST_ENV
-  time_t g0s, g1s;
-  uint16_t g0ms, g1ms;
-  time_ms(&g0s, &g0ms);
-#endif
-  if (striking) crt_strike_gather(fb, NULL, w, h, stride, flash_phase, curvature, ca_xq);
-#ifndef TEST_ENV
-  time_ms(&g1s, &g1ms);
-  timing_gather_ms = (int)((g1s - g0s) * 1000 + g1ms - g0ms);
-#endif
-  // The vignette pane, last: over whatever the passes and the gather left.
-  if (curvature) vignette_pane(fb, w, h, stride);
+  static uint8_t scene[SCREEN_W * SCREEN_H];
+  if (w > SCREEN_W || h > SCREEN_H || w <= 1 || h <= 1 || stride < w) return;
+  for (int y = 0; y < h; y++) memcpy(scene + (size_t)y * w, fb + (size_t)y * stride, w);
+  crt_bake_scene(scene, w, h, aberration, curvature);
+  crt_render_frame(fb, w, h, stride, scene, flash_phase, curvature);
 }
-
-// Idempotent. Not in the capture frame, which is mid-render: the next tick.
-static void crt_strike_layers_skip(void) {
-  if (s_strike_layers_skipped) return;
-  s_strike_layers_skipped = true;
-  if (s_canvas_layer) layer_set_hidden(s_canvas_layer, true);
-  if (s_time_layer) layer_set_hidden(text_layer_get_layer(s_time_layer), true);
-  if (s_main_window) window_set_background_color(s_main_window, GColorClear);
-}
-
-bool crt_strike_layers_skipped(void) {
-  return s_strike_layers_skipped;
-}
-
-// The canvas takes its cache back and repaints from scratch on its next
-// render; idempotent, for every way a strike ends.
-static void crt_strike_release(void) {
-  if (s_strike_layers_skipped) {
-    s_strike_layers_skipped = false;
-    if (s_canvas_layer) layer_set_hidden(s_canvas_layer, false);
-    if (s_time_layer) layer_set_hidden(text_layer_get_layer(s_time_layer), false);
-    if (s_main_window) window_set_background_color(s_main_window, s_active_theme->center_bg);
-  }
-  if (!s_strike_src) return;
-  s_strike_src = NULL;
-  canvas_cache_return();
-}
-
-// The strike's first frame, the face as the layers drew it and before any pass,
-// goes into the canvas's scene cache; the canvas stops repainting for the strike
-// and every frame of it is gathered from here. With curvature on, the capture is
-// warped once, in place, by stage 2's own row helper, so the gathers never warp
-// per pixel and the pulse displaces the curved picture. A buffer that is not
-// the face's own, or no cache to borrow, leaves the strike to run in place.
-static void crt_strike_capture(const uint8_t* fb, int w, int h, int stride, bool curvature) {
-  if (w != SCREEN_W || h != SCREEN_H) return;
-  uint8_t* cache = canvas_cache_borrow();
-  if (!cache) return;
-  for (int y = 0; y < h; y++) memcpy(cache + (size_t)y * w, fb + (size_t)y * stride, w);
-  s_strike_src = cache;
-  if (!curvature) return;
-#ifndef TEST_ENV
-  time_t b0s, b1s;
-  uint16_t b0ms, b1ms;
-  time_ms(&b0s, &b0ms);
 #endif
-  static uint8_t tmp[SCREEN_W];
-  const uint16_t* xq = crt_tables(w)->ca_xq;
-  const int h1sq = (h - 1) * (h - 1);
-  for (int y = 0; y < h; y++) {
-    uint8_t* row = cache + (size_t)y * w;
-    const int dy = 2 * y - (h - 1);
-    memcpy(tmp, row, w);
-    int nrz;
-    const CrtRigidZone* rz = rigid_zones(w, h, y, &nrz);
-    crt_curve_row(row, tmp, tmp, w, dy * dy * 256 / h1sq, xq, rz, nrz);
-  }
-#ifndef TEST_ENV
-  time_ms(&b1s, &b1ms);
-  timing_bake_ms = (int)((b1s - b0s) * 1000 + b1ms - b0ms);
-#endif
-#ifndef TEST_ENV
-#endif
-}
 
 static bool crt_enabled(void) {
   return s_settings_crt_aberration || s_settings_crt_curvature || s_settings_crt_degauss;
 }
 
+// Whether this layer writes the frame: a degauss-only face is untouched between
+// strikes, and the canvas's own blit stands.
+bool crt_paints(void) {
+  return s_settings_crt_aberration || s_settings_crt_curvature || s_flash_phase != CRT_FLASH_IDLE;
+}
+
 void crt_update_proc(Layer* layer, GContext* ctx) {
   (void)layer;
   if (!crt_enabled() || !ctx) return;
-  // A degauss-only face is untouched between strikes: nothing to capture.
-  if (s_settings_crt_aberration || s_settings_crt_curvature || s_flash_phase != CRT_FLASH_IDLE) {
+  if (crt_paints()) {
     // The captured bitmap IS the framebuffer on a native-format platform;
     // release before returning or the layer never lands.
     GBitmap* fb = graphics_capture_frame_buffer(ctx);
     if (!fb) return;
     GRect bounds = gbitmap_get_bounds(fb);
-#ifndef TEST_ENV
-    time_t t0s, t1s;
-    uint16_t t0ms, t1ms;
-    time_ms(&t0s, &t0ms);
+    // The canvas left the framebuffer to this layer, which writes every pixel
+    // from the scene. Without a cache (malloc failed) the canvas drew live and
+    // the frame stays as it drew it.
+    uint8_t* scene = canvas_scene();
+    if (scene && bounds.size.w == SCREEN_W && bounds.size.h == SCREEN_H) {
+#if CRT_TIMING
+      const uint32_t t0 = crt_now_ms();
+      uint32_t t_baked = t0;
+      timing_pane_ms = 0;
 #endif
-    if (s_flash_phase != CRT_FLASH_IDLE && !s_strike_src) {
-      crt_strike_capture(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
-                         gbitmap_get_bytes_per_row(fb), s_settings_crt_curvature != 0);
+      if (!canvas_scene_baked()) {
+        crt_bake_scene(scene, bounds.size.w, bounds.size.h, s_settings_crt_aberration != 0,
+                       s_settings_crt_curvature != 0);
+        canvas_scene_mark_baked();
+#if CRT_TIMING
+        t_baked = crt_now_ms();
+#endif
+      }
+      crt_render_frame(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
+                       gbitmap_get_bytes_per_row(fb), scene, s_flash_phase,
+                       s_settings_crt_curvature != 0);
+#if CRT_TIMING
+      const uint32_t t1 = crt_now_ms();
+      APP_LOG(APP_LOG_LEVEL_INFO, "crt phase %d at %lu: bake %lu ms, gather %lu ms, pane %lu ms",
+              s_flash_phase, (unsigned long)(t0 % 100000u), (unsigned long)(t_baked - t0),
+              (unsigned long)(t1 - t_baked - timing_pane_ms), (unsigned long)timing_pane_ms);
+#endif
     }
-    crt_apply_framebuffer_passes(gbitmap_get_data(fb), bounds.size.w, bounds.size.h,
-                                 gbitmap_get_bytes_per_row(fb), s_flash_phase,
-                                 s_settings_crt_aberration != 0, s_settings_crt_curvature != 0);
     graphics_release_frame_buffer(ctx, fb);
-#ifndef TEST_ENV
-    time_ms(&t1s, &t1ms);
-    APP_LOG(
-        APP_LOG_LEVEL_INFO,
-        "TIMING phase %d at %ld.%03u layers %ld ms pass %ld ms bake %d ms gather %d ms vig %d ms",
-        s_flash_phase, (long)timing_mark_s, (unsigned)timing_mark_ms,
-        (long)((t0s - timing_mark_s) * 1000 + t0ms - timing_mark_ms),
-        (long)((t1s - t0s) * 1000 + t1ms - t0ms), timing_bake_ms, timing_gather_ms, timing_vig_ms);
-    timing_bake_ms = 0;
-    timing_vig_ms = 0;
-#endif
   }
   // Strike trigger lives at the END of the wake frame (not the backlight
   // handler): the sound starts once the ring can survive what follows.
@@ -1529,7 +1262,6 @@ static void crt_flash_start(void* data) {
   (void)data;
   // A killed chain (deinit, setting off, re-prime) leaves IDLE behind.
   if (s_flash_phase == CRT_FLASH_IDLE) return;
-  TIMING_MARK();
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
   s_flash_timer = app_timer_register(CRT_FLASH_TICK_MS, crt_flash_tick, NULL);
 }
@@ -1543,11 +1275,7 @@ static void crt_flash_tick(void* data) {
   if (s_flash_phase >= CRT_FLASH_PHASES) {
     s_flash_phase = CRT_FLASH_IDLE;
     s_flash_timer = NULL;
-    crt_strike_release();
-  } else if (s_strike_src) {
-    crt_strike_layers_skip();
   }
-  TIMING_MARK();
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
   // One-shot timers free themselves on firing.
   if (s_flash_phase != CRT_FLASH_IDLE) {
@@ -1563,7 +1291,6 @@ static void crt_strike_prime(void) {
     s_flash_timer = NULL;
   }
   s_flash_phase = CRT_FLASH_IDLE;
-  crt_strike_release();
   s_strike_pending = true;
   if (s_crt_layer) layer_mark_dirty(s_crt_layer);
 }
@@ -1818,12 +1545,16 @@ void crt_set_in_focus(bool in_focus) {
 }
 
 void crt_apply_setting_change(void) {
+  // The scene's bake depends on the effects: a baked cache the canvas would
+  // blit after the last one turns off must never exist, and a changed pair
+  // bakes again.
+  canvas_invalidate_cache();
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
   if (!s_settings_crt_degauss) {
     s_cover_suppresses_strike = false;
     crt_cover_grace_cancel();
     crt_button_wake_cancel();
     s_flash_phase = CRT_FLASH_IDLE;
-    crt_strike_release();
     s_strike_pending = false;  // a primed-but-unstarted strike dies with the toggle
     // Mid-strike toggle-off: kill the armed chain, or the next tick re-arms
     // from IDLE into a full strike nobody asked for.
@@ -1850,13 +1581,16 @@ void crt_deinit(void) {
     s_flash_timer = NULL;
   }
   s_flash_phase = CRT_FLASH_IDLE;
-  crt_strike_release();
   s_strike_pending = false;
   s_cover_suppresses_strike = false;
   crt_cover_grace_cancel();
   crt_button_wake_cancel();
   crt_shake_wake_clear();
   s_app_in_focus = false;
+  free(s_pane_table);
+  s_pane_table = NULL;
+  s_pane_table_n = 0;
+  s_pane_table_lut = NULL;
   s_crt_layer = NULL;
 }
 
