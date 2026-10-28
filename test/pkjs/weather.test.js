@@ -198,15 +198,21 @@ test('windowHoursFromClaySettings: the select values read through, string or num
   assert.equal(weather.windowHoursFromClaySettings({SETTINGS_WEATHER_WINDOW: '0'}), 0);  // Now
 });
 
-test('extremes sink together when any one is missing', () => {
+test('each daily extreme is sent on its own when another is missing', () => {
   const json = fullResponse();
   json.daily.temperature_2m_max = [28.4];  // tomorrow's max absent
   const out = weather.parseForecast(json, NOW);
-  for (const k
-           of ['WEATHER_HIGH', 'WEATHER_LOW', 'WEATHER_LOW_TOMORROW', 'WEATHER_TEMP_HIGH_TOMORROW'])
-    assert.equal(out[k], -999, k);
-  // The rest of the payload still parses.
+  assert.equal(out.WEATHER_TEMP_HIGH_TOMORROW, -999);
+  assert.equal(out.WEATHER_HIGH, 28);
+  assert.equal(out.WEATHER_LOW, 12);
+  assert.equal(out.WEATHER_LOW_TOMORROW, 10);
   assert.equal(out.WEATHER_TEMP, 23);
+
+  json.daily.temperature_2m_min = [null, 9.6];  // today's low absent
+  const out2 = weather.parseForecast(json, NOW);
+  assert.equal(out2.WEATHER_LOW, -999);
+  assert.equal(out2.WEATHER_HIGH, 28);
+  assert.equal(out2.WEATHER_LOW_TOMORROW, 10);
 });
 
 test('extreme event hours are per-day argmin/argmax', () => {
@@ -246,6 +252,7 @@ test('parseAqi rounds real values and reads junk as no-data', () => {
   assert.equal(weather.parseAqi({current: {us_aqi: 42.6}}), 43);
   assert.equal(weather.parseAqi({current: {us_aqi: null}}), -1);  // null is not clean air
   assert.equal(weather.parseAqi({}), -1);
+  assert.equal(weather.parseAqi({current: {us_aqi: 612}}), 612);  // the watch owns the cap
 });
 
 test('unitsFromClaySettings: imperial is the operative default, in every no-settings shape', () => {
@@ -393,10 +400,71 @@ test('needsAqi: unknown slots default to needing AQI', () => {
   assert.equal(weather.needsAqi(partial), true);
 });
 
+test('fetch options come from the request, not the Clay copy', () => {
+  const clay = {SETTINGS_UNITS: '0', SETTINGS_WEATHER_WINDOW: '12', SLOT_1: '5', SLOT_2: '2'};
+  const options = weather.fetchOptionsFromRequest(
+      {SETTINGS_UNITS: 1, SETTINGS_WEATHER_WINDOW: 24, WEATHER_WANT_AQI: 1}, clay);
+  assert.deepEqual(options.units, {tempUnit: 'celsius', windSpeedUnit: 'ms'});
+  assert.equal(options.windowHours, 24);
+  assert.equal(options.wantAqi, true);
+
+  const back = weather.fetchOptionsFromRequest(
+      {SETTINGS_UNITS: 0, SETTINGS_WEATHER_WINDOW: 0, WEATHER_WANT_AQI: 0},
+      {SETTINGS_UNITS: '1', SETTINGS_WEATHER_WINDOW: '8', SLOT_1: '16'});
+  assert.deepEqual(back.units, {tempUnit: 'fahrenheit', windSpeedUnit: 'mph'});
+  assert.equal(back.windowHours, 0);
+  assert.equal(back.wantAqi, false);
+});
+
+test('a request without settings falls back to the Clay copy', () => {
+  const clay = {
+    SETTINGS_UNITS: '1',
+    SETTINGS_WEATHER_WINDOW: '8',
+    SLOT_1: '16',
+    SLOT_2: '2',
+    SLOT_3: '1',
+    SLOT_4: '6',
+    SLOT_5: '9',
+    SLOT_6: '23',
+  };
+  for (const absent of [null, undefined, {}, {WEATHER_REQUEST: 0}]) {
+    const options = weather.fetchOptionsFromRequest(absent, clay);
+    assert.deepEqual(options.units, {tempUnit: 'celsius', windSpeedUnit: 'ms'});
+    assert.equal(options.windowHours, 8);
+    assert.equal(options.wantAqi, true);
+  }
+  const bare = weather.fetchOptionsFromRequest(null, {});
+  assert.equal(bare.windowHours, weather.DEFAULT_WINDOW_HOURS);
+});
+
+test('each setting falls back on its own when the request lacks only it', () => {
+  const options = weather.fetchOptionsFromRequest(
+      {SETTINGS_UNITS: 1}, {SETTINGS_UNITS: '0', SETTINGS_WEATHER_WINDOW: '2'});
+  assert.deepEqual(options.units, {tempUnit: 'celsius', windSpeedUnit: 'ms'});
+  assert.equal(options.windowHours, 2);
+});
+
 test('a skipped AQI request leaves the field at its no-data sentinel', () => {
   const out = weather.parseForecast(fullResponse(), NOW);
   assert.equal(out.WEATHER_AQI, -1);
   assert.equal(weather.sentinelPayload().WEATHER_AQI, -1);
+});
+
+test('the reply carries a fetched AQI and the position', () => {
+  const reply = weather.buildReply(weather.parseForecast(fullResponse(), NOW), 42, 51.5, -0.12);
+  assert.equal(reply.WEATHER_AQI, 42);
+  assert.equal(reply.LATITUDE, 5150);
+  assert.equal(reply.LONGITUDE, -12);
+  assert.ok(weather.WEATHER_FIELDS.every(f => reply[f.key] !== undefined));
+});
+
+test('a failed or skipped AQI leaves WEATHER_AQI out of the reply', () => {
+  // The watch only overwrites keys that are present, so absence keeps its last
+  // good reading; -1 would blank it.
+  const reply = weather.buildReply(weather.parseForecast(fullResponse(), NOW), null, 51.5, -0.12);
+  assert.ok(!('WEATHER_AQI' in reply));
+  assert.equal(reply.WEATHER_TEMP, 23);
+  assert.equal(reply.LATITUDE, 5150);
 });
 
 test('the geolocation fix is reusable for just over one 30-minute cadence', () => {

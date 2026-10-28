@@ -47,6 +47,7 @@ uint32_t MESSAGE_KEY_WEATHER_FETCHED_AT = 140;
 uint32_t MESSAGE_KEY_LONGITUDE = 141;
 uint32_t MESSAGE_KEY_LATITUDE = 142;
 uint32_t MESSAGE_KEY_SETTINGS_DEGAUSS_VOLUME = 143;
+uint32_t MESSAGE_KEY_WEATHER_WANT_AQI = 145;
 
 // Implementations
 void app_event_loop(void) {}
@@ -61,8 +62,10 @@ AppMessageResult app_message_open(const uint32_t size_inbound, const uint32_t si
 
 bool mock_outbox_begin_ok = true;
 int mock_outbox_sends = 0;
+static void mock_outbox_capture_clear(void);
 AppMessageResult app_message_outbox_begin(DictionaryIterator** iterator) {
   static int dummy;  // app code only checks the iterator for NULL
+  mock_outbox_capture_clear();
   if (!mock_outbox_begin_ok) {
     *iterator = NULL;
     return APP_MSG_INVALID_STATE;
@@ -327,8 +330,9 @@ Tuple* dict_find(const DictionaryIterator* iter, uint32_t key) {
   }
   return NULL;
 }
-// Outbound capture: the only outbox payload is the weather-request trigger,
-// whose key *is* the message kind — tests must see the key, not just count
+// Outbound capture of the message being built: each outbox_begin starts a
+// fresh dictionary, like the SDK's. The only outbox payload is the weather
+// request, whose keys are its contract — tests must see them, not just count
 // sends. Assertions go through the accessors, not this storage.
 #define MOCK_OUTBOX_WRITES_MAX 8
 static struct {
@@ -336,6 +340,10 @@ static struct {
   uint8_t value;
 } s_mock_outbox_writes[MOCK_OUTBOX_WRITES_MAX];
 static int s_mock_outbox_write_count = 0;
+
+static void mock_outbox_capture_clear(void) {
+  s_mock_outbox_write_count = 0;
+}
 
 int mock_outbox_write_count(void) {
   return s_mock_outbox_write_count;

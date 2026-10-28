@@ -185,6 +185,9 @@ void refresh_state(void) {
 
 static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   (void)units_changed;
+  // The OS hands over the shared localtime buffer, which the calls below
+  // overwrite.
+  struct tm tick = *tick_time;
   // Quiet Time has no OS event, so it is polled on the minute tick.
   s_quiet_time_active = quiet_time_is_active();
   weather_expire(time(NULL));
@@ -192,10 +195,10 @@ static void tick_handler(struct tm* tick_time, TimeUnits units_changed) {
   // Fetch on the tick edge only. refresh_state() also runs from
   // inbox_received_callback; triggering there too re-armed the fetch on
   // every reply for the whole of minutes :00/:30.
-  if (weather_fetch_due(tick_time->tm_min, any_slot_needs_weather())) {
+  if (weather_fetch_due(tick.tm_min, any_slot_needs_weather())) {
     request_weather();
   }
-  chime_on_tick(tick_time);
+  chime_on_tick(&tick);
 }
 
 // A weather request that loses the race with the phone's JS runtime is
@@ -300,7 +303,7 @@ static void health_handler(HealthEventType event, void* context) {
     time_t now = time(NULL);
     time_t* last =
         event == HealthEventMovementUpdate ? &s_last_movement_refresh : &s_last_sleep_refresh;
-    if (now - *last < HEALTH_EVENT_THROTTLE_S) return;
+    if (now >= *last && now - *last < HEALTH_EVENT_THROTTLE_S) return;
     *last = now;
     update_health_metrics(HEALTH_EVENT_BIT(event));
     request_ui_redraw();

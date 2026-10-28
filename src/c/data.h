@@ -33,7 +33,8 @@ typedef enum {
   DATA_SOURCE_SOLAR_ELEVATION = 37,
   DATA_SOURCE_SOLAR_POSITION = 38,
   DATA_SOURCE_WEEK_NUMBER = 33,
-  // Retired ids: 19 (UTC_OFFSET), 29 (SUN_TIMES).
+  // Retired ids: 8 (DAY_NAME), 11 (SUNRISE), 12 (SUNSET), 13 (HIGH_TEMP),
+  // 14 (LOW_TEMP), 15 (HIGH_LOW_TEMP), 19 (UTC_OFFSET), 29 (SUN_TIMES).
   DATA_SOURCE_EMPTY = 20
 } ComplicationDataSource;
 
@@ -91,7 +92,7 @@ extern int s_temp_high;
 extern int s_temp_low;
 extern int s_temp_high_tmrw;  // tomorrow's daily max; WEATHER_TEMP_NONE indicates no data
 extern int s_temp_low_tmrw;   // tomorrow's daily min; WEATHER_TEMP_NONE indicates no data
-// Watch-local hours of each day's extremes, 0-23; WEATHER_NONE unknown.
+// Location-local hours of each day's extremes, 0-23; WEATHER_NONE unknown.
 extern int s_hi_hour_today;
 extern int s_lo_hour_today;
 extern int s_hi_hour_tmrw;
@@ -161,8 +162,8 @@ extern int s_settings_crt_curvature;
 extern int s_settings_crt_degauss;
 // The degauss strike's sound, 0-100; 0 = silent. Needs the strike itself on.
 extern int s_settings_degauss_volume;
-// Persisted like the other settings but read only phone-side: it sizes the
-// reduction window for the UV/PCP maxima, which happens before the wire.
+// Sent with every weather request: the phone sizes the UV/PCP maxima's
+// reduction window with it, which happens before the wire.
 extern int s_settings_weather_window;
 // The hourly POST beep, 0-100; 0 = off.
 extern int s_settings_chime_volume;
@@ -185,8 +186,6 @@ typedef struct {
 
 extern ComplicationSlot s_complication_slots[NUM_SLOTS];
 
-// One row per source: the registry lives in complication.c (see
-// complication.h's ComplicationSpec).
 // The single arrow for a wind blowing FROM `deg` (meteo bearing); the face
 // points the way the wind goes. "--" on any negative bearing.
 const char* wind_direction_arrow(int deg);

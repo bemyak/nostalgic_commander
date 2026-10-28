@@ -86,6 +86,26 @@ function needsAqi(settings) {
   });
 }
 
+// What a fetch depends on, in the watch's terms: the request carries the
+// watch's own units, forecast window and AQI need, so the phone never works
+// from a stale copy of them. Each missing one (a request from an older watch
+// build) falls back to the Clay copy.
+function fetchOptionsFromRequest(payload, claySettings) {
+  var settings = {};
+  var key;
+  for (key in claySettings) settings[key] = claySettings[key];
+  ['SETTINGS_UNITS', 'SETTINGS_WEATHER_WINDOW'].forEach(function(name) {
+    if (payload && payload[name] !== undefined) settings[name] = payload[name];
+  });
+  var wantAqi = payload && payload.WEATHER_WANT_AQI !== undefined ? !!payload.WEATHER_WANT_AQI :
+                                                                    needsAqi(claySettings);
+  return {
+    units: unitsFromClaySettings(settings),
+    windowHours: windowHoursFromClaySettings(settings),
+    wantAqi: wantAqi,
+  };
+}
+
 var FORECAST_CURRENT_FIELDS = [
   'temperature_2m', 'weather_code', 'relative_humidity_2m', 'precipitation', 'wind_direction_10m',
   'wind_speed_10m'
@@ -215,21 +235,19 @@ function parseForecast(json, nowMs, windowHours) {
     }
   }
 
-  // The watch formatter sinks the whole HI/LO readout when any extreme is
-  // missing — keep its sentinel predictable by sinking all four together.
+  // Each extreme stands alone; the watch formatter sinks the HI/LO readout
+  // when any is missing.
   var daily = json.daily || {};
   var maxes = daily.temperature_2m_max || [];
   var mins = daily.temperature_2m_min || [];
-  var high = num(maxes[0]);
-  var low = num(mins[0]);
-  var lowTmrw = num(mins[1]);
-  var highTmrw = num(maxes[1]);
-  if (high !== undefined && low !== undefined && lowTmrw !== undefined && highTmrw !== undefined) {
-    out.WEATHER_HIGH = Math.round(high);
-    out.WEATHER_LOW = Math.round(low);
-    out.WEATHER_LOW_TOMORROW = Math.round(lowTmrw);
-    out.WEATHER_TEMP_HIGH_TOMORROW = Math.round(highTmrw);
-  }
+  v = num(maxes[0]);
+  if (v !== undefined) out.WEATHER_HIGH = Math.round(v);
+  v = num(mins[0]);
+  if (v !== undefined) out.WEATHER_LOW = Math.round(v);
+  v = num(mins[1]);
+  if (v !== undefined) out.WEATHER_LOW_TOMORROW = Math.round(v);
+  v = num(maxes[1]);
+  if (v !== undefined) out.WEATHER_TEMP_HIGH_TOMORROW = Math.round(v);
 
   return out;
 }
@@ -276,16 +294,32 @@ function createFetchGuard() {
       return true;
     },
     // A result fetched while a trigger is queued predates it (settings may
-    // have changed); it is neither sent nor cached.
+    // have changed); it is not sent.
     shouldSendResult: function() { return !state.pending; },
   };
 }
 
 // The air-quality response is a separate backend; a parse failure means "no
-// data", never "perfectly clean air".
+// data", never "perfectly clean air". The value is passed through uncapped;
+// the watch owns the display range.
 function parseAqi(json) {
   var v = json.current ? num(json.current.us_aqi) : undefined;
   return v === undefined ? -1 : Math.round(v);
+}
+
+// The reply dictionary: the parsed forecast plus the position, and the AQI
+// only when one was fetched. `aqi` is null when the fetch failed or was
+// skipped; WEATHER_AQI is then absent, so the watch keeps the last reading
+// instead of having it overwritten with "no data".
+function buildReply(forecast, aqi, lat, lon) {
+  if (aqi === null) {
+    delete forecast.WEATHER_AQI;
+  } else {
+    forecast.WEATHER_AQI = aqi;
+  }
+  forecast.LONGITUDE = coordinateCenti(lon);
+  forecast.LATITUDE = coordinateCenti(lat);
+  return forecast;
 }
 
 module.exports = {
@@ -298,9 +332,11 @@ module.exports = {
   coordinateCenti : coordinateCenti,
   GEOLOCATION_MAX_AGE_MS : GEOLOCATION_MAX_AGE_MS,
   needsAqi : needsAqi,
+  fetchOptionsFromRequest : fetchOptionsFromRequest,
   AQI_SOURCES : AQI_SOURCES,
   unitsFromClaySettings : unitsFromClaySettings,
   parseForecast : parseForecast,
   parseAqi : parseAqi,
+  buildReply : buildReply,
   createFetchGuard : createFetchGuard,
 };

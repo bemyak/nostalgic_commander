@@ -6,12 +6,13 @@
 #include "main.h"
 #include "crt.h"
 
-// Data flow, phone → watch: the watch sends a trigger AppMessage (launch
-// with a stale cache, the :00/:30 tick, a settings push that newly needs
-// weather); PKJS fetches Open-Meteo (forecast and AQI, joined) and replies
-// with one dictionary; inbox_received_callback lands values in data.c
-// globals, persists the weather cache (30-minute TTL), and redraws. Settings
-// from the Clay page travel the same path and persist as PERSIST_KEY_SETTINGS_*.
+// Data flow, phone → watch: the watch sends a trigger AppMessage carrying the
+// settings the fetch depends on (launch with a stale cache, the :00/:30 tick,
+// a settings push that newly needs weather, a returning phone link); PKJS
+// fetches Open-Meteo (forecast and AQI, joined) and replies with one
+// dictionary; inbox_received_callback lands values in data.c globals,
+// persists the weather cache, and redraws. Settings from the Clay page travel
+// the same path and persist as PERSIST_KEY_SETTINGS_*.
 
 static void persist_write_int_if_changed(uint32_t key, int32_t value) {
   if (!persist_exists(key) || persist_read_int(key) != value) {
@@ -143,7 +144,7 @@ void save_weather_cache(void) {
 // A torn or garbage wire int must neither pass for data nor paint past its
 // slot: 2000000000 off the wire formats to ten digits and spills out of a
 // 93px window into the TIME region. A reading outside its field's range is
-// "no reading"; only the layout's display-width caps (UV, wind speed) clamp.
+// "no reading"; only the display caps (AQI, UV, wind speed) clamp.
 static void sanitize_int(int* v, int sentinel, int lo, int hi) {
   if (*v < lo || *v > hi) *v = sentinel;
 }
@@ -159,6 +160,7 @@ static void sanitize_weather_values(void) {
   sanitize_int(&s_temp_low_tmrw, WEATHER_TEMP_NONE, -99, 999);
   sanitize_int(&s_temp_high_tmrw, WEATHER_TEMP_NONE, -99, 999);
   sanitize_int(&s_weather_cond_code, WEATHER_NONE, 0, 99);  // WMO table is < 100
+  cap_int(&s_weather_aqi, 500);  // the US AQI scale tops out at 500; readings run past it
   sanitize_int(&s_weather_aqi, WEATHER_NONE, 0, 500);
   cap_int(&s_weather_uv, 99);  // UV is open-ended (WHO top band is "11+")
   sanitize_int(&s_weather_uv, WEATHER_NONE, 0, 99);
@@ -268,7 +270,7 @@ bool load_weather_cache(void) {
   time_t now = time(NULL);
   int32_t saved_at = persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP);
   int32_t age = (int32_t)now - saved_at;
-  if (age < 0 || age > WEATHER_CACHE_MAX_AGE_S) return false;
+  if (age < 0 || age > WEATHER_STALE_AGE_S) return false;
 
   // Each field is individually optional: a cache written by an older build
   // lacks the newer keys, and those readings keep their sentinels.
@@ -278,7 +280,9 @@ bool load_weather_cache(void) {
     }
   }
   weather_expire(now);
-  return true;
+  // Held readings show up to the stale age, but past a fetch cadence they are
+  // a refetch away.
+  return age <= WEATHER_CACHE_MAX_AGE_S;
 }
 
 // An id with no registry row — from a newer build's settings or a torn wire
@@ -338,14 +342,19 @@ static void send_weather_request(void) {
   // With no phone link the outbox fails at once and would only arm the
   // retry timer; weather_fetch_on_reconnect() asks again when the link is back.
   if (!s_connected) return;
-  DictionaryIterator* iter;
-  app_message_outbox_begin(&iter);
+  DictionaryIterator* iter = NULL;
   // No retry on begin failure (outbox_failed never fires when nothing was
   // sent, so main.c's bounded retry doesn't either); the next :00/:30 tick
   // re-asks.
-  if (iter == NULL) return;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK || iter == NULL) return;
 
+  // The phone fetches in the watch's terms: the settings its reduction depends
+  // on ride along, so it never works from a stale copy of its own.
   dict_write_uint8(iter, MESSAGE_KEY_WEATHER_REQUEST, 0);
+  dict_write_uint8(iter, MESSAGE_KEY_SETTINGS_UNITS, s_settings_units);
+  dict_write_uint8(iter, MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, s_settings_weather_window);
+  dict_write_uint8(iter, MESSAGE_KEY_WEATHER_WANT_AQI,
+                   any_slot_backed_by(DATA_SOURCE_AQI) || any_slot_backed_by(DATA_SOURCE_AQI_UV));
   app_message_outbox_send();
 }
 
@@ -360,21 +369,17 @@ void request_weather_retry(void) {
 
 void inbox_received_callback(DictionaryIterator* iterator, void* context) {
   (void)context;
-  // WEATHER_TEMP + WEATHER_COND together mark a real weather payload; a
-  // settings-only message must not refresh the cache timestamp. The payload
-  // check reads temp itself, so the table walk skips it; cond rides the
-  // table like every other reading.
-  Tuple* temp_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP);
-  Tuple* cond_tuple = dict_find(iterator, MESSAGE_KEY_WEATHER_COND);
-  if (temp_tuple && cond_tuple) {
-    s_weather_temp = tuple_get_int(temp_tuple);
-  }
-
-  for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
-    if (s_weather_fields[i].message_key == &MESSAGE_KEY_WEATHER_TEMP) continue;
-    Tuple* tuple = dict_find(iterator, *s_weather_fields[i].message_key);
-    if (tuple) {
-      *s_weather_fields[i].target = tuple_get_int(tuple);
+  // WEATHER_TEMP + WEATHER_COND together mark a real weather payload; only
+  // that pair opens the table walk, validation and cache stamp. A
+  // settings-only message, or a partial one, touches no reading.
+  bool is_weather = dict_find(iterator, MESSAGE_KEY_WEATHER_TEMP) &&
+                    dict_find(iterator, MESSAGE_KEY_WEATHER_COND);
+  if (is_weather) {
+    for (unsigned i = 0; i < sizeof(s_weather_fields) / sizeof(s_weather_fields[0]); i++) {
+      Tuple* tuple = dict_find(iterator, *s_weather_fields[i].message_key);
+      if (tuple) {
+        *s_weather_fields[i].target = tuple_get_int(tuple);
+      }
     }
   }
 
@@ -393,10 +398,9 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     persist_write_int_if_changed(PERSIST_KEY_LATITUDE, s_latitude);
   }
 
-  // Persist the weather cache only for a real weather payload, so a
-  // settings-only message can't refresh the timestamp. The payload's fetch
-  // time stamps it, or the arrival time when that is missing or impossible.
-  if (temp_tuple && cond_tuple) {
+  // The payload's fetch time stamps the cache, or the arrival time when that
+  // is missing or impossible.
+  if (is_weather) {
     sanitize_weather_values();
     time_t now = time(NULL);
     s_weather_stamp = (int)weather_stamp_for(
@@ -446,9 +450,15 @@ void inbox_received_callback(DictionaryIterator* iterator, void* context) {
     chime_play();
   }
 
-  // New units or a new window leave the held readings in the old terms; none
-  // may sit beside the new unit letter while the refetch is in flight.
-  if (units_changed || window_changed) weather_discard();
+  // New units leave every held reading in the old terms; none may sit beside
+  // the new unit letter while the refetch is in flight. A new window only
+  // resizes the UV and PCP maxima.
+  if (units_changed) {
+    weather_discard();
+  } else if (window_changed) {
+    s_weather_uv = s_weather_pcp = WEATHER_NONE;
+    save_weather_cache();
+  }
 
   // Assigning or rearranging slots has to fetch now, or a newly shown weather
   // reading sits at "--" until the next :00/:30 edge. Rearranging non-weather

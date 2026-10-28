@@ -2958,12 +2958,11 @@ void test_weather_cache_should_reject_missing_or_stale_data(void) {
   TEST_ASSERT_FALSE(load_weather_cache());
   TEST_ASSERT_EQUAL_INT(-999, s_weather_temp);
 
-  // Persist, then age the timestamp past the 30-minute window
+  // Persist, then age the timestamp past the stale age
   s_weather_temp = 72;
   s_weather_cond_code = 0;
   save_weather_cache();
-  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP,
-                    (int32_t)time(NULL) - (WEATHER_CACHE_MAX_AGE_S + 1));
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) - (WEATHER_STALE_AGE_S + 1));
 
   s_weather_temp = -999;
   s_weather_cond_code = -1;
@@ -2974,6 +2973,50 @@ void test_weather_cache_should_reject_missing_or_stale_data(void) {
   // A timestamp from the future (clock change) is also rejected
   persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) + 3600);
   TEST_ASSERT_FALSE(load_weather_cache());
+}
+
+void test_weather_cache_older_than_a_fetch_cadence_should_show_and_ask_for_a_refetch(void) {
+  mock_persist_reset();
+  s_weather_temp = 18;
+  s_weather_cond_code = 61;
+  save_weather_cache();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) - 45 * 60);
+
+  s_weather_temp = -999;
+  s_weather_cond_code = -1;
+  TEST_ASSERT_FALSE(load_weather_cache());
+  TEST_ASSERT_EQUAL_INT(18, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(61, s_weather_cond_code);
+}
+
+void test_launch_with_a_45_minute_old_cache_should_show_it_and_fetch(void) {
+  mock_persist_reset();
+  s_weather_temp = 18;
+  s_weather_cond_code = 61;
+  save_weather_cache();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) - 45 * 60);
+  s_weather_temp = -999;
+  s_weather_cond_code = -1;
+
+  init();
+
+  TEST_ASSERT_EQUAL_INT(18, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(1, mock_outbox_sends);
+}
+
+void test_launch_with_a_recent_cache_should_show_it_without_fetching(void) {
+  mock_persist_reset();
+  s_weather_temp = 18;
+  s_weather_cond_code = 61;
+  save_weather_cache();
+  persist_write_int(PERSIST_KEY_WEATHER_TIMESTAMP, (int32_t)time(NULL) - 10 * 60);
+  s_weather_temp = -999;
+  s_weather_cond_code = -1;
+
+  init();
+
+  TEST_ASSERT_EQUAL_INT(18, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(0, mock_outbox_sends);
 }
 
 void test_weather_cache_should_keep_values_at_edge_of_window(void) {
@@ -3038,6 +3081,95 @@ void test_settings_should_round_trip_through_persistence(void) {
   TEST_ASSERT_EQUAL_INT(2, s_settings_date_format);
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_AQI, s_complication_slots[0].source);
   TEST_ASSERT_EQUAL_INT(DATA_SOURCE_UV, s_complication_slots[4].source);
+}
+
+void test_every_settings_and_slot_row_should_round_trip_through_persistence(void) {
+  static const ComplicationDataSource kSlotsChosen[NUM_SLOTS] = {
+      DATA_SOURCE_AQI,  DATA_SOURCE_UV,         DATA_SOURCE_BATTERY,
+      DATA_SOURCE_DATE, DATA_SOURCE_SHORT_DATE, DATA_SOURCE_BEATS};
+  const unsigned settings_count = sizeof(s_settings_fields) / sizeof(s_settings_fields[0]);
+  mock_persist_reset();
+  mock_dict_reset();
+  // Each setting gets its own value, off every default.
+  for (unsigned i = 0; i < settings_count; i++) {
+    mock_dict_add_int(*s_settings_fields[i].message_key, 30 + (int)i);
+  }
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    mock_dict_add_int(*s_slot_keys[i].message_key, kSlotsChosen[i]);
+  }
+  inbox_received_callback(NULL, NULL);
+
+  for (unsigned i = 0; i < settings_count; i++) {
+    TEST_ASSERT_EQUAL_INT(30 + (int)i, *s_settings_fields[i].target);
+    TEST_ASSERT_EQUAL_INT(30 + (int)i, persist_read_int(s_settings_fields[i].persist_key));
+  }
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    TEST_ASSERT_EQUAL_INT(kSlotsChosen[i], s_complication_slots[i].source);
+    TEST_ASSERT_EQUAL_INT(kSlotsChosen[i], persist_read_int(s_slot_keys[i].persist_key));
+  }
+
+  for (unsigned i = 0; i < settings_count; i++) *s_settings_fields[i].target = 0;
+  for (int i = 0; i < NUM_SLOTS; i++) s_complication_slots[i].source = DATA_SOURCE_EMPTY;
+  load_settings();
+
+  for (unsigned i = 0; i < settings_count; i++) {
+    TEST_ASSERT_EQUAL_INT(30 + (int)i, *s_settings_fields[i].target);
+  }
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    TEST_ASSERT_EQUAL_INT(kSlotsChosen[i], s_complication_slots[i].source);
+  }
+}
+
+void test_persist_keys_should_be_unique(void) {
+  static const uint32_t kKeys[] = {
+      PERSIST_KEY_WEATHER_TEMP,
+      PERSIST_KEY_WEATHER_AQI,
+      PERSIST_KEY_WEATHER_UV,
+      PERSIST_KEY_WEATHER_TIMESTAMP,
+      PERSIST_KEY_WEATHER_HUMIDITY,
+      PERSIST_KEY_WEATHER_PCP,
+      PERSIST_KEY_WEATHER_HIGH,
+      PERSIST_KEY_WEATHER_LOW,
+      PERSIST_KEY_WEATHER_PRECIP_NOW,
+      PERSIST_KEY_WEATHER_LOW_TOMORROW,
+      PERSIST_KEY_WEATHER_HIGH_TOMORROW,
+      PERSIST_KEY_WEATHER_HI_HOUR_TODAY,
+      PERSIST_KEY_WEATHER_LO_HOUR_TODAY,
+      PERSIST_KEY_WEATHER_HI_HOUR_TOMORROW,
+      PERSIST_KEY_WEATHER_LO_HOUR_TOMORROW,
+      PERSIST_KEY_WEATHER_WIND_DIRECTION,
+      PERSIST_KEY_WEATHER_WIND_SPEED,
+      PERSIST_KEY_WEATHER_COND_CODE,
+      PERSIST_KEY_SETTINGS_THEME,
+      PERSIST_KEY_SETTINGS_UNITS,
+      PERSIST_KEY_SETTINGS_DATE_FORMAT,
+      PERSIST_KEY_SLOT_1,
+      PERSIST_KEY_SLOT_2,
+      PERSIST_KEY_SLOT_3,
+      PERSIST_KEY_SLOT_4,
+      PERSIST_KEY_SLOT_5,
+      PERSIST_KEY_SETTINGS_SHORT_DATE,
+      PERSIST_KEY_SLOT_6,
+      PERSIST_KEY_SETTINGS_DOW,
+      PERSIST_KEY_SETTINGS_WEATHER_WINDOW,
+      PERSIST_KEY_LEGACY_CRT,
+      PERSIST_KEY_LEGACY_CRT_SOUND,
+      PERSIST_KEY_LEGACY_HOURLY_CHIME,
+      PERSIST_KEY_SETTINGS_CHIME_VOLUME,
+      PERSIST_KEY_LONGITUDE,
+      PERSIST_KEY_LATITUDE,
+      PERSIST_KEY_SETTINGS_CRT_ABERRATION,
+      PERSIST_KEY_SETTINGS_CRT_CURVATURE,
+      PERSIST_KEY_SETTINGS_CRT_DEGAUSS,
+      PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME,
+      PERSIST_KEY_SETTINGS_NIGHT_THEME,
+  };
+  const unsigned count = sizeof(kKeys) / sizeof(kKeys[0]);
+  for (unsigned i = 0; i < count; i++) {
+    for (unsigned j = i + 1; j < count; j++) {
+      TEST_ASSERT_NOT_EQUAL_UINT32_MESSAGE(kKeys[i], kKeys[j], "two PERSIST_KEY_* share a value");
+    }
+  }
 }
 
 void test_night_theme_should_round_trip_through_persistence_and_default_off(void) {
@@ -3369,6 +3501,36 @@ void test_inbox_should_keep_weather_ints_at_the_edges_of_their_ranges(void) {
   TEST_ASSERT_EQUAL_INT(360, s_weather_wind_direction);
   TEST_ASSERT_EQUAL_INT(23, s_hi_hour_today);
   TEST_ASSERT_EQUAL_INT(0, s_lo_hour_today);
+}
+
+void test_inbox_should_cap_an_aqi_above_the_scale_instead_of_dropping_it(void) {
+  // Open-Meteo's us_aqi runs past 500 in heavy smoke; the worst air must not
+  // read as "--".
+  mock_persist_reset();
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 32);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_AQI, 600);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(500, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(500, persist_read_int(PERSIST_KEY_WEATHER_AQI));
+}
+
+void test_inbox_without_an_aqi_should_keep_the_held_reading(void) {
+  // A reply built after a failed AQI fetch omits the key; the held reading
+  // must survive it, in memory and in the cache.
+  mock_persist_reset();
+  s_weather_aqi = 42;
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 32);
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 0);
+
+  inbox_received_callback(NULL, NULL);
+
+  TEST_ASSERT_EQUAL_INT(42, s_weather_aqi);
+  TEST_ASSERT_EQUAL_INT(42, persist_read_int(PERSIST_KEY_WEATHER_AQI));
 }
 
 void test_inbox_should_not_clamp_uv_above_11(void) {
@@ -3843,13 +4005,36 @@ void test_refresh_state_should_never_request_weather(void) {
   TEST_ASSERT_EQUAL_INT(before, mock_outbox_sends);
 }
 
-void test_request_weather_should_send_exactly_the_trigger_key(void) {
-  // The outbox protocol is one content-free doorbell: key WEATHER_REQUEST,
-  // value 0, nothing else. Guards against the key degenerating back into a
-  // data-key overload — mock_outbox_sends alone can't see that.
+void test_request_weather_should_carry_the_settings_the_fetch_depends_on(void) {
+  // The doorbell plus exactly the phone's inputs: units, window, AQI need.
+  // Anything else would be a data-key overload, which mock_outbox_sends alone
+  // can't see.
+  s_settings_units = 1;
+  s_settings_weather_window = 24;
+  set_slots(kSlotsNoHealth);  // AQI + UV shown
   request_weather();
-  TEST_ASSERT_EQUAL_INT(1, mock_outbox_write_count());
+  TEST_ASSERT_EQUAL_INT(4, mock_outbox_write_count());
   TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_SETTINGS_UNITS, 1));
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, 24));
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_WANT_AQI, 1));
+  TEST_ASSERT_TRUE(1 + 4 * (7 + 1) <= APP_MESSAGE_OUTBOX_SIZE);
+}
+
+void test_request_weather_should_ask_for_aqi_only_when_a_slot_shows_it(void) {
+  s_settings_units = 0;
+  s_settings_weather_window = 0;
+  set_slots(kSlotsBoot);
+  request_weather();
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_SETTINGS_UNITS, 0));
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, 0));
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_WANT_AQI, 0));
+
+  mock_reset();
+  s_complication_slots[2].source = DATA_SOURCE_AQI;
+  s_connected = true;
+  request_weather();
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_WANT_AQI, 1));
 }
 
 void test_refresh_state_should_refresh_the_hi_lo_phase_hour(void) {
@@ -5993,9 +6178,11 @@ void test_inbox_units_change_should_discard_held_weather_and_the_cache_stamp(voi
   TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 }
 
-void test_inbox_window_change_should_discard_held_weather(void) {
+void test_inbox_window_change_should_clear_only_the_window_sized_maxima(void) {
   mock_persist_reset();
   set_held_weather();
+  s_weather_uv = 6;
+  s_weather_pcp = 40;
   s_weather_stamp = (int)(time(NULL) - 60);
   save_weather_cache();
 
@@ -6003,8 +6190,15 @@ void test_inbox_window_change_should_discard_held_weather(void) {
   mock_dict_add_cstring(MESSAGE_KEY_SETTINGS_WEATHER_WINDOW, "24");
   inbox_received_callback(NULL, NULL);
 
-  TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
-  TEST_ASSERT_EQUAL_INT(0, persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP));
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_uv);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_pcp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, persist_read_int(PERSIST_KEY_WEATHER_UV));
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, persist_read_int(PERSIST_KEY_WEATHER_PCP));
+  TEST_ASSERT_EQUAL_INT(72, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(40, s_weather_humidity);
+  TEST_ASSERT_EQUAL_INT(80, s_temp_high);
+  TEST_ASSERT_TRUE(persist_read_int(PERSIST_KEY_WEATHER_TIMESTAMP) > 0);
+  TEST_ASSERT_TRUE(mock_outbox_has(MESSAGE_KEY_WEATHER_REQUEST, 0));
 }
 
 void test_inbox_unchanged_units_should_keep_held_weather(void) {
@@ -6249,7 +6443,6 @@ void test_full_weather_and_settings_dicts_should_fit_the_inbox(void) {
   TEST_ASSERT_TRUE(weather <= APP_MESSAGE_INBOX_SIZE);
   TEST_ASSERT_TRUE_MESSAGE(weather_headroom >= tuple, "the weather reply has no tuple to spare");
   TEST_ASSERT_TRUE(settings <= APP_MESSAGE_INBOX_SIZE);
-  TEST_ASSERT_TRUE(1 + 7 + 1 <= APP_MESSAGE_OUTBOX_SIZE);
 }
 
 void test_init_should_open_app_message_with_the_named_sizes(void) {
@@ -6361,7 +6554,7 @@ void test_chime_should_not_repeat_in_a_replayed_wall_hour(void) {
   TEST_ASSERT_EQUAL_INT(3, mock_speaker_tone_count);
 }
 
-void test_chime_muted_hour_should_still_chime_if_unmuted_within_the_hour(void) {
+void test_chime_mute_should_not_consume_the_hour_marker(void) {
   s_settings_chime_volume = 5;
   struct tm t = {0};
   mock_speaker_muted = true;
@@ -6490,6 +6683,29 @@ void test_health_handler_should_drop_events_until_the_window_is_fully_spent(void
   TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
 }
 
+void test_health_handler_should_not_stay_throttled_after_the_clock_moves_back(void) {
+  set_slots(kSlotsOnlySteps);
+
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(1, mock_health_accessible_count);
+
+  mock_time_offset -= 3600;
+  health_handler(HealthEventMovementUpdate, NULL);
+  TEST_ASSERT_EQUAL_INT(2, mock_health_accessible_count);
+}
+
+void test_tick_handler_should_read_its_minute_before_anything_reuses_the_time_buffer(void) {
+  // The OS passes the shared localtime buffer; refresh_state() calls
+  // localtime() again, here with the clock a minute on.
+  mock_clock_to(local_time_at(1, 15, 14, 30));
+  time_t tick = time(NULL);
+  struct tm* shared = localtime(&tick);
+  mock_clock_to(local_time_at(1, 15, 14, 31));
+  int before = mock_outbox_sends;
+  tick_handler(shared, MINUTE_UNIT);
+  TEST_ASSERT_EQUAL_INT(before + 1, mock_outbox_sends);
+}
+
 void test_inbox_should_take_a_weather_payload_only_when_temp_and_cond_both_arrive(void) {
   mock_persist_reset();
   mock_dict_reset();
@@ -6503,9 +6719,19 @@ void test_inbox_should_take_a_weather_payload_only_when_temp_and_cond_both_arriv
   mock_dict_add_int(MESSAGE_KEY_WEATHER_COND, 3);
   inbox_received_callback(NULL, NULL);
   TEST_ASSERT_EQUAL_INT(WEATHER_TEMP_NONE, s_weather_temp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_cond_code);
   TEST_ASSERT_EQUAL_INT(0, s_weather_stamp);
   TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP));
   TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_WEATHER_TEMP));
+
+  // No other reading rides in alone either: a bare future stamp is not taken.
+  mock_dict_reset();
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_FETCHED_AT, (int32_t)(time(NULL) + 86400));
+  mock_dict_add_int(MESSAGE_KEY_WEATHER_UV, 5);
+  inbox_received_callback(NULL, NULL);
+  TEST_ASSERT_EQUAL_INT(0, s_weather_stamp);
+  TEST_ASSERT_EQUAL_INT(WEATHER_NONE, s_weather_uv);
+  TEST_ASSERT_FALSE(persist_exists(PERSIST_KEY_WEATHER_TIMESTAMP));
 
   mock_dict_reset();
   mock_dict_add_int(MESSAGE_KEY_WEATHER_TEMP, 72);
@@ -6715,9 +6941,14 @@ int main(void) {
   RUN_TEST(test_weather_cache_should_round_trip_when_fresh);
   RUN_TEST(test_weather_cache_should_leave_extreme_timing_at_sentinel_in_old_caches);
   RUN_TEST(test_weather_cache_should_reject_missing_or_stale_data);
+  RUN_TEST(test_weather_cache_older_than_a_fetch_cadence_should_show_and_ask_for_a_refetch);
+  RUN_TEST(test_launch_with_a_45_minute_old_cache_should_show_it_and_fetch);
+  RUN_TEST(test_launch_with_a_recent_cache_should_show_it_without_fetching);
   RUN_TEST(test_weather_cache_should_keep_values_at_edge_of_window);
   RUN_TEST(test_weather_cache_without_cond_code_should_degrade_to_dashes);
   RUN_TEST(test_settings_should_round_trip_through_persistence);
+  RUN_TEST(test_every_settings_and_slot_row_should_round_trip_through_persistence);
+  RUN_TEST(test_persist_keys_should_be_unique);
   RUN_TEST(test_night_theme_should_round_trip_through_persistence_and_default_off);
   RUN_TEST(test_settings_persistence_is_decoupled_from_message_key_ids);
   RUN_TEST(test_health_read_table_should_pin_each_metric_mode_and_sentinel);
@@ -6737,6 +6968,8 @@ int main(void) {
   RUN_TEST(test_inbox_should_parse_weather_payload_and_persist);
   RUN_TEST(test_inbox_should_sentinel_out_of_range_semantic_ints_and_cap_display_widths);
   RUN_TEST(test_inbox_should_keep_weather_ints_at_the_edges_of_their_ranges);
+  RUN_TEST(test_inbox_should_cap_an_aqi_above_the_scale_instead_of_dropping_it);
+  RUN_TEST(test_inbox_without_an_aqi_should_keep_the_held_reading);
   RUN_TEST(test_inbox_should_not_clamp_uv_above_11);
   RUN_TEST(test_inbox_should_parse_narrow_width_weather_ints);
   RUN_TEST(test_inbox_should_parse_and_persist_tomorrow_low);
@@ -6759,7 +6992,8 @@ int main(void) {
   RUN_TEST(test_inbox_units_change_should_trigger_weather_refetch);
   RUN_TEST(test_inbox_weather_window_change_should_trigger_weather_refetch);
   RUN_TEST(test_refresh_state_should_never_request_weather);
-  RUN_TEST(test_request_weather_should_send_exactly_the_trigger_key);
+  RUN_TEST(test_request_weather_should_carry_the_settings_the_fetch_depends_on);
+  RUN_TEST(test_request_weather_should_ask_for_aqi_only_when_a_slot_shows_it);
   RUN_TEST(test_refresh_state_should_refresh_the_hi_lo_phase_hour);
   RUN_TEST(test_refresh_state_should_reformat_the_date_when_settings_change);
   RUN_TEST(test_refresh_state_should_keep_date_output_when_nothing_changes);
@@ -6887,7 +7121,7 @@ int main(void) {
   RUN_TEST(test_inbox_should_treat_a_replayed_payload_older_than_two_hours_as_no_data);
   RUN_TEST(test_inbox_settings_only_message_should_not_stamp_weather);
   RUN_TEST(test_inbox_units_change_should_discard_held_weather_and_the_cache_stamp);
-  RUN_TEST(test_inbox_window_change_should_discard_held_weather);
+  RUN_TEST(test_inbox_window_change_should_clear_only_the_window_sized_maxima);
   RUN_TEST(test_inbox_unchanged_units_should_keep_held_weather);
   RUN_TEST(test_weather_table_sentinels_should_equal_the_globals_boot_values);
   RUN_TEST(test_weather_fetch_due_should_need_the_half_hour_edge_and_a_weather_slot);
@@ -6910,7 +7144,7 @@ int main(void) {
   RUN_TEST(test_chime_should_not_ask_the_speaker_off_the_full_hour_or_when_disabled);
   RUN_TEST(test_chime_should_stay_silent_at_volume_zero);
   RUN_TEST(test_chime_should_not_repeat_in_a_replayed_wall_hour);
-  RUN_TEST(test_chime_muted_hour_should_still_chime_if_unmuted_within_the_hour);
+  RUN_TEST(test_chime_mute_should_not_consume_the_hour_marker);
   RUN_TEST(test_refresh_state_should_format_the_clock_after_window_unload);
   RUN_TEST(test_canvas_should_draw_the_clock_centred_in_primary_ink);
   RUN_TEST(test_minute_change_should_trip_the_render_gate);
@@ -6920,6 +7154,8 @@ int main(void) {
   RUN_TEST(test_aqi_uv_chip_should_flip_at_its_thresholds);
   RUN_TEST(test_steps_should_switch_to_the_k_form_at_ten_thousand);
   RUN_TEST(test_health_handler_should_drop_events_until_the_window_is_fully_spent);
+  RUN_TEST(test_health_handler_should_not_stay_throttled_after_the_clock_moves_back);
+  RUN_TEST(test_tick_handler_should_read_its_minute_before_anything_reuses_the_time_buffer);
   RUN_TEST(test_inbox_should_take_a_weather_payload_only_when_temp_and_cond_both_arrive);
   RUN_TEST(test_refresh_state_should_reformat_the_date_when_only_the_day_of_year_changes);
   RUN_TEST(test_every_drawer_should_render_in_every_slot_within_the_recorders);

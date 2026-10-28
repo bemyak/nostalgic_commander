@@ -60,6 +60,8 @@
 #define PERSIST_KEY_SETTINGS_DEGAUSS_VOLUME 1043
 #define PERSIST_KEY_SETTINGS_NIGHT_THEME 1044
 
+// A reading older than this is refetched; it still shows until
+// WEATHER_STALE_AGE_S.
 #define WEATHER_CACHE_MAX_AGE_S (30 * 60)
 // Weather older than this reads as no data.
 #define WEATHER_STALE_AGE_S (2 * 60 * 60)
@@ -71,6 +73,8 @@
 #define WEATHER_RECONNECT_MIN_GAP_S 60
 
 #define APP_MESSAGE_INBOX_SIZE 256
+// The weather request: a dictionary count byte plus four uint8 tuples of
+// 7 header + 1 value bytes each = 33 bytes.
 #define APP_MESSAGE_OUTBOX_SIZE 64
 
 typedef enum {
@@ -82,6 +86,8 @@ typedef enum {
 
 // Persists the weather readings under s_weather_stamp.
 void save_weather_cache(void);
+// Restores readings up to WEATHER_STALE_AGE_S old; false when a refetch is due
+// (nothing usable stored, or older than WEATHER_CACHE_MAX_AGE_S).
 bool load_weather_cache(void);
 void load_settings(void);
 void load_longitude(void);

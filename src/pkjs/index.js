@@ -269,6 +269,9 @@ var WEATHER_SEND_RETRY_DELAY_MS = 5 * 1000;
 
 var fetchGuard = weather.createFetchGuard();
 var weatherRetryTimer = null;
+// The newest request's payload: the settings the watch holds right now, which
+// every fetch it triggers (retries and queued reruns included) works from.
+var lastRequest = null;
 
 // Starts the rerun a queued trigger is owed, if any.
 function endWeatherFetch() {
@@ -326,11 +329,6 @@ function readClaySettings() {
 
 Pebble.addEventListener('ready', function() {
   console.log('PebbleKit JS ready!');
-  try {
-    localStorage.removeItem('weather-cache');
-  } catch (e) {
-    console.log('Error clearing weather cache: ' + e);
-  }
   // Don't fetch proactively. The watch requests on launch when its own cache
   // is stale and a weather slot exists, retries a dropped request on its side,
   // and the appmessage listener always answers — the watch holds the
@@ -338,10 +336,11 @@ Pebble.addEventListener('ready', function() {
   // request.
 });
 
-Pebble.addEventListener('appmessage', function() {
+Pebble.addEventListener('appmessage', function(e) {
   // The watch asks on launch when its persisted cache is stale, and on a
   // fixed :00/:30 cadence regardless of cache age — always fetch.
   console.log('AppMessage received!');
+  lastRequest = e && e.payload ? e.payload : null;
   clearTimeout(weatherRetryTimer);
   if (!fetchGuard.begin()) {
     console.log('Weather fetch already in flight; queueing one more');
@@ -384,20 +383,20 @@ function fetchJson(url, callback) {
 function getWeather(attempt) {
   navigator.geolocation.getCurrentPosition(
       function(position) {
-        var settings = readClaySettings();
-        var units = weather.unitsFromClaySettings(settings);
-        var windowHours = weather.windowHoursFromClaySettings(settings);
-        var wantAqi = weather.needsAqi(settings);
+        var options = weather.fetchOptionsFromRequest(lastRequest, readClaySettings());
+        var units = options.units;
+        var windowHours = options.windowHours;
+        var wantAqi = options.wantAqi;
         var lat = position.coords.latitude;
         var lon = position.coords.longitude;
 
         // The forecast and AQI backends are independent; fan out and join so
         // the phone radio is up once instead of twice. A failed forecast
         // retries the whole fetch (an in-flight AQI result is discarded); a
-        // failed AQI sends with -1. With no AQI slot the AQI request is
-        // skipped and the field keeps the -1 the forecast parse left in it.
+        // failed AQI is left out of the reply, which keeps the watch's last
+        // reading. With no AQI slot the AQI request is skipped the same way.
         var forecast = null;
-        var aqi = -1;
+        var aqi = null;
         var expected = wantAqi ? 2 : 1;
         var settled = 0;
         var failedReason = null;
@@ -414,10 +413,7 @@ function getWeather(attempt) {
             endWeatherFetch();
             return;
           }
-          if (wantAqi) forecast.WEATHER_AQI = aqi;
-          forecast.LONGITUDE = weather.coordinateCenti(lon);
-          forecast.LATITUDE = weather.coordinateCenti(lat);
-          doSendWeatherDict(forecast, 'Weather bundle', 0);
+          doSendWeatherDict(weather.buildReply(forecast, aqi, lat, lon), 'Weather bundle', 0);
         }
 
         fetchJson(weather.buildForecastUrl(lat, lon, units), function(error, json) {

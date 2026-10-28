@@ -35,6 +35,16 @@ All notable changes to Nostalgic Commander. Format follows
 - A notification or reminder that closed by itself no longer swallows the
   degauss on the next wake.
 - Dragging a volume slider past its left end turns it off; it stopped at 10%.
+- Weather is fetched with the units and forecast window the watch holds: a
+  Bluetooth drop while saving settings no longer leaves it in the old units
+  until the next settings change.
+- A failed air-quality fetch no longer blanks the last AQI reading, and an AQI
+  above 500 shows as 500 instead of `--`.
+- Launching with weather last fetched 30 minutes to 2 hours ago shows it while
+  the fresh fetch is on its way, instead of `--`.
+- Changing the forecast window blanks only the UV and rain-chance readings
+  while the new maxima load; it used to blank all the weather.
+- Step and sleep readouts keep updating after the watch clock is set back.
 
 ## [1.12.0] - 2026-10-25
 

@@ -79,8 +79,8 @@ function themeSettingValues() {
 }
 
 // The s_settings_* initializers in data.c, keyed like Clay messageKeys
-// (s_settings_theme → SETTINGS_THEME). Twelve keys: the phone-side weather
-// window is persisted watch-side too, though only the phone reads it.
+// (s_settings_theme → SETTINGS_THEME). Twelve keys: the weather window is one
+// of them, sent to the phone with each weather request.
 function cBootSettings() {
   const src = readRepoFile('src/c/data.c');
   const boots = new Map();
