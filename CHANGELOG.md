@@ -6,16 +6,8 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
-### Added
-
-- Night theme: a second theme shown from sunset to sunrise at the weather
-  location.
-
 ### Changed
 
-- The settings page takes the colours of the selected theme.
-- Degauss colour stripes show on grey and white: on the Turbo Vision,
-  Console and Navigator themes the strike was a bare warp. Black stays black.
 - Degauss runs at 25 frames a second, the most the panel can show, every
   frame on time; it was 11. The face is drawn once per minute and the
   effects are baked onto that drawing, so a frame costs a copy and the
@@ -31,10 +23,6 @@ All notable changes to Nostalgic Commander. Format follows
 
 ### Fixed
 
-- Dismissing Quick View with Back no longer degausses.
-- A notification or reminder that closed by itself no longer swallows the
-  degauss on the next wake.
-- Dragging a volume slider past its left end turns it off; it stopped at 10%.
 - Weather is fetched with the units and forecast window the watch holds: a
   Bluetooth drop while saving settings no longer leaves it in the old units
   until the next settings change.
@@ -50,6 +38,26 @@ All notable changes to Nostalgic Commander. Format follows
 - The weather strip's PCP chip bands on the live rain rate when the rain
   chance is missing, the way the lone PCP chip does.
 - A rain rate of 3.9 mm is no longer rounded down below the 4 mm band.
+
+## [1.13.0] - 2026-10-26
+
+### Added
+
+- Night theme: a second theme shown from sunset to sunrise at the weather
+  location.
+
+### Changed
+
+- The settings page takes the colours of the selected theme.
+- Degauss colour stripes show on grey and white: on the Turbo Vision,
+  Console and Navigator themes the strike was a bare warp. Black stays black.
+
+### Fixed
+
+- Dismissing Quick View with Back no longer degausses.
+- A notification or reminder that closed by itself no longer swallows the
+  degauss on the next wake.
+- Dragging a volume slider past its left end turns it off; it stopped at 10%.
 
 ## [1.12.0] - 2026-10-25
 
