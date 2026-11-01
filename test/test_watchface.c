@@ -4940,7 +4940,7 @@ void test_crt_sound_should_play_only_when_enabled_and_unmuted(void) {
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
 
   s_settings_degauss_volume = 90;
-  mock_speaker_muted = true;  // system mute / Quiet Time wins
+  mock_speaker_muted = true;  // system mute wins
   crt_wake_by_shake();
   crt_update_proc(NULL, s_fake_ctx);
   TEST_ASSERT_EQUAL_INT(0, mock_speaker_play_tracks_count);
@@ -6609,6 +6609,18 @@ void test_chime_mute_should_not_consume_the_hour_marker(void) {
   TEST_ASSERT_EQUAL_INT(1, mock_speaker_tone_count);
 }
 
+void test_chime_quiet_time_should_not_consume_the_hour_marker(void) {
+  s_settings_chime_volume = 5;
+  struct tm t = {0};
+  t.tm_hour = 5;
+  s_quiet_time_active = true;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(0, mock_speaker_tone_count);
+  s_quiet_time_active = false;
+  chime_on_tick(&t);
+  TEST_ASSERT_EQUAL_INT(1, mock_speaker_tone_count);
+}
+
 // -----------------------------------------------------------------------------
 // Lifecycle
 // -----------------------------------------------------------------------------
@@ -7190,6 +7202,7 @@ int main(void) {
   RUN_TEST(test_chime_should_stay_silent_at_volume_zero);
   RUN_TEST(test_chime_should_not_repeat_in_a_replayed_wall_hour);
   RUN_TEST(test_chime_mute_should_not_consume_the_hour_marker);
+  RUN_TEST(test_chime_quiet_time_should_not_consume_the_hour_marker);
   RUN_TEST(test_refresh_state_should_format_the_clock_after_window_unload);
   RUN_TEST(test_canvas_should_draw_the_clock_centred_in_primary_ink);
   RUN_TEST(test_minute_change_should_trip_the_render_gate);

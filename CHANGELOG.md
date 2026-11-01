@@ -6,6 +6,13 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The hourly chime sounded during Quiet Time. It asked only
+  `speaker_is_muted()`, which the firmware ties to Quiet Time solely when the
+  Do-Not-Disturb mute-speaker preference is set — off by default — so the
+  beep now also stays silent whenever Quiet Time is active.
+
 ## [1.14.0] - 2026-10-28
 
 ### Changed

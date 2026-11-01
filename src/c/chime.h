@@ -9,8 +9,11 @@
 #define CHIME_DURATION_MS 500
 
 // The gate, kept pure so the host suite can assert every combination without
-// a speaker: full-hour minute and an audible volume. Mute (system mute and Quiet
-// Time) is asked of speaker_is_muted() only once this passes.
+// a speaker: full-hour minute and an audible volume. Only once this passes does
+// chime_on_tick apply the silences: Quiet Time (s_quiet_time_active) and the
+// speaker-mute preference. Quiet Time is not left to speaker_is_muted(): the
+// firmware folds it in only when the DND mute-speaker preference is set, which
+// it is not by default.
 bool chime_is_due(int minute, int volume);
 
 // Settings arrive as arbitrary ints; clamp to [0, 100] so an off-wire value
