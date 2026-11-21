@@ -8,6 +8,8 @@ All notable changes to Nostalgic Commander. Format follows
 
 ### Fixed
 
+- The phone side declares its location and Open-Meteo Internet permissions for
+  SDK 4.44's manifest v2.
 - Clear weather reads `CLR` after sunset at the weather location (was `SUN`).
 - The hourly chime sounded during Quiet Time. It asked only
   `speaker_is_muted()`, which the firmware ties to Quiet Time solely when the

@@ -15,6 +15,18 @@
     "uuid": "6fb9f373-9b0e-4e4c-bd23-6f7235486462",
     "sdkVersion": "3",
     "enableMultiJS": true,
+    "usesPermissions": [
+      "Location",
+      {
+        "name": "Internet",
+        "parameters": {
+          "domains": [
+            "air-quality-api.open-meteo.com",
+            "api.open-meteo.com"
+          ]
+        }
+      }
+    ],
     "targetPlatforms": [
       "emery"
     ],
