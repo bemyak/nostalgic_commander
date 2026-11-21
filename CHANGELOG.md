@@ -6,6 +6,14 @@ All notable changes to Nostalgic Commander. Format follows
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-11-21
+
+### Fixed
+
+- Declare userPermissions so that network connection works again
+
+## [1.14.1] - 2026-11-21
+
 ### Fixed
 
 - The phone side declares its location and Open-Meteo Internet permissions for
