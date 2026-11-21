@@ -1885,6 +1885,27 @@ void test_wmo_cond_should_map_words_and_the_precipitation_facet(void) {
   }
 }
 
+void test_wmo_clear_sky_should_read_clear_only_after_sunset_at_a_known_location(void) {
+  s_latitude = 6017;
+  s_longitude = 2494;
+  s_solar_elevation = -84;
+  TEST_ASSERT_EQUAL_STRING("CLR", weather_cond_word(0));
+
+  s_solar_elevation = -83;
+  TEST_ASSERT_EQUAL_STRING("SUN", weather_cond_word(0));
+
+  s_latitude = LATITUDE_NONE;
+  s_solar_elevation = -84;
+  TEST_ASSERT_EQUAL_STRING("SUN", weather_cond_word(0));
+  s_longitude = LONGITUDE_NONE;
+  TEST_ASSERT_EQUAL_STRING("SUN", weather_cond_word(0));
+  s_latitude = 6017;
+  TEST_ASSERT_EQUAL_STRING("SUN", weather_cond_word(0));
+
+  s_longitude = 2494;
+  TEST_ASSERT_EQUAL_STRING("RAIN", weather_cond_word(61));
+}
+
 void test_precip_amount_mode_should_gate_on_units_family_and_data(void) {
   s_settings_units = 1;
   s_precip_now = 25;
@@ -6942,6 +6963,7 @@ int main(void) {
   RUN_TEST(test_strip_temp_formatter_should_always_carry_the_unit_letter);
   RUN_TEST(test_get_source_data_should_format_pcp);
   RUN_TEST(test_wmo_cond_should_map_words_and_the_precipitation_facet);
+  RUN_TEST(test_wmo_clear_sky_should_read_clear_only_after_sunset_at_a_known_location);
   RUN_TEST(test_precip_amount_mode_should_gate_on_units_family_and_data);
   RUN_TEST(test_weather_cond_formatter_should_render_the_word_or_dashes);
   RUN_TEST(test_get_source_data_should_format_high_low);

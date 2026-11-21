@@ -1,5 +1,6 @@
 #include <pebble.h>
 #include "data.h"
+#include "theme.h"
 
 // All state lives here, sectioned. Everything is extern'd via data.h; tests
 // reset to these initials (the weather block via the messaging table).
@@ -115,6 +116,7 @@ static const WmoCond* wmo_cond(int code) {
 }
 
 const char* weather_cond_word(int code) {
+  if (code == 0 && location_known() && s_solar_elevation < SUNSET_ELEVATION) return "CLR";
   const WmoCond* cond = wmo_cond(code);
   return cond ? cond->word : "--";
 }
